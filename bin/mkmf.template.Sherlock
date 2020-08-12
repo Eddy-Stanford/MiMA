@@ -1,0 +1,85 @@
+# MiMA template for the Intel fortran compiler version 8
+# Platform: SRCC Sherlock copied from Stanford Earth, Mazama HPC (copied from .nyu template)
+#
+# TODO: use nf-config (fortran) and nc-config (c) to get the netcdf configurations for compilation aka,:
+# can we get the MPI flags from a config?
+# FFLAGS = ${DEBUG} `nf-config --fflags` `nc-config --fflags` -I${MPI_DIR}/include
+#
+# NOTE: we can execute shell-type commands like:
+#  #   $ NETCDF_INC := $(SHELL nc-config --fflags)
+#  ... at lest when this was done in cshell, which
+#  Sherlock does not support...
+#
+# yoder:
+# variables we will need:
+# NOTES: Windows uses INCLUDE; *nix uses: CPATH (C/C++), C_INCLUDE_PATH (C),
+#   and/or CPLUS_INCLUDE_PATH. usually just CPATH.
+# NETCDF_INC set by module script (as well as _DIR, _LIB, _BIN variables.)
+# INCLUDE, PATH, and LD_LIBRARY_PATH vars are also prepended in module libs.
+#NETCDF_INC=
+# _LIB is set, but the way everybody else uses it:
+#
+#CPATH=${INCLUDE}:${MPI_DIR}/include:CPATH
+#
+# yoder:
+#
+# note that our NetCDF-c and NetCDF-fortran paths are separate.
+# it is possible that NetCDF things can get confused if thety expect NetCDF-C
+#   and NetCDF-Fortran components to be in the same place. appending to PATH,
+#   INCLUDE/CPATH, and LD_LIBRARY_PATH should handle those problems. Otherwise,
+#   add NETCDF_DIR, NETCDF_FORTRAN_LIB, NETCDF_FORTRAN_INC (set in the
+#   netcdf-fortran module script) as needed.
+#
+# typical use with mkmf
+# mkmf -t template.ifc -c"-Duse_libMPI -Duse_netCDF" path_names /usr/local/include
+# yoder:
+# TODO: I think the dynamic parts of the ${MIMA_CONFIG_FFLGS} (etc). result in odd strings that break the compile, maybe introduce
+#  CR/LF  or something. seems to work if we just write out the strings; we should revisit the dynamic constructions.
+# TODO: best way to get the best FFLAGS??
+#
+#FFLAGS = ${DEBUG} -fpp -stack_temps -safe_cray_ptr -ftz -assume byterecl -i4 -r8 -g ${MIMA_CONFIG_FFLAGS}
+
+#FFLAGS = ${DEBUG} -fpp -stack_temps -safe_cray_ptr -ftz -assume byterecl -i4 -r8 -g -I${NETCDF_DIR}/include -I${NETCDF_FORTRAN_DIR}/include -I${NETCDF_DIR}/lib -I${NETCDF_FORTRAN_DIR}/lib -I${HDF5_DIR}/include -I${HDF5_DIR}/lib -I${MPI_DIR}/include -I${MPI_DIR}/lib -I${NETCDF_FORTRAN_LIB}
+DEBUG = -g -traceback -O2
+FFLAGS = ${DEBUG} -heap-arrays -fpp -stack_temps -safe_cray_ptr -ftz -assume byterecl -i4 -r8 -I${NETCDF_DIR}/include -I${NETCDF_FORTRAN_DIR}/include -I${NETCDF_DIR}/lib -I${NETCDF_FORTRAN_DIR}/lib -I${HDF5_DIR}/include -I${HDF5_DIR}/lib -I${MPI_DIR}/include -I${MPI_DIR}/lib -I${NETCDF_FORTRAN_LIB}
+#
+#
+# TODO: figure out how to set these flags...
+OPT = -O2 -xSSE4.2 -axAVX
+OPT = -O2
+#OPT = -O1 
+#OPT = -O0
+#
+FFLAGS += ${OPT}
+#
+# yoder:
+# TODO: move these nc/pkg-config sub-scripts up and export into variables, so the following line(s) are not
+#  changed; all the changing happens up top (so like MPI_CFLAGS=`pkg-config --cflags ompi` )
+#CPPFLAGS=-I/usr/include -I/usr/local/include ${MIMA_CONFIG_CFLAGS}
+CPPFLAGS=-I/usr/include -I/usr/local/include -I${NETCDF_DIR}/include -I${NETCDF_FORTRAN_DIR}/include -I${HDF5_DIR}/include -I${HDF5_DIR}/lib -I${MPI_DIR}/include
+#
+#CC=icc
+#FC=ifort
+#LD=ifort
+#CXX=icpc
+CC=icc
+FC=ifort
+LD=ifort
+CXX=icpc
+#
+# MPI compilers:
+MPICC=mpiicc
+MPIFC=mpiifort
+MPILD=mpiifort
+MPICXX=mpiicpc
+
+#LDFLAGS = -shared-intel -L/usr/local/lib -L${NETCDF_DIR}/lib
+# yoder:
+LDFLAGS = -shared-intel -L/usr/local/lib -L${NETCDF_DIR}/lib -L${NETCDF_FORTRAN_DIR}/lib -L${HDF5_DIR}/lib -L${MPI_DIR}/lib -lnetcdf -lnetcdff -lmpifort
+#
+#
+# NOTE: When we try to set LDFLAGS from the below variabe, we get some sort of nensense, probably similar to issues with dynimically setting
+#   CPPFLAGS, etc. so for now, let's just hand-code these variables.
+#LDFLAGS = ${MIMA_CONFIG_LDFLAGS}
+#
+CFLAGS = -D__IFC

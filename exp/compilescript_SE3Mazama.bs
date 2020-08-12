@@ -1,0 +1,136 @@
+#!/bin/bash
+#SBATCH -n 24
+#SBATCH -o mima_compile.out
+#SBATCH -e mima_compile.err
+#
+#Minimal runscript for atmospheric dynamical cores
+# Compile script for MiMA... or a template for it at least. For more information, see docs, etc. on GitHub:
+# JeffersonScientific fork (may include some site-specific tweaks):
+# https://github.com/jeffersonscientific/MiMA
+# or the original, parent repo:
+# https://github.com/mjucker/MiMA
+#
+# NOTE: this script has an openmpi-only (ish) componenent -- namely a call to pkg-config. Likely a similar call is
+#  available for mpich3, but I think impi does not typically provide pkg-config.
+#
+# Mazama:
+# from prefix: /opt/ohpc/pub/moduledeps/intel
+#
+# get proper compiler (intel), mpi environment:
+module purge
+module unuse /usr/local/modulefiles
+#
+#module load intel
+module load intel/19 #.1.0.166
+#
+#module load mvapich2/2.3.2
+module load openmpi_3/ #3.1.4
+#
+module load netcdf/4.7.1
+module load netcdf-fortran/4.5.2
+#module load netcdf-cxx/4.3.1
+#module load pnetcdf/1.12.0
+#
+# modules will add to an $INCLUDE variable, but we need to set that for the system...
+#
+export CPATH=${INCLUDE}:${CPATH}
+CC_SPP=${CC}
+#
+# openmpi3:
+# pnetcdf-config --fflags; pnetcdf-config --fcflags;
+# TODO: Rememer hierarchy of nf-config and nc-config comands (aka, i think --fflags contains --cflags, so nf-conngif --fflags has all
+#  the neessary fortran and c flags. what about c++?
+export MIMA_CONFIG_FFLAGS="`nf-config --cflags` `pkg-config --cflags ompi-fort` -I${HDF5_INC} -I${HDF5_LIB} -I${NETCDF_FORTRAN_LIB} -I${NETCDF_LIB} "
+#$ pnetcdf-config --cflags ompi; pnetcdf-config --cflags; pkg-config --cflags ompi-fort;
+export MIMA_CONFIG_CFLAGS="`nc-config --cflags` `pkg-config --cflags ompi` "
+# x; ncxx4-config --libs; pnetcdf-config --ldflags; pnetcdf-config --libs
+export MIMA_CONFIG_LDFLAGS=" -shared-intel `nf-config --flibs` `pkg-config --libs ompi-fort` "
+echo "*** ** *** ldflags: ${MIMA_CONFIG_LDFLAGS}"
+#
+# TODO: in the template, LDPATH should be getting export to MIMA_CONFIG_LDFLAGS, but it appears that it is not. It is, in fact, the very final compile step
+#
+cwd=`pwd`
+#
+echo "MIMA_CONFIG_FFLAGS: ${MIMA_CONFIG_FFLAGS}"
+echo "MIMA_CONFIG_CFLAGS: ${MIMA_CONFIG_CFLAGS}"
+echo "MIMA_CONFIG_LDFLAGS: ${MIMA_CONFIG_LDFLAGS}"
+#
+# get number of processors. If running on SLURM, get the number of tasks.
+if [[ -z ${SLURM_NTASKS} ]]; then
+    MIMA_NPES=8
+else
+    MIMA_NPES=${SLURM_NTASKS}
+fi
+
+echo "Compile on N=${MIMA_NPES} process"
+#
+#--------------------------------------------------------------------------------------------------------
+# define variables
+platform="SE3Mazama"
+#template="`cd ../bin;pwd`/mkmf.template.$platform"    # path to template for your platform
+template="`pwd`/mkmf.template.$platform"    # path to template for your platform
+mkmf="`cd ../bin;pwd`/mkmf"                           # path to executable mkmf
+sourcedir="`cd ../src;pwd`"                           # path to directory containing model source code
+mppnccombine="`cd ../bin;pwd`/mppnccombine.$platform" # path to executable mppnccombine
+#--------------------------------------------------------------------------------------------------------
+execdir="${cwd}/exec.$platform"       # where code is compiled and executable is created
+workdir="${cwd}/workdir"              # where model is run and model output is produced
+pathnames="${cwd}/path_names"           # path to file containing list of source paths
+namelist="${cwd}/namelists"            # path to namelist file
+diagtable="${cwd}/diag_table"           # path to diagnositics table
+fieldtable="${cwd}/field_table"         # path to field table (specifies tracers)
+#--------------------------------------------------------------------------------------------------------
+#
+echo "**"
+echo "*** compile step..."
+# compile mppnccombine.c, will be used only if $npes > 1
+rm ${mppnccombine}
+if [[ ! -f "${mppnccombine}" ]]; then
+  #icc -O -o $mppnccombine -I$NETCDF_INC -L$NETCDF_LIB ${cwd}/../postprocessing/mppnccombine.c -lnetcdf
+  # NOTE: this can be problematic if the SPP and MPI CC compilers get mixed up. this program often requires the spp compiler.
+   ${CC_SPP} -O -o ${mppnccombine} -I${NETCDF_INC} -I${NETCDF_FORTRAN_INC} -I{HDF5_INC} -L${NETCDF_LIB} -L${NETCDF_FORTRAN_LIB} -L{HDF5_LIB}  -lnetcdf -lnetcdff ${cwd}/../postprocessing/mppnccombine.c
+else
+    echo "${mppnccombine} exists?"
+fi
+#--------------------------------------------------------------------------------------------------------
+
+echo "*** set up directory structure..."
+# note though, we really have no busines doing anything with $workdir here, but we'll leave it to be consistent with
+#  documentation.
+# setup directory structure
+# yoder: just brute force these. If the files/directories, exist, nuke them...
+if [[ -d ${execdir} ]]; then rm -rf ${execdir}; fi
+if [[ ! -d "${execdir}" ]]; then mkdir ${execdir}; fi
+#
+if [[ -e "${workdir}" ]]; then
+  #echo "ERROR: Existing workdir may contaminate run. Move or remove $workdir and try again."
+  #exit 1
+  rm -rf ${workdir}
+  mkdir ${workdir}
+fi
+#--------------------------------------------------------------------------------------------------------
+echo "**"
+echo "*** compile the model code and create executable"
+
+# compile the model code and create executable
+cd ${execdir}
+#echo "pwd: " `pwd`
+#exit 1
+
+#export cppDefs="-Duse_libMPI -Duse_netCDF"
+cppDefs="-Duse_libMPI -Duse_netCDF -DgFortran"
+#
+# NOTE: not sure how much of this we still need for mkmf, but this does work...
+${mkmf} -p mima.x -t $template -c "${cppDefs}" -a $sourcedir $pathnames ${NETCDF_INC} ${NETCDF_LIB} ${NETCDF_FORTRAN_INC} ${NETCDF_FORTRAN_LIB} ${HDF5_INC} ${HDF5_LIB} ${MPI_DIR}/include ${MPI_DIR}/lib $sourcedir/shared/mpp/include $sourcedir/shared/include
+# /usr/local/include
+i#
+#exit 1
+#
+
+make clean
+#
+#exit 1
+echo "*** do live compile... (`pwd`)"
+make -f Makefile -j${MIMA_NPES}
+
+
