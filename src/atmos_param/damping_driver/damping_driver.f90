@@ -20,6 +20,7 @@ module damping_driver_mod
 
  use      mg_drag_mod, only:  mg_drag, mg_drag_init, mg_drag_end
  use      cg_drag_mod, only:  cg_drag_init, cg_drag_calc, cg_drag_end
+ use      dd_drag_mod, only:  const_dd_drag_calc
  use    topo_drag_mod, only:  topo_drag_init, topo_drag, topo_drag_end
  use          fms_mod, only:  file_exist, mpp_pe, mpp_root_pe, stdlog, &
                               write_version_number, &
@@ -59,7 +60,7 @@ module damping_driver_mod
                                   do_rayleigh, sponge_pbottom,  & ! mj
                                   do_cg_drag, do_topo_drag, &
                                   do_mg_drag, do_conserve_energy, &
-                                  do_const_drag, const_drag_amp,const_drag_off    !mj
+                                  do_const_drag, do_const_dd_drag, const_drag_amp,const_drag_off
 
 !
 !   trayfric = damping time in seconds for rayleigh damping momentum
@@ -246,7 +247,11 @@ contains
 
    endif
 
-!   Alexander-Dunkerton gravity wave drag
+!   
+!-----------------------------------------------------------------------
+!-----------------------------------------------------------------------
+!--------- Alexander-Dunkerton gravity wave d r a g -------------------
+!-----------------------------------------------------------------------
 
    if (do_cg_drag) then
 !mj updating call to riga version of cg_drag
@@ -265,7 +270,10 @@ contains
 
    endif
 
-! constant drag, modeled on Alexander-Dunkerton winter average
+!-----------------------------------------------------------------------
+!-----------------------------------------------------------------------
+!--------- Constant Drag: Alexander-Dunkerton Winter Average ----------
+!-----------------------------------------------------------------------
    if (do_const_drag) then
       ! get time of the year for seasonal cycle
       call get_time(length_of_year(),seconds,daysperyear)
@@ -294,6 +302,29 @@ contains
      endif
    endif
 
+!-----------------------------------------------------------------------
+!-----------------------------------------------------------------------
+!--------- Data-Drive Scheme Emulating Constant Drag -------------------
+!-----------------------------------------------------------------------
+    if (do_const_dd_drag) then
+      call const_dd_drag_calc(is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)  
+      udt = udt + utnd
+      vdt = vdt + vtnd
+
+    !----- diagnostics -----
+        !--Record udt--
+         if ( id_udt_cnstd > 0 ) then
+            used = send_data ( id_udt_cnstd, utnd, Time, is, js, 1, &
+                              rmask=mask )
+         endif
+        !--Record vdt--
+        if ( id_vdt_topo > 0 ) then
+             used = send_data ( id_vdt_topo, vtnd, Time, is, js, 1, &
+                             rmask=mask )
+       endif
+
+   endif
+   
 !-----------------------------------------------------------------------
 !---------topographic   w a v e   d r a g -------------------
 !-----------------------------------------------------------------------
