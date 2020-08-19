@@ -20,7 +20,7 @@ module damping_driver_mod
 
  use      mg_drag_mod, only:  mg_drag, mg_drag_init, mg_drag_end
  use      cg_drag_mod, only:  cg_drag_init, cg_drag_calc, cg_drag_end
- use      dd_drag_mod, only:  const_dd_drag_calc
+ !use      dd_drag_mod, only:  const_dd_drag_calc
  use    topo_drag_mod, only:  topo_drag_init, topo_drag, topo_drag_end
  use          fms_mod, only:  file_exist, mpp_pe, mpp_root_pe, stdlog, &
                               write_version_number, &
@@ -52,6 +52,7 @@ module damping_driver_mod
    logical  :: do_cg_drag = .false.
    logical  :: do_topo_drag = .false.
    logical  :: do_const_drag = .false.
+   logical  :: do_const_dd_drag = .false.
    real     :: const_drag_amp = 3.e-04
    real     :: const_drag_off = 0.
    logical  :: do_conserve_energy = .false.
@@ -306,24 +307,23 @@ contains
 !-----------------------------------------------------------------------
 !--------- Data-Drive Scheme Emulating Constant Drag -------------------
 !-----------------------------------------------------------------------
-    if (do_const_dd_drag) then
-      call const_dd_drag_calc(is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)  
-      udt = udt + utnd
-      vdt = vdt + vtnd
+!    if (do_const_dd_drag) then
+!      call const_dd_drag_calc(is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)  
+!      udt = udt + utnd
+!      vdt = vdt + vtnd
 
     !----- diagnostics -----
         !--Record udt--
-         if ( id_udt_cnstd > 0 ) then
-            used = send_data ( id_udt_cnstd, utnd, Time, is, js, 1, &
-                              rmask=mask )
-         endif
-        !--Record vdt--
-        if ( id_vdt_topo > 0 ) then
-             used = send_data ( id_vdt_topo, vtnd, Time, is, js, 1, &
-                             rmask=mask )
-       endif
-
-   endif
+!         if ( id_udt_cnstd > 0 ) then
+!            used = send_data ( id_udt_cnstd, utnd, Time, is, js, 1, &
+!                              rmask=mask )
+!         endif
+!        !--Record vdt--
+!        if ( id_vdt_topo > 0 ) then
+!             used = send_data ( id_vdt_topo, vtnd, Time, is, js, 1, &
+!                             rmask=mask )
+!       endif
+!  endif
    
 !-----------------------------------------------------------------------
 !---------topographic   w a v e   d r a g -------------------

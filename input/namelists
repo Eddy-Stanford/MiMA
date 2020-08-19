@@ -92,9 +92,9 @@
      trayfric      = -0.5,
      sponge_pbottom=  50.,
      do_conserve_energy = .true.,
-     do_cg_drag    = .false., 
+     do_cg_drag    = .true., 
      do_const_drag = .false.,
-     do_const_dd_drag = .true.,
+     do_const_dd_drag = .false.,
      do_mg_drag = .false./
 
 &topography_nml

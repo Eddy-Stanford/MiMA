@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -n 24
-#SBATCH -o mima_compile.out
-#SBATCH -e mima_compile.err
+#SBATCH -o mima_compile_4.out
+#SBATCH -e mima_compile_4.err
 #
 #Minimal runscript for atmospheric dynamical cores
 # Compile script for MiMA... or a template for it at least. For more information, see docs, etc. on GitHub:
@@ -44,7 +44,14 @@ export MIMA_CONFIG_FFLAGS="`nf-config --cflags` `pkg-config --cflags ompi-fort` 
 #$ pnetcdf-config --cflags ompi; pnetcdf-config --cflags; pkg-config --cflags ompi-fort;
 export MIMA_CONFIG_CFLAGS="`nc-config --cflags` `pkg-config --cflags ompi` "
 # x; ncxx4-config --libs; pnetcdf-config --ldflags; pnetcdf-config --libs
-export MIMA_CONFIG_LDFLAGS=" -shared-intel `nf-config --flibs` `pkg-config --libs ompi-fort` "
+
+#export MIMA_CONFIG_LDFLAGS=" -shared-intel `nf-config --flibs` `pkg-config --libs ompi-fort python3-config --ldflags`"
+#export MIMA_CONFIG_LDFLAGS=" -shared-intel `nf-config --flibs` `pkg-config --libs ompi-fort` `python3-config --ldflags`"
+#export MIMA_CONFIG_LDFLAGS=" python3-config --ldflags -shared-intel `nf-config --flibs` `pkg-config --libs ompi-fort`"
+#export MIMA_CONFIG_LDFLAGS=" -shared-intel `python3-config --ldflags` `nf-config --flibs` `pkg-config --libs ompi-fort`"
+export MIMA_CONFIG_LDFLAGS=" -shared-intel `python3-config nf-config --flibs` `pkg-config --libs ompi-fort`"
+
+
 echo "*** ** *** ldflags: ${MIMA_CONFIG_LDFLAGS}"
 #
 # TODO: in the template, LDPATH should be getting export to MIMA_CONFIG_LDFLAGS, but it appears that it is not. It is, in fact, the very final compile step
