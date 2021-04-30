@@ -1,8 +1,11 @@
 &coupler_nml
-   days   = 360,
+   months =1200,
    dt_atmos =500,
    current_date = 0001,1,1,0,0,0
    calendar = 'thirty_day' /
+
+&diag_manager_nml
+    init_verbose=.true. / 
 
 # Note: damping_order = 4 specifies del 8'th diffusion
  &spectral_dynamics_nml
@@ -101,9 +104,9 @@
      trayfric      = -0.5,
      sponge_pbottom=  50.,
      do_conserve_energy = .true.,
-     do_cg_drag    = .true., 
+     do_dd_drag    = .true.,
+     do_cg_drag    = .false., 
      do_const_drag = .false.,
-     do_const_dd_drag = .false.,
      do_mg_drag = .false./
 
 &topography_nml

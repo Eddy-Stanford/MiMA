@@ -9,9 +9,12 @@
  "dynamics",        "pk",         "pk",             "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "ps",         "ps",             "atmos_daily",    "all", .false., "none", 2,
 # dynamics variables
+ "damping",         "udt_dd_gwd", "udt_dd_gwd",     "atmos_daily",    "all", .false., "none", 2,
+ "damping",         "vdt_dd_gwd", "vdt_dd_gwd",     "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "ucomp",      "ucomp",          "atmos_daily",    "all", .false., "none", 2,
+ "dynamics",        "vcomp",      "vcomp",          "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "temp",       "temp",           "atmos_daily",    "all", .false., "none", 2,
- "dynamics",        "sphum",      "sphum",          "atmos_daily",    "all", .false.,  "none", 2,
+ "dynamics",        "sphum",      "sphum",          "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "ucomp",      "ucomp",          "atmos_avg",      "all", .true.,  "none", 2,
  "dynamics",        "vcomp",      "vcomp",          "atmos_avg",      "all", .true.,  "none", 2,
  "dynamics",        "temp",       "temp",           "atmos_avg",      "all", .true.,  "none", 2,

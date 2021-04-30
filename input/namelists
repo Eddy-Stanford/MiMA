@@ -1,5 +1,5 @@
  &coupler_nml
-   days   = 360,
+   days   = 15,
    dt_atmos = 600,
    current_date = 0001,1,1,0,0,0
    calendar = 'thirty_day' /
@@ -92,9 +92,9 @@
      trayfric      = -0.5,
      sponge_pbottom=  50.,
      do_conserve_energy = .true.,
-     do_cg_drag    = .true., 
+     do_dd_drag    = .true.,
+     do_cg_drag    = .false., 
      do_const_drag = .false.,
-     do_const_dd_drag = .false.,
      do_mg_drag = .false./
 
 &topography_nml

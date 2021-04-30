@@ -20,7 +20,7 @@ module damping_driver_mod
 
  use      mg_drag_mod, only:  mg_drag, mg_drag_init, mg_drag_end
  use      cg_drag_mod, only:  cg_drag_init, cg_drag_calc, cg_drag_end
- !use      dd_drag_mod, only:  const_dd_drag_calc
+ use      dd_drag_mod, only:  dd_drag_init, dd_drag_calc, dd_drag_end
  use    topo_drag_mod, only:  topo_drag_init, topo_drag, topo_drag_end
  use          fms_mod, only:  file_exist, mpp_pe, mpp_root_pe, stdlog, &
                               write_version_number, &
@@ -31,6 +31,8 @@ module damping_driver_mod
                               register_static_field, send_data
  use time_manager_mod, only:  time_type,get_time,length_of_year !mj
  use    constants_mod, only:  cp_air, grav, PI
+ use  iso_fortran_env, only:  real64
+ use  forpy_mod
 
  implicit none
  private
@@ -52,7 +54,7 @@ module damping_driver_mod
    logical  :: do_cg_drag = .false.
    logical  :: do_topo_drag = .false.
    logical  :: do_const_drag = .false.
-   logical  :: do_const_dd_drag = .false.
+   logical  :: do_dd_drag = .false.
    real     :: const_drag_amp = 3.e-04
    real     :: const_drag_off = 0.
    logical  :: do_conserve_energy = .false.
@@ -61,7 +63,7 @@ module damping_driver_mod
                                   do_rayleigh, sponge_pbottom,  & ! mj
                                   do_cg_drag, do_topo_drag, &
                                   do_mg_drag, do_conserve_energy, &
-                                  do_const_drag, do_const_dd_drag, const_drag_amp,const_drag_off
+                                  do_const_drag, do_dd_drag, const_drag_amp,const_drag_off
 
 !
 !   trayfric = damping time in seconds for rayleigh damping momentum
@@ -79,6 +81,7 @@ module damping_driver_mod
 
 integer :: id_udt_rdamp,  id_vdt_rdamp,   &
            id_udt_gwd,    id_vdt_gwd,     &
+           id_udt_dd_gwd, id_vdt_dd_gwd,  &
                           id_sgsmtn,      &
            id_udt_cgwd,   id_taus,        &
            id_udt_cnstd                 !mj
@@ -111,6 +114,12 @@ character(len=7) :: mod_name = 'damping'
 
 !mj cg_drag alarm
  integer :: Time_lastcall,dt_integer,days,seconds
+
+! TEMPORARY TESTS
+type(list) :: paths
+integer :: ierror
+type(module_py) :: wavenet
+
 !-----------------------------------------------------------------------
 
 contains
@@ -259,6 +268,7 @@ contains
       !call cg_drag_calc (is, js, lat, pfull, zfull, t, u, Time,    &
       !                  delt, utnd)
       call cg_drag_calc (is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)
+      ! ---- Temporary Testing ZE --- 
      udt =  udt + utnd
      vdt =  vdt + vtnd !mj
 
@@ -305,25 +315,25 @@ contains
 
 !-----------------------------------------------------------------------
 !-----------------------------------------------------------------------
-!--------- Data-Drive Scheme Emulating Constant Drag -------------------
+!--------- Data-Drive Drag ---------------------------------------------
 !-----------------------------------------------------------------------
-!    if (do_const_dd_drag) then
-!      call const_dd_drag_calc(is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)  
-!      udt = udt + utnd
-!      vdt = vdt + vtnd
+    if (do_dd_drag) then
+      call dd_drag_calc(is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)  
+      udt = udt + utnd
+      vdt = vdt + vtnd
 
     !----- diagnostics -----
-        !--Record udt--
-!         if ( id_udt_cnstd > 0 ) then
-!            used = send_data ( id_udt_cnstd, utnd, Time, is, js, 1, &
-!                              rmask=mask )
-!         endif
-!        !--Record vdt--
-!        if ( id_vdt_topo > 0 ) then
-!             used = send_data ( id_vdt_topo, vtnd, Time, is, js, 1, &
-!                             rmask=mask )
-!       endif
-!  endif
+        !--Record udt data-driven gwd--
+         if ( id_udt_dd_gwd > 0 ) then
+            used = send_data ( id_udt_dd_gwd, utnd, Time, is, js, 1, &
+                              rmask=mask )
+         endif
+        !--Record vdt data-driven gwd--
+        if ( id_vdt_dd_gwd > 0 ) then
+             used = send_data ( id_vdt_dd_gwd, vtnd, Time, is, js, 1, &
+                             rmask=mask )
+       endif
+  endif
    
 !-----------------------------------------------------------------------
 !---------topographic   w a v e   d r a g -------------------
@@ -445,6 +455,13 @@ contains
    if (do_cg_drag)  then
      call cg_drag_init (lonb, latb, pref, Time=Time, axes=axes)
    endif
+!--------------------------------------------------------------------
+!----- Initialize Data-Driven gravity wave drag scheme -----
+
+   if (do_dd_drag)  then
+      write(*,*) "############ Call dd_drag_init ############"
+     call dd_drag_init () !lonb, latb, pref, Time=Time, axes=axes)
+   endif
 
 !-----------------------------------------------------------------------
 !----- initialize diagnostic fields -----
@@ -471,6 +488,21 @@ if (do_rayleigh) then
                 'Integrated dissipative heating from Rayleigh damping',&
                   'W/m2' )
 endif
+
+
+if (do_dd_drag) then
+
+   id_udt_dd_gwd = &
+   register_diag_field ( mod_name, 'udt_dd_gwd', axes(1:3), Time,        &
+                     'u wind tendency for data-driven gravity wave drag', 'm/s2', &
+                        missing_value=missing_value               )
+
+   id_vdt_dd_gwd = &
+   register_diag_field ( mod_name, 'vdt_dd_gwd', axes(1:3), Time,        &
+                     'v wind tendency for data-driven gravity wave drag', 'm/s2', &
+                        missing_value=missing_value               )
+endif
+
 
 if (do_mg_drag) then
 
@@ -590,10 +622,12 @@ endif
 !#######################################################################
 
  subroutine damping_driver_end
-
+     write(*,*) "############ Call dd_drag_finalize ############"
      if (do_mg_drag) call mg_drag_end
      if (do_cg_drag)   call cg_drag_end
+     if (do_cg_drag)   call dd_drag_end
      if (do_topo_drag) call topo_drag_end
+     if (do_dd_drag) call dd_drag_end
 
      module_is_initialized =.false.
 
