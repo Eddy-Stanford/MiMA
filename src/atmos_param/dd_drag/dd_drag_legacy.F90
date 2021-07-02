@@ -1,5 +1,5 @@
 !   Author: ZE
-!   Date: 6/25/21
+!   Date: 5/20/21
 module dd_drag_mod
     use forpy_mod
     use iso_fortran_env,  only: real64
@@ -88,9 +88,9 @@ subroutine dd_drag_calc (is, js, lat, pfull, zfull, temp, uuu, vvv,  &
     ! Intent Out  
     real,               dimension(:,:,:), intent(out)     :: gwfcng_x, gwfcng_y
     ! Local Variables
-    type(ndarray)                                         :: lat_py, pfull_py, zfull_py, temp_py, uuu_py, vvv_py, gwfu_arr, gwfv_arr
-    type(object)                                          :: gwfuv, gwfu, gwfv
-    type(tuple)                                           :: gwfuv_tu, args
+    type(ndarray)                                         :: lat_py, pfull_py, zfull_py, temp_py, uuu_py, vvv_py, gwfcng_x_py, gwfcng_y_py, gwfu_arr, gwfv_arr
+    type(object)                                          :: gwfu, gwfv
+    type(tuple)                                           :: args
     real(kind=real64),  dimension(:,:,:), pointer         :: matrix_u, matrix_v
         
     !---------------------------------------------------------------------
@@ -103,13 +103,15 @@ subroutine dd_drag_calc (is, js, lat, pfull, zfull, temp, uuu, vvv,  &
     ierror = ndarray_create(temp_py, temp)
     ierror = ndarray_create(uuu_py, uuu)
     ierror = ndarray_create(vvv_py, vvv)
+    ierror = ndarray_create(gwfcng_x_py, gwfcng_x)
+    ierror = ndarray_create(gwfcng_y_py, gwfcng_y)
     if (ierror/=0) then; call err_print; endif
 
     !---------------------------------------------------------------------
     ! Create Python Argument 
     !---------------------------------------------------------------------
     !write(*,*) "############ Create Python Argument ############"
-    ierror = tuple_create(args, 9)
+    ierror = tuple_create(args, 11)
     ierror = args%setitem(0, is)
     ierror = args%setitem(1, js)
     ierror = args%setitem(2, lat_py)
@@ -118,19 +120,18 @@ subroutine dd_drag_calc (is, js, lat, pfull, zfull, temp, uuu, vvv,  &
     ierror = args%setitem(5, temp_py)
     ierror = args%setitem(6, uuu_py)
     ierror = args%setitem(7, vvv_py)
+    !ierror = args%setitem(8, Time)
     ierror = args%setitem(8, delt)
+    ierror = args%setitem(9, gwfcng_x_py)
+    ierror = args%setitem(10, gwfcng_y_py)
     if (ierror/=0) then; call err_print; endif
 
     !---------------------------------------------------------------------
     ! Calculate GWFD
     !---------------------------------------------------------------------
     !write(*,*) "############ Calculate GWFD  ############"
-    ierror = call_py(gwfuv, wavenet, "predict", args)
-    if (ierror/=0) then; call err_print; endif
-    
-    ierror = cast(gwfuv_tu, gwfuv)
-    ierror = gwfuv_tu%getitem(gwfu, 0)
-    ierror = gwfuv_tu%getitem(gwfv, 1)
+    ierror = call_py(gwfu, wavenet, "predict_u", args)
+    ierror = call_py(gwfv, wavenet, "predict_v", args)
     if (ierror/=0) then; call err_print; endif
 
     ierror = cast(gwfu_arr, gwfu)
@@ -154,12 +155,12 @@ subroutine dd_drag_calc (is, js, lat, pfull, zfull, temp, uuu, vvv,  &
     call temp_py%destroy
     call uuu_py%destroy
     call vvv_py%destroy
-    call gwfuv_tu%destroy
+    call gwfcng_x_py%destroy
+    call gwfcng_y_py%destroy
     call gwfu_arr%destroy
     call gwfv_arr%destroy
     call gwfu%destroy
     call gwfv%destroy
-    call gwfuv%destroy
     call args%destroy
 
 end subroutine dd_drag_calc

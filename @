@@ -1,0 +1,26 @@
+-- -*- lua -*-
+-- -- vim:ft=lua:et:ts=4
+--
+load("intel/19.1.0.166")
+load("openmpi3")
+--
+load("netcdf/4.7.1", "netcdf-fortran/4.5.2")
+--module load netcdf-cxx/4.3.1
+--module load pnetcdf/1.12.0
+--
+-- these variables will suppress an MPI related exception, that we probably won't see anyway if we run on infiniband.
+pushenv("OMPI_MCA_mca_base_component_show_load_errors",	"0")
+pushenv("PMIX_MCA_mca_base_component_show_load_errors",	"0")
+--
+--
+--MIMA_DIR = joinPath("scratch", "myoder96", "MiMA")
+MIMA_DIR = pathJoin(os.getenv("SCRATCH"), "MiMA")
+MIMA_PLATFORM="SE3Mazama"
+MIMA_EX=pathJoin(MIMA_DIR, "exp", "exec."..MIMA_PLATFORM)
+--
+pushenv("MIMA_DIR", MIMA_DIR)
+pushenv("MIMA_PLATFORM", MIMA_PLATFORM)
+pushenv("MIMA_CCOMB", pathJoin(MIMA_DIR, "bin", "mppnccombine."..MIMA_PLATFORM))
+prepend_path("PATH", MIMA_DIR)
+prepend_path("PATH", MIMA_EX)
+

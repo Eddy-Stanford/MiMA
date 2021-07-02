@@ -128,13 +128,6 @@ real        :: Bt_eq_width=4.0    ! scaling for width of equtorial momentum flux
 
 real        :: phi0n = 30., phi0s = -30., dphin = 5., dphis = -5.
 
-!add by chaim jan 2017
-real        :: weightminus2=0.  
-
-real        :: weightminus1=0.
-
-real        :: weighttop=1.
-
 real        :: kelvin_kludge=1.
 
 logical     :: calculate_ked=.false. 
@@ -170,7 +163,7 @@ namelist / cg_drag_nml /         &
                           i_coords_gl, j_coords_gl,   &
                           lat_coords_gl, lon_coords_gl, &
                           phi0n,phi0s,dphin,dphis, Bw, Bn, cw, cwtropics, cn, flag, &
-			  weightminus2, weightminus1, weighttop,kelvin_kludge
+			              kelvin_kludge
 
 
 !--------------------------------------------------------------------
@@ -1351,7 +1344,7 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
 	  if ((lat(i+is-1,j+js-1)*pifinv <= dphin) .and. (lat(i+is-1,j+js-1)*pifinv >= dphis)) then
                 cwthis=cwtropics
 		Bnthis=0.
-		flagthis=0
+		flagthis=0.
 		kelvin_kludgethis=kelvin_kludge
     	  else   
                 cwthis=cw
@@ -1390,11 +1383,15 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
               if (c0mu0(n) < 0.0) then
                 B0(n) = -1.0*(Bw*exp(-alog(2.0)*(c/cwthis)**2) +    &
                               Bnthis*exp(-alog(2.0)*(c/cn)**2))
-		B0(n) =B0(n)*kelvin_kludgethis
+                if (kelvin_kludgethis<2.5) then 
+                    B0(n) =B0(n)*kelvin_kludgethis
+                endif  
               else 
                 B0(n) = (Bw*exp(-alog(2.0)*(c/cwthis)**2)  +  &
                          Bnthis*exp(-alog(2.0)*(c/cn)**2))
-		
+                if ((kelvin_kludgethis>2.5) .and. (c0mu0(n)>4.5) .and. (c0mu0(n)<20.5)) then
+                    B0(n) =B0(n)*kelvin_kludgethis
+	            endif	
               endif
               Bsum = Bsum + abs(B0(n))
             endif
