@@ -1,9 +1,9 @@
 
  &coupler_nml
 
-   months   = 360,
+   months   = 1200,
 
-   dt_atmos =600,
+   dt_atmos =500,
 
    current_date = 0001,1,1,0,0,0
 
@@ -89,7 +89,7 @@
 
      h2o_lower_limit        = 2.e-07,
 
-     co2ppmv                = 1200.,
+     co2ppmv                = 390.,
 
      do_read_ozone          = .true.,
 
@@ -184,9 +184,9 @@
 
      do_conserve_energy = .true.,
 
-     do_cg_drag    = .false., 
+     do_cg_drag    = .true., 
 
-     do_dd_drag    = .true., 
+     do_dd_drag    = .false., 
 
      do_mg_drag = .false./
 

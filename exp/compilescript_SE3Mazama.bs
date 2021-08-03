@@ -1,7 +1,9 @@
 #!/bin/bash
 #SBATCH -n 24
-#SBATCH -o mima_compile_9.out
-#SBATCH -e mima_compile_9.err
+#SBATCH --time=6:00:00
+#SBATCH --partition=cees
+#SBATCH -o mima_compile_11.out
+#SBATCH -e mima_compile_11.err
 #
 #Minimal runscript for atmospheric dynamical cores
 # Compile script for MiMA... or a template for it at least. For more information, see docs, etc. on GitHub:

@@ -11,14 +11,14 @@
  "dynamics",        "pk",         "pk",             "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "ps",         "ps",             "atmos_daily",    "all", .false., "none", 2,
 # dynamics variables
-# "cg_drag",         "gwfu_cgwd",  "gwfu_cgwd",      "atmos_daily",    "all", .false., "none", 2.
-# "cg_drag",         "gwfv_cgwd",  "gwfv_cgwd",      "atmos_daily",    "all", .false., "none", 2.
- "damping",         "udt_dd_gwd", "udt_dd_gwd",     "atmos_daily",    "all", .false., "none", 2,
- "damping",         "vdt_dd_gwd", "vdt_dd_gwd",     "atmos_daily",    "all", .false., "none", 2,
+ "cg_drag",         "gwfu_cgwd",  "gwfu_cgwd",      "atmos_daily",    "all", .false., "none", 2.
+ "cg_drag",         "gwfv_cgwd",  "gwfv_cgwd",      "atmos_daily",    "all", .false., "none", 2.
+# "damping",         "udt_dd_gwd", "udt_dd_gwd",     "atmos_daily",    "all", .false., "none", 2,
+# "damping",         "vdt_dd_gwd", "vdt_dd_gwd",     "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "ucomp",      "ucomp",          "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "vcomp",      "vcomp",          "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "omega",      "omega",          "atmos_daily",    "all", .false., "none", 2,
- "dynamics",        "pfull",      "pfull",          "atmos_daily",    "all", .false., "none", 2,
+# "dynamics",        "pfull",      "pfull",          "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "zfull",      "zfull",          "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "slp",        "slp",            "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "temp",       "temp",           "atmos_daily",    "all", .false., "none", 2,
@@ -35,9 +35,6 @@
   "moist",          "precip",     "precip",         "atmos_davg",     "all", .true., "none", 2,
   "moist",          "precip",     "precip_max",     "atmos_dext",     "all", "max",  "none", 2,
 #=============================================================================================
-# cg_drag variables
-# "cg_drag",         "gwfv_cgwd",   "gwfv_cgwd",     "atmos_daily",    "all", .false., "none", 2.
-# "cg_drag",         "gwfu_cgwd",   "gwfu_cgwd",     "atmos_daily",    "all", .false., "none", 2.
 #
 #  FORMATS FOR FILE ENTRIES (not all input values are used)
 #  ------------------------
