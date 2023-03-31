@@ -203,14 +203,14 @@ contains
   !  </TEMPLATE>
   ! </FUNCTION>
   function stdlog()
-    integer :: stdlog,istat
+    integer :: stdlog
     logical :: opened
     character(len=9) :: this_pe
     if( pe.EQ.root_pe )then
        write(this_pe,'(a,i4.4,a)') '.',pe,'.out'
        inquire( file=trim(configfile)//this_pe, opened=opened )
        if( opened )then
-          call FLUSH(log_unit,istat)
+          call FLUSH(log_unit)
        else
           log_unit=get_unit()
           open( unit=log_unit, status='UNKNOWN', file=trim(configfile)//this_pe, position='APPEND', err=10 )
