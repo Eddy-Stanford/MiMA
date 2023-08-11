@@ -1,17 +1,19 @@
-CC="gcc-12"
+CC="gcc"
 MPIFC="mpif90"
 FC="mpifort"
 CXX="mpicxx"
 
-MPI_FFLAGS="$(pkg-config --cflags mpich) -I/opt/homebrew/lib"
-MPI_CFLAGS="$(pkg-config --cflags mpich)"
-MPI_LDFLAGS="$(pkg-config --libs mpich)"
+CORE_LDFLAGS="-L/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/lib -L/opt/homebrew/lib -F/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks"
+
+MPI_FFLAGS="$(pkg-config --cflags mpich) -I/opt/homebrew/lib -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include"
+MPI_CFLAGS="$(pkg-config --cflags mpich) -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include"
+MPI_LDFLAGS="${CORE_LDFLAGS} $(pkg-config --libs mpich) -lmpifort"
 # Config Flags
-MIMA_CONFIG_FFLAGS=" -freal-4-real-8 -g ${MPI_FFLAGS} $(nf-config --fflags) $(nc-config --fflags)  $(nc-config --cflags) -cpp -fallow-invalid-boz -fno-range-check"
-MIMA_CONFIG_CFLAGS=" -g ${MPI_CFLAGS} $(nc-config --cflags) $(nf-config --cflags) "
-MIMA_CONFIG_LDFLAGS="${MPI_LDFLAGS} $(nf-config --flibs) $(nc-config --libs) $(python3-config --ldflags --embed)"
+MIMA_CONFIG_FFLAGS=" -fdefault-real-8 -fdefault-double-8 -g ${MPI_FFLAGS} $(nf-config --fflags) $(nc-config --fflags)  $(nc-config --cflags) -cpp -fcray-pointer -fallow-invalid-boz -fno-range-check -ffree-line-length-none"
+MIMA_CONFIG_CFLAGS=" -g -pthread  ${MPI_CFLAGS} $(nc-config --cflags) $(nf-config --cflags) "
+MIMA_CONFIG_LDFLAGS="${MPI_LDFLAGS} -pthread $(nf-config --flibs) $(nc-config --libs) $(python3-config --ldflags)"
 DEBUG="-g"
-OPT="-O2"
+OPT="-O3"
 
 export FFLAGS="${DEBUG} ${OPT} ${MIMA_CONFIG_FFLAGS} "
 export CFLAGS=${MIMA_CONFIG_CFLAGS}
@@ -39,6 +41,9 @@ if [[ ! -f ${template} ]] ; then touch ${template}; fi
 NETCDF_INC=$(dirname $(brew ls netcdf | grep -m1 "include"))
 NETCDF_FORTRAN_INC=$(dirname $(brew ls netcdf-fortran | grep -m1 "include"))
 HDF5_INC=$(dirname $(brew ls hdf5 | grep -m1 "include"))
+echo $NETCDF_INC
+echo $NETCDF_FORTRAN_INC
+echo $HDF5_INC
 
 NETCDF_LIB="/opt/homebrew/Cellar/netcdf/4.9.2/lib"
 NETCDF_FORTRAN_LIB="/opt/homebrew/Cellar/netcdf-fortran/4.6.0/lib"
@@ -46,13 +51,14 @@ HDF5_LIB="/opt/homebrew/Cellar/hdf5/1.12.2_2/lib"
 
 echo "*** compile step..."
 # compile mppnccombine.c, will be used only if $npes > 1
-if [[ -f "${mppncombine}" ]]; then 
+if [[ -f "${mppnccombine}" ]]; then 
   rm ${mppnccombine}
 fi
 if [[ ! -f "${mppnccombine}" ]]; then
   #icc -O -o $mppnccombine -I$NETCDF_INC -L$NETCDF_LIB ${cwd}/../postprocessing/mppnccombine.c -lnetcdf
   # NOTE: this can be problematic if the SPP and MPI CC compilers get mixed up. this program often requires the spp compiler.
-   ${CC} -O -o ${mppnccombine} -I${NETCDF_INC} -I${NETCDF_FORTRAN_INC} -I${HDF5_INC} -L${NETCDF_LIB} -L${NETCDF_FORTRAN_LIB} -L${HDF5_LIB}  -lnetcdf -lnetcdff ${cwd}/../postprocessing/mppnccombine.c
+   ${CC} -g -o ${mppnccombine} -I/opt/homebrew/include -I${NETCDF_INC} -I${NETCDF_FORTRAN_INC} -I${HDF5_INC} -L${NETCDF_LIB} -L${NETCDF_FORTRAN_LIB} -L${HDF5_LIB}  -lnetcdf -lnetcdff ${cwd}/../postprocessing/mppnccombine.c
+  echo "${mppncombine} compiled"
 else
     echo "${mppnccombine} exists?"
 fi
@@ -61,8 +67,7 @@ if [[ ! $? = 0 ]]; then
     echo "Something Broke! after mppnccombine..."
 fi
 
-
-#--------------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------------
 
 echo "*** set up directory structure..."
 # note though, we really have no busines doing anything with $workdir here, but we'll leave it to be consistent with

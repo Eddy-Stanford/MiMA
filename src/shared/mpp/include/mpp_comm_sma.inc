@@ -138,7 +138,7 @@ subroutine mpp_exit()
              write( stdout(),'(a)' )'   ... see mpp_clock.out.#### for details on individual PEs.'
         write( stdout(),'(/32x,a)' ) '          tmin          tmax          tavg          tstd  tfrac grain pemin pemax'
      end if
-     call FLUSH( stdout(), istat )
+     call FLUSH( stdout())
      call mpp_sync()
      do i = 1,clock_num
         if( .NOT.ANY(peset(clocks(i)%peset_num)%list(:).EQ.pe) )cycle
