@@ -5,7 +5,7 @@ Stage: build
 %files
 ./src /opt/MiMA/src
 ./bin /opt/MiMA/bin
-
+./exp /opt/MiMA/exp
 %post
 ## Set up oneAPI
   apt-get -yqq update  
@@ -47,7 +47,8 @@ Stage: build
  ./configure FC=ifort CC=icx LDFLAGS='-lz' --prefix=/opt/hdf5 --enable-fortran --enable-hl 
  make -j 20 install 
  echo "HDF5 finished building"
-
+ HDF5_INC=/opt/hdf5/include
+ HDF5_LIB=/opt/hdf5/lib
 #*********************
 ## Install NetCDF-C
 #*********************
@@ -66,6 +67,8 @@ Stage: build
 
  LD_LIBRARY_PATH=/opt/netcdf-c/lib:${LD_LIBRARY_PATH}
  PATH=/opt/netcdf-c/bin:${PATH}
+ NETCDF_INC=/opt/netcdf-c/include
+ NETCDF_LIB=/opy/netcdf-c/lib
 
 ## Install netcdf fortran
  LDFLAGS="-L/opt/netcdf-c/lib -lnetcdf"
@@ -85,8 +88,27 @@ Stage: build
 
  LD_LIBRARY_PATH=/opt/netcdf-c/lib:/opt/hdf5/lib:/opt/netcdf-fortran/lib:${LD_LIBRARY_PATH}
  LIBRARY_PATH=${LD_LIBRARY_PATH}
+ NETCDF_FORTRAN_INC=/opt/netcdf-fortran/include
+ NETCDF_FORTRAN_LIB=/opt/netcdf-fortran/lib 
+ ### MIMA BUILD 
+ echo MIMA BUILD
+ mkdir /opt/MiMA/build
+ cd /opt/MiMA/build
+ export cppDefs="-Duse_libMPI -Duse_netCDF -DgFortran"
+ mkmf=/opt/MiMA/bin/mkmf
+ sourcedir=/opt/MiMA/src
+ pathnames=/opt/MiMA/exp/path_names
+
+ ${mkmf} -p mima.x -t "/opt/MiMA/bin/mkmf.template.singularity" -c "${cppDefs}" -a $sourcedir $pathnames ${NETCDF_INC} ${NETCDF_LIB} ${NETCDF_FORTRAN_INC} ${NETCDF_FORTRAN_LIB} ${HDF5_INC} ${HDF5_LIB} $sourcedir/shared/mpp/include $sourcedir/shared/include
+ make -f Makefile clean
+ make -f Makefile 
+
 
 
 %environment
   PATH=/opt/netcdf-fortran/bin:/opt/netcdf-c/bin:/opt/intel/oneapi/mpi/latest/bin:/opt/intel/oneapi/compiler/latest/linux/bin/intel64:${PATH}
   LD_LIBRARY_PATH=/opt/netcdf-c/lib:/opt/hdf5/lib:/opt/netcdf-fortran/lib:/opt/io_libs/lib:${LD_LIBRARY_PATH}
+
+%runscript
+ ulimit -s unlimited
+ /opt/MiMA/build/mima.x
