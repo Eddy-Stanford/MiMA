@@ -184,7 +184,7 @@ contains
 
     subroutine mpp_io_exit(string)
       character(len=*), optional :: string
-      integer :: unit,istat
+      integer :: unit
       logical :: dosync
       
       if( .NOT.module_is_initialized )call mpp_error( FATAL, 'MPP_IO_EXIT: must first call mpp_io_init.' )
@@ -194,7 +194,7 @@ contains
       end if
 !close all open fortran units
       do unit = unit_begin,unit_end
-         if( mpp_file(unit)%opened )call FLUSH(unit,istat)
+         if( mpp_file(unit)%opened )call FLUSH(unit)
       end do
       if( dosync )call mpp_sync()
       do unit = unit_begin,unit_end

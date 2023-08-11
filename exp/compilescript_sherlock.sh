@@ -62,7 +62,7 @@ MIMA_CONFIG_LDFLAGS=" -shared-intel  ${MPI_LDFLAGS} `nf-config --flibs` `nc-conf
 DEBUG=""
 OPT="-O2"
 
-export FFLAGS="${DEBUG} ${OPT} ${MIMA_CONFIG_FFLAGS} "
+export FFLAGS="${DEBUG} ${OPT} ${MIMA_CONFIG_FFLAGS}"
 export CFLAGS=${MIMA_CONFIG_CFLAGS}
 export LDFLAGS=${MIMA_CONFIG_LDFLAGS}
 
@@ -116,50 +116,50 @@ if [[ ! $? = 0 ]]; then
 fi
 #--------------------------------------------------------------------------------------------------------
 
-echo "*** set up directory structure..."
-# note though, we really have no busines doing anything with $workdir here, but we'll leave it to be consistent with
-#  documentation.
-# setup directory structure
-# yoder: just brute force these. If the files/directories, exist, nuke them...
-if [[ -d ${execdir} ]]; then rm -rf ${execdir}; fi
-if [[ ! -d "${execdir}" ]]; then mkdir -p ${execdir}; fi
-#
-if [[ -e "${workdir}" ]]; then
-  #echo "ERROR: Existing workdir may contaminate run. Move or remove $workdir and try again."
-  #exit 1
-  rm -rf ${workdir}
-  mkdir -p ${workdir}
-fi
-#--------------------------------------------------------------------------------------------------------
-echo "**"
-echo "*** compile the model code and create executable"
+# echo "*** set up directory structure..."
+# # note though, we really have no busines doing anything with $workdir here, but we'll leave it to be consistent with
+# #  documentation.
+# # setup directory structure
+# # yoder: just brute force these. If the files/directories, exist, nuke them...
+# if [[ -d ${execdir} ]]; then rm -rf ${execdir}; fi
+# if [[ ! -d "${execdir}" ]]; then mkdir -p ${execdir}; fi
+# #
+# if [[ -e "${workdir}" ]]; then
+#   #echo "ERROR: Existing workdir may contaminate run. Move or remove $workdir and try again."
+#   #exit 1
+#   rm -rf ${workdir}
+#   mkdir -p ${workdir}
+# fi
+# #--------------------------------------------------------------------------------------------------------
+# echo "**"
+# echo "*** compile the model code and create executable"
 
-# compile the model code and create executable
-cd ${execdir}
-if [[ ! $? = 0 ]]; then
-    echo "Something Broke! after execdir..."
-fi
-#
-export cppDefs="-Duse_libMPI -Duse_netCDF -DgFortran"
-#
-# NOTE: not sure how much of this we still need for mkmf, but this does work...
-${mkmf} -p mima.x -t $template -c "${cppDefs}" -a $sourcedir $pathnames ${NETCDF_INC} ${NETCDF_LIB} ${NETCDF_FORTRAN_INC} ${NETCDF_FORTRAN_LIB} ${HDF5_INC} ${HDF5_LIB} ${MPI_DIR}/include ${MPI_DIR}/lib $sourcedir/shared/mpp/include $sourcedir/shared/include
+# # compile the model code and create executable
+# cd ${execdir}
+# if [[ ! $? = 0 ]]; then
+#     echo "Something Broke! after execdir..."
+# fi
+# #
+# export cppDefs="-Duse_libMPI -Duse_netCDF -DgFortran"
+# #
+# # NOTE: not sure how much of this we still need for mkmf, but this does work...
+# ${mkmf} -p mima.x -t $template -c "${cppDefs}" -a $sourcedir $pathnames ${NETCDF_INC} ${NETCDF_LIB} ${NETCDF_FORTRAN_INC} ${NETCDF_FORTRAN_LIB} ${HDF5_INC} ${HDF5_LIB} ${MPI_DIR}/include ${MPI_DIR}/lib $sourcedir/shared/mpp/include $sourcedir/shared/include
 
-echo "Compilers: "
+# echo "Compilers: "
 
-echo "** CC: $CC"
-echo "** CXX: $CXX"
-echo "** FC: $FC"
-echo "** MPICC: $MPICC"
-echo "** MPICXX: $MPICXX"
-echo "** MPIFC: $MPIFC"
+# echo "** CC: $CC"
+# echo "** CXX: $CXX"
+# echo "** FC: $FC"
+# echo "** MPICC: $MPICC"
+# echo "** MPICXX: $MPICXX"
+# echo "** MPIFC: $MPIFC"
 
-make clean
-make -f Makefile -j${MIMA_NPES}
+# make clean
+# make -f Makefile -j${MIMA_NPES}
 
-if [[ ! $? -eq 0 ]]; then
-  echo "*** Error during make."
-fi
-#
-echo "Exiting intentionally after make "
+# if [[ ! $? -eq 0 ]]; then
+#   echo "*** Error during make."
+# fi
+# #
+# echo "Exiting intentionally after make "
 
