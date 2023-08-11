@@ -95,6 +95,9 @@ Stage: build
  mkdir /opt/MiMA/build
  cd /opt/MiMA/build
  export cppDefs="-Duse_libMPI -Duse_netCDF -DgFortran"
+ export FFLAGS="-O2 -i4 -r8 -g `nf-config --fflags` `nc-config --fflags`  `nc-config --cflags` -cpp"
+ export CFLAGS="-g `nc-config --cflags` `nf-config --cflags`"
+ export LDFLAGS="-shared-intel `nf-config --flibs` `nc-config --libs` "
  mkmf=/opt/MiMA/bin/mkmf
  sourcedir=/opt/MiMA/src
  pathnames=/opt/MiMA/exp/path_names
