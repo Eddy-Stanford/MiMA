@@ -6,6 +6,7 @@ Stage: build
 ./src /opt/MiMA/src
 ./bin /opt/MiMA/bin
 ./exp /opt/MiMA/exp
+./postprocessing /opt/MiMA/postprocessing
 
 %post
  HDF5_INC=/opt/hdf5/include
@@ -23,6 +24,11 @@ Stage: build
  mkmf=/opt/MiMA/bin/mkmf
  sourcedir=/opt/MiMA/src
  pathnames=/opt/MiMA/exp/path_names
+ 
+ icx -g -O2 -o mppnccombine.singularity -I/opt/homebrew/include -I${NETCDF_INC} -I${NETCDF_FORTRAN_INC} -I${HDF5_INC} -L${NETCDF_LIB} -L${NETCDF_FORTRAN_LIB} -L${HDF5_LIB}  -lnetcdf -lnetcdff /opt/MiMA/postprocessing/mppnccombine.c
+ echo "mppnccombine.singularity compiled"
+ chmod +x mppnccombine.singularity
+
 
  ${mkmf} -p mima.x -t "/opt/MiMA/bin/mkmf.template.singularity" -c "${cppDefs}" -a $sourcedir $pathnames ${NETCDF_INC} ${NETCDF_LIB} ${NETCDF_FORTRAN_INC} ${NETCDF_FORTRAN_LIB} ${HDF5_INC} ${HDF5_LIB} $sourcedir/shared/mpp/include $sourcedir/shared/include
  make -f Makefile clean
