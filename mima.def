@@ -12,7 +12,7 @@ Stage: build
  HDF5_INC=/opt/hdf5/include
  HDF5_LIB=/opt/hdf5/lib
  NETCDF_INC=/opt/netcdf-c/include
- NETCDF_LIB=/opy/netcdf-c/lib
+ NETCDF_LIB=/opt/netcdf-c/lib
  NETCDF_FORTRAN_INC=/opt/netcdf-fortran/include
  NETCDF_FORTRAN_LIB=/opt/netcdf-fortran/lib 
  mkdir /opt/MiMA/build
