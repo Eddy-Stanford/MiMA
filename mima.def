@@ -1,6 +1,7 @@
-Bootstrap: localimage
-From: builder.sif
+Bootstrap: docker
+From: robcking/eddy-builder
 Stage: build
+
 
 %files
 ./src /opt/MiMA/src
