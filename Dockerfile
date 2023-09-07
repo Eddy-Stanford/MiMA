@@ -16,4 +16,5 @@ RUN /opt/MiMA/bin/mkmf -p mima.x -t "/opt/MiMA/bin/mkmf.template.singularity" -c
 RUN make -f Makefile clean
 RUN make -f Makefile
 RUN chmod +x /opt/MiMA/build/mima.x
-CMD ulimit -s unlimited && /opt/MiMA/build/mima.x
+WORKDIR /root
+CMD ulimit -s unlimited && mpiexec -n 1 /opt/MiMA/build/mima.x
