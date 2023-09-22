@@ -1,4 +1,5 @@
-CC="gcc"
+set -e
+CC="clang"
 MPIFC="mpif90"
 FC="mpifort"
 CXX="mpicxx"
@@ -45,9 +46,9 @@ echo $NETCDF_INC
 echo $NETCDF_FORTRAN_INC
 echo $HDF5_INC
 
-NETCDF_LIB="/opt/homebrew/Cellar/netcdf/4.9.2/lib"
-NETCDF_FORTRAN_LIB="/opt/homebrew/Cellar/netcdf-fortran/4.6.0/lib"
-HDF5_LIB="/opt/homebrew/Cellar/hdf5/1.12.2_2/lib"
+NETCDF_LIB="/opt/homebrew/Cellar/netcdf/4.9.2_1/lib"
+NETCDF_FORTRAN_LIB="/opt/homebrew/Cellar/netcdf-fortran/4.6.1/lib"
+HDF5_LIB="/opt/homebrew/Cellar/hdf5/1.14.2/lib"
 
 echo "*** compile step..."
 # compile mppnccombine.c, will be used only if $npes > 1
