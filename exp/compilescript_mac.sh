@@ -1,5 +1,5 @@
 set -e
-CC="clang"
+CC="mpicc"
 MPIFC="mpif90"
 FC="mpifort"
 CXX="mpicxx"
@@ -10,11 +10,11 @@ MPI_FFLAGS="$(pkg-config --cflags mpich) -I/opt/homebrew/lib -I/Library/Develope
 MPI_CFLAGS="$(pkg-config --cflags mpich) -I/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include"
 MPI_LDFLAGS="${CORE_LDFLAGS} $(pkg-config --libs mpich) -lmpifort"
 # Config Flags
-MIMA_CONFIG_FFLAGS=" -fdefault-real-8 -fdefault-double-8 -g ${MPI_FFLAGS} $(nf-config --fflags) $(nc-config --fflags)  $(nc-config --cflags) -cpp -fcray-pointer -fallow-invalid-boz -fno-range-check -ffree-line-length-none"
+MIMA_CONFIG_FFLAGS="-fallow-argument-mismatch -fdefault-real-8 -fdefault-double-8 -g ${MPI_FFLAGS} $(nf-config --fflags) $(nc-config --fflags)  $(nc-config --cflags) -cpp -fcray-pointer -fallow-invalid-boz -fno-range-check -ffree-line-length-none"
 MIMA_CONFIG_CFLAGS=" -g -pthread  ${MPI_CFLAGS} $(nc-config --cflags) $(nf-config --cflags) "
 MIMA_CONFIG_LDFLAGS="${MPI_LDFLAGS} -pthread $(nf-config --flibs) $(nc-config --libs) $(python3-config --ldflags)"
 DEBUG="-g"
-OPT="-O3"
+OPT="-O2"
 
 export FFLAGS="${DEBUG} ${OPT} ${MIMA_CONFIG_FFLAGS} "
 export CFLAGS=${MIMA_CONFIG_CFLAGS}
@@ -48,7 +48,7 @@ echo $HDF5_INC
 
 NETCDF_LIB="/opt/homebrew/Cellar/netcdf/4.9.2_1/lib"
 NETCDF_FORTRAN_LIB="/opt/homebrew/Cellar/netcdf-fortran/4.6.1/lib"
-HDF5_LIB="/opt/homebrew/Cellar/hdf5/1.14.2/lib"
+HDF5_LIB="/opt/homebrew/Cellar/hdf5/1.14.3_1/lib"
 
 echo "*** compile step..."
 # compile mppnccombine.c, will be used only if $npes > 1
@@ -97,8 +97,8 @@ fi
 export cppDefs="-Duse_libMPI -Duse_netCDF -DgFortran"
 #
 # NOTE: not sure how much of this we still need for mkmf, but this does work...
-MPI_INC="/opt/homebrew/Cellar/mpich/4.1.1/include"
-MPI_LIB="/opt/homebrew/Cellar/mpich/4.1.1/lib"
+MPI_INC="/opt/homebrew/Cellar/mpich/4.2.2/include"
+MPI_LIB="/opt/homebrew/Cellar/mpich/4.2.2/lib"
 
 
 MPICC="mpicc"
