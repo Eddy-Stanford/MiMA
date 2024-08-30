@@ -163,7 +163,7 @@ atmos_param/shallow_conv/null/shallow_conv.f90
 atmos_param/shallow_conv/shallow_conv.f90
 atmos_param/stable_bl_turb/stable_bl_turb.f90
 atmos_param/strat_cloud/strat_cloud.f90
-atmos_param/topo_drag/null/topo_drag.f90
+atmos_param/topo_drag/topo_drag.f90
 atmos_param/vert_diff_driver/vert_diff_driver.f90
 atmos_param/vert_diff/vert_diff.f90
 atmos_param/vert_turb_driver/vert_turb_driver.f90
