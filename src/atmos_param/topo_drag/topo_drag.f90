@@ -8,7 +8,7 @@ module topo_drag_mod
 !  Calculates horizontal velocity tendency due to topographic drag
 !--------------------------------------------------------------------------
 
-  use       Fms_Mod, only: FILE_EXIST, OPEN_NAMELIST_FILE, ERROR_MESG, FATAL, &
+  use       fms_mod, only: FILE_EXIST, OPEN_NAMELIST_FILE, ERROR_MESG, FATAL, &
                            READ_DATA, WRITE_DATA, CLOSE_FILE, mpp_pe, mpp_root_pe, &
                            write_version_number, stdlog
   use Constants_Mod, only: Grav,Cp_Air,Rdgas,Radius,Pi,Radian
