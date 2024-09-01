@@ -46,6 +46,7 @@
   Last Updated: 1/24/03
 */
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -306,19 +307,19 @@ void usage()
 int process_ncinfile(char *ncname, unsigned char appendnc, int outncfid,
                      char *outncname, int *nfiles, unsigned char verbose)
   {
-   struct fileinfo ncinfile;  /* Information about an input netCDF file */
-   int nfiles2;  /* Number of files in the decomposed domain */
-   int d, v, n;  /* Loop variables */
-   int dimid;  /* ID of a dimension */
-   int decomp[4];  /* "domain_decomposition" information */
-   char attname[MAX_NC_NAME];  /* Name of a global or variable attribute */
-   unsigned char ncinfileerror=0;  /* Were there any file errors? */
-
+  struct fileinfo* ncinfile;  /* Information about an input netCDF file */
+  int nfiles2;  /* Number of files in the decomposed domain */
+  int d, v, n;  /* Loop variables */
+  int dimid;  /* ID of a dimension */
+  int decomp[4];  /* "domain_decomposition" information */
+  char attname[MAX_NC_NAME];  /* Name of a global or variable attribute */
+  unsigned char ncinfileerror=0;  /* Were there any file errors? */
+  ncinfile = malloc(sizeof(struct fileinfo));
    /* Open an input netCDF file; return if not openable - possibly IEEE */
-   if ((ncinfile.ncfid=ncopen(ncname,NC_NOWRITE))==(-1)) return(2);
+  if ((ncinfile->ncfid=ncopen(ncname,NC_NOWRITE))==(-1)) return(2); 
 
    /* Determine the number of files in the decomposed domain */
-   if (ncattget(ncinfile.ncfid,NC_GLOBAL,"NumFilesInSet",
+   if (ncattget(ncinfile->ncfid,NC_GLOBAL,"NumFilesInSet",
                 (void *)&nfiles2)==(-1))
      {
       if (*nfiles==1)
@@ -330,61 +331,62 @@ int process_ncinfile(char *ncname, unsigned char appendnc, int outncfid,
         {
          fprintf(stderr,"Warning: missing the \"NumFilesInSet\" global attribute.\n");
         }
+
      }
    *nfiles=nfiles2;
 
    /* Get some general information about the input netCDF file */
-   if (ncinquire(ncinfile.ncfid,&(ncinfile.ndims),&(ncinfile.nvars),
-                 &(ncinfile.ngatts),&(ncinfile.recdim))==(-1))
+   if (ncinquire(ncinfile->ncfid,&(ncinfile->ndims),&(ncinfile->nvars),
+                 &(ncinfile->ngatts),&(ncinfile->recdim))==(-1))
      {
       fprintf(stderr,"Error: cannot read the file's metadata!\n");
-      ncclose(ncinfile.ncfid); return(1);
+      ncclose(ncinfile->ncfid); return(1);
      }
 
    /* Get some information about the dimensions */
-   for (d=0; d < ncinfile.ndims; d++)
+   for (d=0; d < ncinfile->ndims; d++)
      {
-      if ((ncdiminq(ncinfile.ncfid,d,ncinfile.dimname[d],
-                    &(ncinfile.dimsize[d])))==(-1))
+      if ((ncdiminq(ncinfile->ncfid,d,ncinfile->dimname[d],
+                    &(ncinfile->dimsize[d])))==(-1))
         {
          fprintf(stderr,"Error: cannot read dimension #%d's metadata!\n",d);
-         ncclose(ncinfile.ncfid); return(1);
+         ncclose(ncinfile->ncfid); return(1);
         }
-      ncinfile.dimfullsize[d]=ncinfile.dimsize[d];
-      ncinfile.dimstart[d]=1; ncinfile.dimend[d]=(-1);
+      ncinfile->dimfullsize[d]=ncinfile->dimsize[d];
+      ncinfile->dimstart[d]=1; ncinfile->dimend[d]=(-1);
      }
-
+  
    /* Get some information about the variables */
-   for (v=0; v < ncinfile.nvars; v++)
+   for (v=0; v < (ncinfile->nvars); v++)
      {
-      if ((ncvarinq(ncinfile.ncfid,v,ncinfile.varname[v],
-                    &(ncinfile.datatype[v]),&(ncinfile.varndims[v]),
-                    ncinfile.vardim[v],&(ncinfile.natts[v])))==(-1))
+      if ((ncvarinq(ncinfile->ncfid,v,ncinfile->varname[v],
+                    &(ncinfile->datatype[v]),&(ncinfile->varndims[v]),
+                    ncinfile->vardim[v],&(ncinfile->natts[v])))==(-1))
         {
          fprintf(stderr,"Error: cannot read variable #%d's metadata!\n",v);
-         ncclose(ncinfile.ncfid); return(1);
+         ncclose(ncinfile->ncfid); return(1);
         }
 
       /* If the variable is also a dimension then get decomposition info */
-      if ((dimid=ncdimid(ncinfile.ncfid,ncinfile.varname[v]))!=(-1))
+      if ((dimid=ncdimid(ncinfile->ncfid,ncinfile->varname[v]))!=(-1))
         {
-         if (ncattget(ncinfile.ncfid,v,"domain_decomposition",
+         if (ncattget(ncinfile->ncfid,v,"domain_decomposition",
              (void *)decomp)!=(-1))
            {
-            ncinfile.dimfullsize[dimid]=decomp[1]-decomp[0]+1;
-            ncinfile.dimstart[dimid]=decomp[2]-(decomp[0]-1);
-            ncinfile.dimend[dimid]=decomp[3]-(decomp[0]-1);
+            ncinfile->dimfullsize[dimid]=decomp[1]-decomp[0]+1;
+            ncinfile->dimstart[dimid]=decomp[2]-(decomp[0]-1);
+            ncinfile->dimend[dimid]=decomp[3]-(decomp[0]-1);
            }
          else
            {
-            ncinfile.dimfullsize[dimid]=ncinfile.dimsize[dimid];
-            ncinfile.dimstart[dimid]=1; ncinfile.dimend[dimid]=(-1);
+            ncinfile->dimfullsize[dimid]=ncinfile->dimsize[dimid];
+            ncinfile->dimstart[dimid]=1; ncinfile->dimend[dimid]=(-1);
            }
         }
      }
 
 #if DEBUG==1
-   print_debug(&ncinfile,verbose);
+   print_debug(ncinfile,verbose);
 #endif
 
    /* If the output netCDF file was just created then define its structure */
@@ -394,28 +396,28 @@ int process_ncinfile(char *ncname, unsigned char appendnc, int outncfid,
       printf("Creating output netCDF file... \"%s\"\n",outncname);
 #endif
       /* Define the dimensions */
-      for (d=0; d < ncinfile.ndims; d++)
+      for (d=0; d < ncinfile->ndims; d++)
         {
-         if (d==ncinfile.recdim)
-           ncdimdef(outncfid,ncinfile.dimname[d],NC_UNLIMITED);
-         else ncdimdef(outncfid,ncinfile.dimname[d],ncinfile.dimfullsize[d]);
+         if (d==ncinfile->recdim)
+           ncdimdef(outncfid,ncinfile->dimname[d],NC_UNLIMITED);
+         else ncdimdef(outncfid,ncinfile->dimname[d],ncinfile->dimfullsize[d]);
         }
 
       /* Define the variables and copy their attributes */
-      for (v=0; v < ncinfile.nvars; v++)
+      for (v=0; v < ncinfile->nvars; v++)
         {
-         ncvardef(outncfid,ncinfile.varname[v],ncinfile.datatype[v],
-                  ncinfile.varndims[v],ncinfile.vardim[v]);
-         for (n=0; n < ncinfile.natts[v]; n++)
+         ncvardef(outncfid,ncinfile->varname[v],ncinfile->datatype[v],
+                  ncinfile->varndims[v],ncinfile->vardim[v]);
+         for (n=0; n < ncinfile->natts[v]; n++)
            {
-            ncattname(ncinfile.ncfid,v,n,attname);
+            ncattname(ncinfile->ncfid,v,n,attname);
             if (!strcmp(attname,"domain_decomposition")) continue;
             else
               {
-               if (ncattcopy(ncinfile.ncfid,v,attname,outncfid,v)==(-1))
+               if (ncattcopy(ncinfile->ncfid,v,attname,outncfid,v)==(-1))
                  {
                   fprintf(stderr,"Error: cannot copy variable \"%s\"'s attributes!\n",
-                          ncinfile.varname[v]);
+                          ncinfile->varname[v]);
                   return(1);
                  }
               }
@@ -423,16 +425,16 @@ int process_ncinfile(char *ncname, unsigned char appendnc, int outncfid,
         }
 
       /* Copy the global attributes */
-      for (n=0; n < ncinfile.ngatts; n++)
+      for (n=0; n < ncinfile->ngatts; n++)
         {
-         ncattname(ncinfile.ncfid,NC_GLOBAL,n,attname);
+         ncattname(ncinfile->ncfid,NC_GLOBAL,n,attname);
          if (!strcmp(attname,"NumFilesInSet")) continue;
          else if (!strcmp(attname,"filename"))
            ncattput(outncfid,NC_GLOBAL,attname,NC_CHAR,strlen(outncname),
                     (void *)outncname);
          else
            {
-            if (ncattcopy(ncinfile.ncfid,NC_GLOBAL,attname,outncfid,
+            if (ncattcopy(ncinfile->ncfid,NC_GLOBAL,attname,outncfid,
                           NC_GLOBAL)==(-1))
               {
                fprintf(stderr,"Error: cannot copy the file's global attributes!\n");
@@ -446,10 +448,12 @@ int process_ncinfile(char *ncname, unsigned char appendnc, int outncfid,
      }
 
    /* Copy all the data values of the dimensions and variables */
-   ncinfileerror=copy_nc_data(&ncinfile,outncfid,appendnc,verbose);
+   ncinfileerror=copy_nc_data(ncinfile,outncfid,appendnc,verbose);
 
    /* Done */
-   ncclose(ncinfile.ncfid); return(ncinfileerror);
+  ncclose(ncinfile->ncfid);
+  free(ncinfile); 
+  return(ncinfileerror);
   }
 
 
@@ -543,7 +547,8 @@ int copy_nc_data(struct fileinfo *ncinfile, int outncfid,
   }
 
 
-#if DEBUG==1
+
+#ifdef DEBUG
 
 /* Print some debugging information */
 void print_debug(struct fileinfo *infile, unsigned char verbose)
