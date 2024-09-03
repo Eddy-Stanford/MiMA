@@ -104,7 +104,7 @@ MPI_LIB="/opt/homebrew/Cellar/mpich/4.2.2/lib"
 MPICC="mpicc"
 MPICCX="mpicxx"
 
-${mkmf} -p mima.x -t "../${template}" -c "${cppDefs}" -a $sourcedir $pathnames ${NETCDF_INC} ${NETCDF_LIB} ${NETCDF_FORTRAN_INC} ${NETCDF_FORTRAN_LIB} ${HDF5_INC} ${HDF5_LIB} ${MPI_INC} ${MPI_LIB} $sourcedir/shared/mpp/include $sourcedir/shared/include
+${mkmf} -p mima.x -t "../../bin/${template}" -c "${cppDefs}" -a $sourcedir $pathnames ${NETCDF_INC} ${NETCDF_LIB} ${NETCDF_FORTRAN_INC} ${NETCDF_FORTRAN_LIB} ${HDF5_INC} ${HDF5_LIB} ${MPI_INC} ${MPI_LIB} $sourcedir/shared/mpp/include $sourcedir/shared/include
 
 echo "Compilers: "
 
