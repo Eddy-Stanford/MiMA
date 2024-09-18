@@ -954,15 +954,8 @@ int flush_decomp(struct fileinfo *ncoutfile, int nfiles, int r,
   }
 
 
-<<<<<<< HEAD
 
 #ifdef DEBUG
-=======
-/*
-  U.S. Department of Commerce (DOC) Software License for "mppnccombine"
-  written at NOAA's Geophysical Fluid Dynamics Laboratory, Princeton
-  Forrestal Campus
->>>>>>> 3812a9b (apple silicon commit)
 
   1. Scope of License
 
