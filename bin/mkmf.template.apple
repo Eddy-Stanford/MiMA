@@ -1,7 +1,0 @@
-CC="mpicc"
-MPICC="mpicc"
-MPICCX="mpicxx"
-MPIFC="mpif90"
-FC="mpifort"
-CXX="mpicxx"
-LD='mpifort'
