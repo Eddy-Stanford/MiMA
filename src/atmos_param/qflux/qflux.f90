@@ -16,17 +16,17 @@ real ::    qflux_amp      = 30.,  & ! amplitude of meridional Q-flux [W/m2]
 
 integer :: gulf_k         = 4       ! wave number of gulfstream perturbation []
 
-real ::    warmpool_k     = 1,    & ! wave number of warmpool []
-	   gulf_phase     = 140., & ! phase of warmpool [deg lon]
-           gulf_amp       = 0.  , & ! amplitude of gulf stream perturbation [W/m2]
-	   kuroshio_amp   = 0. , &  ! amplitude of kuroshio perturbation [W/m2]
-	   trop_atlantic_amp  = 0. , &  ! amplitude of tropical atlantic perturbation [W/m2]
-           north_sea_heat = 0., & !add extra perturbation to move heat from Canada to North Sea
-	   Pac_ITCZextra = 0., & !extra q flux in tropical South Pacific to strengthen local ITCZ	 
-	   Pac_SPCZextra = 0., & !extra q flux in subtropical pacific to modulate SPCZ
-	   Africaextra  = 0.,   &  !extra q flux by Agulhaus	
-	   Sampeextra   = 0.,   &
-	   Hawaiiextra  = 0.
+real :: warmpool_k     = 1,    & ! wave number of warmpool []
+	   	gulf_phase     = 140., & ! phase of warmpool [deg lon]
+		gulf_amp       = 0.  , & ! amplitude of gulf stream perturbation [W/m2]
+	   	kuroshio_amp   = 0. , &  ! amplitude of kuroshio perturbation [W/m2]
+	   	trop_atlantic_amp  = 0. , &  ! amplitude of tropical atlantic perturbation [W/m2]
+		north_sea_heat = 0., & !add extra perturbation to move heat from Canada to North Sea
+	   	Pac_ITCZextra = 0., & !extra q flux in tropical South Pacific to strengthen local ITCZ	 
+	   	Pac_SPCZextra = 0., & !extra q flux in subtropical pacific to modulate SPCZ
+	   	Africaextra  = 0.,   &  !extra q flux by Agulhaus	
+	   	Sampeextra   = 0.,   &
+	   	Hawaiiextra  = 0.
     
 
 integer :: warmpool_localization_choice    = 1 ! 1->cos, 2->cos but restricted to Indo-Pacific
