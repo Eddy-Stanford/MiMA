@@ -36,3 +36,4 @@ bin/mppnccombine.nyu
 *.dSYM
 rundir/
 build/
+exec/
