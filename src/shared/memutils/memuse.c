@@ -1,4 +1,3 @@
-#if defined(__sgi) || defined(__aix) || defined(__IFC) || defined(__linux) || defined(__SX)
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -23,4 +22,3 @@ int memuse_(void)
  return iret;
  /* printf("Max memuse in KB is %d \n",iret); */
 }
-#endif

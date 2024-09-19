@@ -46,7 +46,6 @@
   Last Updated: 1/24/03
 */
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -355,7 +354,7 @@ int process_ncinfile(char *ncname, unsigned char appendnc, int outncfid,
       ncinfile->dimfullsize[d]=ncinfile->dimsize[d];
       ncinfile->dimstart[d]=1; ncinfile->dimend[d]=(-1);
      }
-  
+
    /* Get some information about the variables */
    for (v=0; v < (ncinfile->nvars); v++)
      {
