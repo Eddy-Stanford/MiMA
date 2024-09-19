@@ -99,13 +99,23 @@
      trayfric      = -0.5,
      sponge_pbottom=  50.,
      do_conserve_energy = .true.,
-     do_cg_drag    = .true., 
+     do_cg_drag    = .false., 
+     do_king_cg = .true.,
      do_mg_drag = .false./
 
 &topography_nml
 	topog_file = 'INPUT/navy_topography.data.nc', 
 	water_file = 'INPUT/navy_pctwater.data.nc' /
 
+
+&cg_drag_king_nml
+    Bw=0.4,
+    cmax=99.6,
+    nk=1,
+    dc=1.2,
+    source_level_pressure = 315.e+02,
+    damp_level_pressure = 0.85e+02,
+    cg_drag_freq = 21600 /
             
  &cg_drag_nml
      Bt_0  = 0.0043,  
