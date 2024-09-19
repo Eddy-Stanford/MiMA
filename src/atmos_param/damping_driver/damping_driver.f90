@@ -20,6 +20,7 @@ module damping_driver_mod
 
  use      mg_drag_mod, only:  mg_drag, mg_drag_init, mg_drag_end
  use      cg_drag_mod, only:  cg_drag_init, cg_drag_calc, cg_drag_end
+ use      cg_drag_king_mod, only: cg_drag_king_init, cg_drag_king_calc,cg_drag_king_end
  use    topo_drag_mod, only:  topo_drag_init, topo_drag, topo_drag_end
  use          fms_mod, only:  file_exist, mpp_pe, mpp_root_pe, stdlog, &
                               write_version_number, &
@@ -49,6 +50,7 @@ module damping_driver_mod
 ! mj actively choose rayleigh friction
    logical  :: do_rayleigh = .false.
    logical  :: do_cg_drag = .false.
+   logical  :: do_king_cg = .false.
    logical  :: do_topo_drag = .false.
    logical  :: do_const_drag = .false.
    real     :: const_drag_amp = 3.e-04
@@ -59,7 +61,8 @@ module damping_driver_mod
                                   do_rayleigh, sponge_pbottom,  & ! mj
                                   do_cg_drag, do_topo_drag, &
                                   do_mg_drag, do_conserve_energy, &
-                                  do_const_drag, const_drag_amp,const_drag_off    !mj
+                                  do_const_drag, const_drag_amp,const_drag_off,&
+                                  do_king_cg   !mj
 
 !
 !   trayfric = damping time in seconds for rayleigh damping momentum
@@ -248,6 +251,11 @@ contains
 
 !   Alexander-Dunkerton gravity wave drag
 
+   if (do_cg_drag .and. do_king_cg) then
+      call error_mesg(mod_name, &
+                      'do_cg_drag and do_king_cg cannot be both true. Something wierd has happened here, should have been caught by init', FATAL)
+   endif 
+
    if (do_cg_drag) then
 !mj updating call to riga version of cg_drag
       !call cg_drag_calc (is, js, lat, pfull, zfull, t, u, Time,    &
@@ -264,6 +272,15 @@ contains
      endif
 
    endif
+
+   if (do_king_cg) then
+      call cg_drag_king_calc(is,js,lat,pfull,zfull,t,u,v,Time,delt,utnd,vtnd)
+      udt = udt + utnd
+      vdt = vdt + vtnd
+      if (id_udt_cgwd > 0) then
+         used = send_data(id_udt_cgwd, utnd, Time, is, js, 1, rmask=mask)
+      endif
+   endif 
 
 ! constant drag, modeled on Alexander-Dunkerton winter average
    if (do_const_drag) then
@@ -410,9 +427,17 @@ contains
 
 !--------------------------------------------------------------------
 !----- Alexander-Dunkerton gravity wave drag -----
-
+   if (do_cg_drag .and. do_king_cg) then
+      call error_mesg('damping_driver',  &
+                      'do_cg_drag and do_king_cg cannot be both true', FATAL)
+   endif 
+   
    if (do_cg_drag)  then
      call cg_drag_init (lonb, latb, pref, Time=Time, axes=axes)
+   endif
+
+   if (do_king_cg) then
+      call cg_drag_king_init(lonb, latb, pref, Time=Time, axes=axes)
    endif
 
 !-----------------------------------------------------------------------
@@ -486,13 +511,15 @@ if (do_mg_drag) then
                                  'W/m2' )
 endif
 
-   if (do_cg_drag) then
+   if (do_cg_drag .or. do_king_cg) then
 
     id_udt_cgwd = &
     register_diag_field ( mod_name, 'udt_cgwd', axes(1:3), Time,        &
                  'u wind tendency for cg gravity wave drag', 'm/s2', &
                       missing_value=missing_value               )
    endif
+
+
 
    if (do_const_drag) then
 
