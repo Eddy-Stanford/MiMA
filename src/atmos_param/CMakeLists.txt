@@ -2,20 +2,18 @@ set ( ATMOS_PARAM_SOURCES
 cloud_zonal/null/cloud_zonal.f90
 vert_diff_driver/vert_diff_driver.f90
 moist_conv/moist_conv.f90
-# moist_conv/null/moist_conv.f90
 moist_processes/moist_processes.f90
 damping_driver/damping_driver.f90
 cloud_rad/cloud_rad.f90
 cg_drag/cg_drag.f90
+cg_drag_king/cg_drag_king.f90
 ras/ras.f90
 diag_integral/diag_integral.f90
 edt/edt.f90
-# edt/null/edt.f90
-# my25_turb/null/my25_turb.f90
+
 my25_turb/my25_turb.f90
 diag_cloud/null/diag_cloud.f90
 vert_diff/vert_diff.f90
-# shallow_conv/shallow_conv.f90
 shallow_conv/null/shallow_conv.f90
 grey_radiation/grey_radiation.f90
 vert_turb_driver/vert_turb_driver.f90
