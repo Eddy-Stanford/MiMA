@@ -218,10 +218,31 @@
 &fms_nml
     domains_stack_size = 600000 /
 
- &fms_io_nml
+&fms_io_nml
     threading_write = 'single',
     fileset_write = 'single' /
 
 
+&topo_drag_nml
+    frcrit  = 0.7,
+    alin    = 0.9,
+    anonlin = 0.5,
+    use_mg_scaling = .false.,
+    do_pbl_average = .false.,
+    use_mask_for_pbl = .false.,
+    beta = 0.5,
+    gamma = 0.4,
+    epsi = 0.0,
+    h_frac = 0.1,
+    zref_fac = 1.0,
+    no_drag_frac = 0.05,
+    tboost = 1.5,
+    pcut = 0.,
+    samp = 2.,
+    do_conserve_energy = .true.,
+    use_pbl_from_lock = .true.,
+    topography_file = 'INPUT/poztopog_2min_hp300km.nc',
+    dragtensor_file='INPUT/dragelements_2min_hp300km.nc'
+/
 
 
