@@ -78,7 +78,7 @@
 
 &qflux_nml
      qflux_amp        = 26.,
-      warmpool_localization_choice = 3,
+     warmpool_localization_choice = 3,
      warmpool_k       = 1.66666, 
      warmpool_amp     = 18., 
      warmpool_width   = 35.,
@@ -91,7 +91,7 @@
      trop_atlantic_amp = 50.,
      gulf_phase   = 310., 
      Hawaiiextra = 30.0,
-      Pac_ITCZextra = -0.0,
+     Pac_ITCZextra = -0.0,
      north_sea_heat =0.0/
 
  &damping_driver_nml
@@ -101,7 +101,8 @@
      do_conserve_energy = .true.,
      do_cg_drag    = .false., 
      do_king_cg = .true.,
-     do_mg_drag = .false./
+     do_mg_drag = .false.,
+     do_topo_drag= .true. /
 
 &topography_nml
 	topog_file = 'INPUT/navy_topography.data.nc', 
