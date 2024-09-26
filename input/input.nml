@@ -85,7 +85,7 @@
      qflux_width      = 16.,
      warmpool_phase   = 140.,
      warmpool_centr   = 0.,
-     gulf_k       = 4.0, 
+     gulf_k       = 4, 
       gulf_amp     = 70., 
      kuroshio_amp = 40.,
      trop_atlantic_amp = 50.,
