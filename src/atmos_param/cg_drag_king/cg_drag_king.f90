@@ -12,7 +12,7 @@ module cg_drag_king_mod
   register_diag_field, send_data
   use constants_mod,          only:  constants_init, PI, RDGAS, GRAV, CP_AIR, &
   SECONDS_PER_DAY
-  use transforms_mod,         only: grid_domain
+  use spec_mpp_mod,         only: grid_domain
   implicit none
   private 
   
