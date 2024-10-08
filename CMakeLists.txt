@@ -63,11 +63,11 @@ endif()
 if(CMAKE_Fortran_COMPILER_ID  MATCHES "Intel|IntelLLVM")
     message(STATUS "Configuring for Intel Fortran")
     set( CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -i4 -r8 -fpp -fPIC")
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O3 -xHost ${CMAKE_Fortran_FLAGS_RELEASE} ")
+    set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -xHost ${CMAKE_Fortran_FLAGS_RELEASE} ")
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
     message(STATUS "Configuring for GNU Fortran")
     set( CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -cpp -fallow-argument-mismatch -fbacktrace -fdefault-real-8 -fdefault-double-8 -fcray-pointer -fallow-invalid-boz -fno-range-check -ffree-line-length-none")
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O3 -march=native ${CMAKE_Fortran_FLAGS_RELEASE}")
+    set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -march=native ${CMAKE_Fortran_FLAGS_RELEASE}")
 endif()
 
 # Add various subdirectories with long lists of source files
