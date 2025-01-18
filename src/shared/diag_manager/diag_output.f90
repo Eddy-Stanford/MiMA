@@ -312,7 +312,7 @@ subroutine write_axis_meta_data ( file_unit, axes,time_ops )
           call mpp_write_meta ( file_unit, id_time_axis, &
                'calendar_type', cval='THIRTY_DAY_MONTHS')
           call mpp_write_meta ( file_unit, id_time_axis, &
-               'calendar', cval='360')
+               'calendar', cval='360_day')
        case (JULIAN)
           call mpp_write_meta ( file_unit, id_time_axis, &
                'calendar_type', cval='JULIAN')
