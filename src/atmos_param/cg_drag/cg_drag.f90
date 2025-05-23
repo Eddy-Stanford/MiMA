@@ -110,7 +110,7 @@ real        :: Bt_sh=-.001        ! additional momentum stress for SH [Pa]
 !   wave spectrum parameters.
 !---------------------------------------------------------------------
 
-integer    :: flag = 1  ! flag = 1  for peak flux at  c    = 0
+integer    :: intrinsic_c = 1  ! flag = 1  for peak flux at  c    = 0
                         ! flag = 0  for peak flux at (c-u) = 0
 real       :: Bw = 0.4  ! amplitude for the wide spectrum [ m^2/s^2 ]  
                         ! ~ u'w'
@@ -126,16 +126,8 @@ real        :: Bt_eq=.000         ! additional momentum stress at equator - CURR
 
 real        :: Bt_eq_width=4.0    ! scaling for width of equtorial momentum flux  (equator) CURRENTLY NOT USED!
 
-real        :: phi0n = 30., phi0s = -30., dphin = 5., dphis = -5.
 
-!add by chaim jan 2017
-real        :: weightminus2=0.  
 
-real        :: weightminus1=0.
-
-real        :: weighttop=1.
-
-real        :: kelvin_kludge=1.
 
 logical     :: calculate_ked=.false. 
                                   ! calculate ked diagnostic ?
@@ -169,8 +161,7 @@ namelist / cg_drag_nml /         &
                           num_diag_pts_ij, num_diag_pts_latlon, &
                           i_coords_gl, j_coords_gl,   &
                           lat_coords_gl, lon_coords_gl, &
-                          phi0n,phi0s,dphin,dphis, Bw, Bn, cw, cwtropics, cn, flag, &
-			  weightminus2, weightminus1, weighttop,kelvin_kludge
+                           Bw, Bn, cw, cwtropics, cn, intrinsic_c
 
 
 !--------------------------------------------------------------------
@@ -397,7 +388,7 @@ type(time_type),         intent(in)      :: Time
         endif
       end do
 
-
+      source_amp = Bt_0
       do j=1,jdf
 !mj change of dimensions
 !        lat(:,j)=  0.5*( latb(:,j+1)+latb(:,j) )
@@ -406,22 +397,22 @@ type(time_type),         intent(in)      :: Time
           source_level(i,j) = (kmax + 1) - ((kmax + 1 -    &
                               klevel_of_source)*cos(lat(i,j)) + 0.5)
    	  
-	  damp_level(i,j) = klevel_of_damp  !cig
-	thislatdeg=lat(i,j)*pifinv
+	        damp_level(i,j) = klevel_of_damp  !cig
+	        thislatdeg=lat(i,j)*pifinv
 !code added by ipw - nov 23, 2016
-       if (thislatdeg > phi0n) then
-                source_amp(i,j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg-phi0n)/dphin))+ &
-                Bt_sh*0.5*(1.+tanh((thislatdeg-phi0s)/dphis));
-        elseif (thislatdeg < phi0s) then
-               source_amp(i,j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg-phi0n)/dphin))+ &
-               Bt_sh*0.5*(1.+tanh((thislatdeg-phi0s)/dphis));
-        elseif ((thislatdeg <= dphin) .and. (thislatdeg >= dphis))  then
-	       source_amp(i,j) = Bt_eq
-	elseif ((thislatdeg <= phi0n) .and. (thislatdeg > dphin))  then
-		source_amp(i,j) = Bt_0 + (Bt_eq-Bt_0)/(phi0n-dphin)*(phi0n-thislatdeg)
-	elseif ((thislatdeg < dphis) .and. (thislatdeg >= phi0s))  then
-		source_amp(i,j) = Bt_0 + (Bt_eq-Bt_0)/(phi0s-dphis)*(phi0s-thislatdeg)
-	endif         
+  !      if (thislatdeg > phi0n) then
+  !               source_amp(i,j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg-phi0n)/dphin))+ &
+  !               Bt_sh*0.5*(1.+tanh((thislatdeg-phi0s)/dphis));
+  !       elseif (thislatdeg < phi0s) then
+  !              source_amp(i,j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg-phi0n)/dphin))+ &
+  !              Bt_sh*0.5*(1.+tanh((thislatdeg-phi0s)/dphis));
+  !       elseif ((thislatdeg <= dphin) .and. (thislatdeg >= dphis))  then
+	!        source_amp(i,j) = Bt_eq
+	! elseif ((thislatdeg <= phi0n) .and. (thislatdeg > dphin))  then
+	! 	source_amp(i,j) = Bt_0 + (Bt_eq-Bt_0)/(phi0n-dphin)*(phi0n-thislatdeg)
+	! elseif ((thislatdeg < dphis) .and. (thislatdeg >= phi0s))  then
+	! 	source_amp(i,j) = Bt_0 + (Bt_eq-Bt_0)/(phi0s-dphis)*(phi0s-thislatdeg)
+	! endif         
 
 ! source_amp(i,j) = Bt_0 +                         &
 !                     Bt_nh*0.5*(1.+tanh((lat(i,j)/pif-phi0n)/dphin)) + &
@@ -1292,7 +1283,7 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
                                    eps, Bsum
       integer                 ::   iz0, iztop
       integer                 ::   i, j, k, ink, n
-      real                    ::   ampl, cwthis, Bnthis, flagthis, kelvin_kludgethis
+      real                    ::   ampl, cwthis, Bnthis
       real                    :: pifinv = 180./3.14159265358979
 !------------------------------------------------------------------
 !  local variables:
@@ -1344,25 +1335,13 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
       ked = 0.0
 
       do j=1,size(u,2)
-  	     
-
         do i=1,size(u,1)  
 !added by cig, january 2017
-	  if ((lat(i+is-1,j+js-1)*pifinv <= dphin) .and. (lat(i+is-1,j+js-1)*pifinv >= dphis)) then
-                cwthis=cwtropics
-		Bnthis=0.
-		flagthis=0
-		kelvin_kludgethis=kelvin_kludge
-    	  else   
-                cwthis=cw
-		Bnthis=Bn
-		flagthis=flag
-		kelvin_kludgethis=1.0
- 	  endif    
+
 
 ! The following index-offsets are needed in case a physics_window is being used.
           iz0 = source_level(i+is-1,j+js-1)
-	  iztop = damp_level(i+is-1,j+js-1)
+	        iztop = damp_level(i+is-1,j+js-1)
           ampl= source_amp(i+is-1,j+js-1)
 
 !--------------------------------------------------------------------
@@ -1386,11 +1365,10 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
 !    define wave momentum flux at source level for phase speed n. Add
 !    the contribution from this phase speed to the previous sum.
 !---------------------------------------------------------------------
-              c = c0(n)*flagthis + c0mu0(n)*(1 - flagthis)
+              c = c0(n)*intrinsic_c+ c0mu0(n)*(1 - intrinsic_c)
               if (c0mu0(n) < 0.0) then
                 B0(n) = -1.0*(Bw*exp(-alog(2.0)*(c/cwthis)**2) +    &
                               Bnthis*exp(-alog(2.0)*(c/cn)**2))
-		B0(n) =B0(n)*kelvin_kludgethis
               else 
                 B0(n) = (Bw*exp(-alog(2.0)*(c/cwthis)**2)  +  &
                          Bnthis*exp(-alog(2.0)*(c/cn)**2))
