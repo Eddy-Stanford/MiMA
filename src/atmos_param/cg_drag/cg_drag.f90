@@ -112,8 +112,6 @@ real       :: Bn = 0.0  ! amplitude for the narrow spectrum [ m^2/s^2 ]
                         ! ~ u'w';  previous values: 5.4
 real       :: cw = 40.0 ! half-width for the wide c spectrum [ m/s ]
                         ! previous values: 50.0, 25.0 
-real       :: cwtropics = 40.0 ! half-width for the wide c spectrum [ m/s ]
-                        ! previous values: 50.0, 25.0 
 real       :: cn =  2.0 ! half-width for the narrow c spectrum  [ m/s ]
 
 
@@ -151,7 +149,7 @@ namelist / cg_drag_nml /         &
                           num_diag_pts_ij, num_diag_pts_latlon, &
                           i_coords_gl, j_coords_gl,   &
                           lat_coords_gl, lon_coords_gl, &
-                           Bw, Bn, cw, cwtropics, cn, intrinsic_c
+                           Bw, Bn, cw, cn, intrinsic_c
 
 
 !--------------------------------------------------------------------
@@ -1273,7 +1271,7 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
                                    eps, Bsum
       integer                 ::   iz0, iztop
       integer                 ::   i, j, k, ink, n
-      real                    ::   ampl, cwthis, Bnthis
+      real                    ::   ampl
       real                    :: pifinv = 180./3.14159265358979
 !------------------------------------------------------------------
 !  local variables:
@@ -1357,11 +1355,9 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
 !---------------------------------------------------------------------
               c = c0(n)*intrinsic_c+ c0mu0(n)*(1 - intrinsic_c)
               if (c0mu0(n) < 0.0) then
-                B0(n) = -1.0*(Bw*exp(-alog(2.0)*(c/cwthis)**2) +    &
-                              Bnthis*exp(-alog(2.0)*(c/cn)**2))
+                B0(n) = -1.0*(Bw*exp(-alog(2.0)*(c/cw)**2) + Bn*exp(-alog(2.0)*(c/cn)**2))
               else 
-                B0(n) = (Bw*exp(-alog(2.0)*(c/cwthis)**2)  +  &
-                         Bnthis*exp(-alog(2.0)*(c/cn)**2))
+                B0(n) = (Bw*exp(-alog(2.0)*(c/cw)**2) + Bn*exp(-alog(2.0)*(c/cn)**2))
 		
               endif
               Bsum = Bsum + abs(B0(n))
