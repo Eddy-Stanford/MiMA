@@ -98,12 +98,6 @@ real        :: dc=1.2             ! gravity wave spectral resolution
 real        :: Bt_0=.004          ! sum across the wave spectrum of 
                                   ! the magnitude of total GW stress [Pa]
             
-real        :: Bt_aug=.000        ! magnitude of momentum flux divided by density 
-
-real        :: Bt_nh=.001         ! additional momentum stress for NH [Pa]
-
-real        :: Bt_sh=-.001        ! additional momentum stress for SH [Pa]
-
 ! epg - 30.6.16 - I shifted these spectral parameters to the name list
 !---------------------------------------------------------------------
 !---------------------------------------------------------------------
@@ -122,9 +116,6 @@ real       :: cwtropics = 40.0 ! half-width for the wide c spectrum [ m/s ]
                         ! previous values: 50.0, 25.0 
 real       :: cn =  2.0 ! half-width for the narrow c spectrum  [ m/s ]
 
-real        :: Bt_eq=.000         ! additional momentum stress at equator - CURRENTLY NOT USED! 
-
-real        :: Bt_eq_width=4.0    ! scaling for width of equtorial momentum flux  (equator) CURRENTLY NOT USED!
 
 
 
@@ -155,8 +146,7 @@ real,    dimension(MAX_PTS)  ::  lon_coords_gl=-999.
 namelist / cg_drag_nml /         &
                           cg_drag_freq, cg_drag_offset, &
                           source_level_pressure, damp_level_pressure,   &
-                          nk, cmax, dc, Bt_0, Bt_aug,  &
-                          Bt_sh, Bt_nh, Bt_eq,  Bt_eq_width,  &
+                          nk, cmax, dc, Bt_0, &
                           calculate_ked,    &
                           num_diag_pts_ij, num_diag_pts_latlon, &
                           i_coords_gl, j_coords_gl,   &
