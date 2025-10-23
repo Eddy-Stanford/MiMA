@@ -729,7 +729,7 @@ if(robert_coeff < 0. .or. robert_coeff > 1.) then
   call error_mesg('check_dynamics_nml',ch_tmp2//' is an invalid value for robert_coeff.', FATAL)
 endif
 
-if((do_energy_correction .or. do_water_correction) .and. .not.do_mass_correction) then
+if((do_energy_correction .or. do_water_correction) .and. .not.) then
   call error_mesg('check_dynamics_nml','.not.do_mass_correction must be .true. when either &
            &do_energy_correction or do_water_correction is .true.', FATAL)
 endif

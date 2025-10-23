@@ -95,14 +95,7 @@ real        :: cmax=99.6          ! maximum phase speed in gravity wave
 real        :: dc=1.2             ! gravity wave spectral resolution 
                                   ! [ m/s ]
                                   ! previous values: 0.6
-real        :: Bt_0=.004          ! sum across the wave spectrum of 
-                                  ! the magnitude of total GW stress [Pa]
-            
-real        :: Bt_aug=.000        ! magnitude of momentum flux divided by density 
 
-real        :: Bt_nh=.001         ! additional momentum stress for NH [Pa]
-
-real        :: Bt_sh=-.001        ! additional momentum stress for SH [Pa]
 
 ! epg - 30.6.16 - I shifted these spectral parameters to the name list
 !---------------------------------------------------------------------
@@ -110,32 +103,21 @@ real        :: Bt_sh=-.001        ! additional momentum stress for SH [Pa]
 !   wave spectrum parameters.
 !---------------------------------------------------------------------
 
-integer    :: flag = 1  ! flag = 1  for peak flux at  c    = 0
-                        ! flag = 0  for peak flux at (c-u) = 0
+
+
 real       :: Bw = 0.4  ! amplitude for the wide spectrum [ m^2/s^2 ]  
                         ! ~ u'w'
-real       :: Bn = 0.0  ! amplitude for the narrow spectrum [ m^2/s^2 ] 
-                        ! ~ u'w';  previous values: 5.4
+real       :: Bw_tropics=0.4 ! amplitude for the wide spectrum in tropics [ m^2/s^2 ]  
+                        ! ~ u'w'
 real       :: cw = 40.0 ! half-width for the wide c spectrum [ m/s ]
                         ! previous values: 50.0, 25.0 
 real       :: cwtropics = 40.0 ! half-width for the wide c spectrum [ m/s ]
                         ! previous values: 50.0, 25.0 
-real       :: cn =  2.0 ! half-width for the narrow c spectrum  [ m/s ]
 
-real        :: Bt_eq=.000         ! additional momentum stress at equator - CURRENTLY NOT USED! 
+real        :: Fs0=4.3e-3
 
-real        :: Bt_eq_width=4.0    ! scaling for width of equtorial momentum flux  (equator) CURRENTLY NOT USED!
+real        :: phi_tropics=10.0
 
-real        :: phi0n = 30., phi0s = -30., dphin = 5., dphis = -5.
-
-!add by chaim jan 2017
-real        :: weightminus2=0.  
-
-real        :: weightminus1=0.
-
-real        :: weighttop=1.
-
-real        :: kelvin_kludge=1.
 
 logical     :: calculate_ked=.false. 
                                   ! calculate ked diagnostic ?
@@ -163,14 +145,12 @@ real,    dimension(MAX_PTS)  ::  lon_coords_gl=-999.
 namelist / cg_drag_nml /         &
                           cg_drag_freq, cg_drag_offset, &
                           source_level_pressure, damp_level_pressure,   &
-                          nk, cmax, dc, Bt_0, Bt_aug,  &
-                          Bt_sh, Bt_nh, Bt_eq,  Bt_eq_width,  &
+                          nk, cmax, dc, Fs0, &
                           calculate_ked,    &
                           num_diag_pts_ij, num_diag_pts_latlon, &
                           i_coords_gl, j_coords_gl,   &
                           lat_coords_gl, lon_coords_gl, &
-                          phi0n,phi0s,dphin,dphis, Bw, Bn, cw, cwtropics, cn, flag, &
-			  weightminus2, weightminus1, weighttop,kelvin_kludge
+                          phi_tropics, Bw_tropics, cw, cwtropics 
 
 
 !--------------------------------------------------------------------
@@ -387,49 +367,30 @@ type(time_type),         intent(in)      :: Time
 !    ity waves. it is that model level just below the pressure specif-
 !    ied as the source location via namelist input.
 !--------------------------------------------------------------------
-      do k=1,kmax
+  do k=1,kmax
 	 if (pref(k) < damp_level_pressure) then
           klevel_of_damp = k        
-        endif
-        if (pref(k) > source_level_pressure) then
-          klevel_of_source = k
-          exit
-        endif
-      end do
+    endif
+    if (pref(k) > source_level_pressure) then
+      klevel_of_source = k
+      exit
+    endif
+  end do
 
 
-      do j=1,jdf
-!mj change of dimensions
-!        lat(:,j)=  0.5*( latb(:,j+1)+latb(:,j) )
-        do i=1,idf
-          lat(i,j)=  0.5*( latb(j+1)+latb(j) )
-          source_level(i,j) = (kmax + 1) - ((kmax + 1 -    &
-                              klevel_of_source)*cos(lat(i,j)) + 0.5)
+  do j=1,jdf
+    do i=1,idf
+      lat(i,j)=  0.5*( latb(j+1)+latb(j) )
+      source_level(i,j) = (kmax + 1) - ((kmax + 1 -    &
+                          klevel_of_source)*cos(lat(i,j)) + 0.5)
    	  
-	  damp_level(i,j) = klevel_of_damp  !cig
-	thislatdeg=lat(i,j)*pifinv
-!code added by ipw - nov 23, 2016
-       if (thislatdeg > phi0n) then
-                source_amp(i,j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg-phi0n)/dphin))+ &
-                Bt_sh*0.5*(1.+tanh((thislatdeg-phi0s)/dphis));
-        elseif (thislatdeg < phi0s) then
-               source_amp(i,j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg-phi0n)/dphin))+ &
-               Bt_sh*0.5*(1.+tanh((thislatdeg-phi0s)/dphis));
-        elseif ((thislatdeg <= dphin) .and. (thislatdeg >= dphis))  then
-	       source_amp(i,j) = Bt_eq
-	elseif ((thislatdeg <= phi0n) .and. (thislatdeg > dphin))  then
-		source_amp(i,j) = Bt_0 + (Bt_eq-Bt_0)/(phi0n-dphin)*(phi0n-thislatdeg)
-	elseif ((thislatdeg < dphis) .and. (thislatdeg >= phi0s))  then
-		source_amp(i,j) = Bt_0 + (Bt_eq-Bt_0)/(phi0s-dphis)*(phi0s-thislatdeg)
-	endif         
-
-! source_amp(i,j) = Bt_0 +                         &
-!                     Bt_nh*0.5*(1.+tanh((lat(i,j)/pif-phi0n)/dphin)) + &
-!                    Bt_sh*0.5*(1.+tanh((lat(i,j)/pif-phi0s)/dphis))
-        end do
-      end do
-      source_level = MIN (source_level, kmax-1)
-      damp_level = MIN (damp_level, kmax)
+      damp_level(i,j) = klevel_of_damp  !cig
+      thislatdeg=lat(i,j)*pifinv
+      source_amp(i,j) = Fs0 
+    end do
+  end do
+  source_level = MIN (source_level, kmax-1)
+  damp_level = MIN (damp_level, kmax)
 
 !cig: make sure everyhing is ok
 !	  write (*,*) "damp",pref(klevel_of_damp), '  ', klevel_of_damp, '  ', damp_level_pressure, '  ', damp_level(2,2), '  ', damp_level(12,2)
@@ -1292,7 +1253,7 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
                                    eps, Bsum
       integer                 ::   iz0, iztop
       integer                 ::   i, j, k, ink, n
-      real                    ::   ampl, cwthis, Bnthis, flagthis, kelvin_kludgethis
+      real                    ::   ampl
       real                    :: pifinv = 180./3.14159265358979
 !------------------------------------------------------------------
 !  local variables:
@@ -1347,18 +1308,6 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
   	     
 
         do i=1,size(u,1)  
-!added by cig, january 2017
-	  if ((lat(i+is-1,j+js-1)*pifinv <= dphin) .and. (lat(i+is-1,j+js-1)*pifinv >= dphis)) then
-                cwthis=cwtropics
-		Bnthis=0.
-		flagthis=0
-		kelvin_kludgethis=kelvin_kludge
-    	  else   
-                cwthis=cw
-		Bnthis=Bn
-		flagthis=flag
-		kelvin_kludgethis=1.0
- 	  endif    
 
 ! The following index-offsets are needed in case a physics_window is being used.
           iz0 = source_level(i+is-1,j+js-1)
@@ -1386,15 +1335,23 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
 !    define wave momentum flux at source level for phase speed n. Add
 !    the contribution from this phase speed to the previous sum.
 !---------------------------------------------------------------------
-              c = c0(n)*flagthis + c0mu0(n)*(1 - flagthis)
               if (c0mu0(n) < 0.0) then
-                B0(n) = -1.0*(Bw*exp(-alog(2.0)*(c/cwthis)**2) +    &
-                              Bnthis*exp(-alog(2.0)*(c/cn)**2))
-		B0(n) =B0(n)*kelvin_kludgethis
+                if ((lat(i+is-1,j+js-1)*pifinv <= phi_tropics) .and. (lat(i+is-1,j+js-1)*pifinv >= phi_tropics)) then
+                  c = c0mu0(n)
+                  B0(n) = -1.0*(Bw_tropics*(c/cwtropics)*exp(1 - abs(c/cwtropics)))
+                else
+                  c = c0(n)
+                  B0(n) = -1.0*(Bw*exp(-alog(2.0)*(c/cw)**2))
+                endif 
               else 
-                B0(n) = (Bw*exp(-alog(2.0)*(c/cwthis)**2)  +  &
-                         Bnthis*exp(-alog(2.0)*(c/cn)**2))
-		
+
+              if ((lat(i+is-1,j+js-1)*pifinv <= phi_tropics) .and. (lat(i+is-1,j+js-1)*pifinv >= phi_tropics)) then
+                  c = c0mu0(n)
+                  B0(n) = (Bw_tropics*(c/cwtropics)*exp(1 - abs(c/cwtropics)))
+                else
+                  c = c0(n)
+                  B0(n) = (Bw*exp(-alog(2.0)*(c/cw)**2))
+                endif 
               endif
               Bsum = Bsum + abs(B0(n))
             endif
