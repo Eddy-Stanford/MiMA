@@ -179,4 +179,4 @@ diag_cloud_rad/null/diag_cloud_rad.f90
 strat_cloud/strat_cloud.f90
 )
 
-target_sources ( mima.x PRIVATE ${ATMOS_PARAM_SOURCES} )
+target_sources (mima PRIVATE ${ATMOS_PARAM_SOURCES} )

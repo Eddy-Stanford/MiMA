@@ -9,4 +9,4 @@ interpolator/interpolator.F90
 vert_advection/vert_advection.f90
 )
 
-target_sources ( mima.x PRIVATE ${ATMOS_SHARED_SOURCES} )
+target_sources ( mima PRIVATE ${ATMOS_SHARED_SOURCES} )

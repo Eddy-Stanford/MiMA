@@ -7,4 +7,4 @@ surface_flux.f90
 )
 
 # NB this is where the executable is defined.
-target_sources ( mima.x PRIVATE ${COUPLER_SOURCES} )
+target_sources ( mima PRIVATE ${COUPLER_SOURCES} )

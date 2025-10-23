@@ -29,4 +29,4 @@ tools/spherical_fourier.f90
 tools/grid_fourier.f90
 )
 
-target_sources( mima.x PRIVATE ${ATMOS_SPECTRAL_SOURCES} )
+target_sources( mima PRIVATE ${ATMOS_SPECTRAL_SOURCES} )

@@ -108,7 +108,7 @@ mpp/mpp_parameter.F90
 mpp/mpp_io_util.F90
 )
 
-target_sources ( mima.x PRIVATE ${SHARED_SOURCES} )
+target_sources ( mima PRIVATE ${SHARED_SOURCES} )
 target_sources ( mima_c PRIVATE
 memutils/memuse.c
 mpp/nsclock.c
