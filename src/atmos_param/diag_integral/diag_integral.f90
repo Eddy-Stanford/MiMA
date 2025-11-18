@@ -24,7 +24,7 @@ use fms_mod,          only:  open_file, file_exist, error_mesg, &
                              fms_init, &
                              mpp_pe, mpp_root_pe,&
                              FATAL, write_version_number, &
-                             stdlog, close_file
+                             stdlog, close_file, string
 use constants_mod,    only:  radius, constants_init
 use mpp_mod,          only:  mpp_sum, mpp_init
 
@@ -1229,7 +1229,9 @@ type (time_type), intent(in) :: Time
         if ((field_size)*kount /= field_count(i)) &
           call error_mesg &
                  ('diag_integral_mod',  &
-                  'field_count not a multiple of field_size', FATAL )
+                  'field_count not a multiple of field_size. ' // &
+                  'field_size=' // trim(string(field_size)) // &
+                  ', field_count=' // trim(string(field_count(i))), FATAL )
 
 !----------------------------------------------------------------------
 !    define the global integral for field i. reinitialize the point
