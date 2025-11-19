@@ -165,7 +165,7 @@ integer                     :: num_field = 0
 character(len=max_len_name) :: field_name   (max_num_field)
 character(len=16)           :: field_format (max_num_field)
 real                        :: field_sum    (max_num_field)
-integer(kind=8)             :: field_count  (max_num_field)
+integer          :: field_count  (max_num_field)
 
 !---------------------------------------------------------------------
 !    variables defining output formats.
@@ -1240,7 +1240,7 @@ type (time_type), intent(in) :: Time
                  ('diag_integral_mod',  &
                   'field_count not a multiple of field_size. ' // &
                   'field_name is ' // trim( field_name(i)) // &
-                  ' field_size=' // trim(string(field_size)) // &
+                  ', field_size=' // trim(string(field_size)) // &
                   ', field_count=' // trim(string(field_count(i))), FATAL )
 
 !----------------------------------------------------------------------
