@@ -1,4 +1,4 @@
-                     module diag_integral_mod
+module diag_integral_mod
 ! <CONTACT EMAIL="Fei.Liu@noaa.gov">
 !  fil
 ! </CONTACT>
@@ -12,6 +12,12 @@
 ! <DESCRIPTION>
 ! </DESCRIPTION>
 
+!! TODO: (ROB KING)
+!! So not to throw too much shade but i think this module is a bit poop
+!! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if the output_interval is not set. 
+!! If one wanted to do this properly then ideally every timestep the integrals should be calculated rather than let them accumulate.  
+!! thoughts... How is AM4 doing this? 
+!! 
 !  shared modules:
 
 use time_manager_mod, only:  time_type, get_time, set_time,  &
@@ -159,7 +165,7 @@ integer                     :: num_field = 0
 character(len=max_len_name) :: field_name   (max_num_field)
 character(len=16)           :: field_format (max_num_field)
 real                        :: field_sum    (max_num_field)
-integer                     :: field_count  (max_num_field)
+integer(kind=8)             :: field_count  (max_num_field)
 
 !---------------------------------------------------------------------
 !    variables defining output formats.
@@ -966,6 +972,9 @@ type (time_type), intent(in) :: Time
 !    output during the model run) call write_field_averages to output
 !    the integrals valid over the entire period of integration. 
 !---------------------------------------------------------------------
+      !! TODO: Fix bug here, if time is large or resolution large, then this can easily lead to an integer overflow!
+      !! My thought (Rob K) is that if the alarm interval is unset and there is no file name reqested then writing the field averages is not desired.
+      !! The only other thought would be to promote the field_count array to a 8-byte integer. That should probably be done anyway...
       if (Alarm_interval == Zero_time ) then  
 !       if (Alarm_interval /= Zero_time ) then  
 !       else
@@ -1230,7 +1239,8 @@ type (time_type), intent(in) :: Time
           call error_mesg &
                  ('diag_integral_mod',  &
                   'field_count not a multiple of field_size. ' // &
-                  'field_size=' // trim(string(field_size)) // &
+                  'field_name is ' // trim( field_name(i)) // &
+                  ' field_size=' // trim(string(field_size)) // &
                   ', field_count=' // trim(string(field_count(i))), FATAL )
 
 !----------------------------------------------------------------------
@@ -1267,6 +1277,8 @@ type (time_type), intent(in) :: Time
         if (diag_unit /= 0) then
           write (diag_unit,format_data(1:nd)) &
                  xtime, (field_avg(i),i=nst,nend)
+          ! flush buffer
+          flush(diag_unit)
         else
           write (*, format_data(1:nd)) &
                  xtime, (field_avg(i),i=nst,nend)
@@ -1685,5 +1697,5 @@ real, dimension (size(data,1),size(data,2)) :: data2
 
 
 
-                    end module diag_integral_mod
+end module diag_integral_mod
 
