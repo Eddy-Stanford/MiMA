@@ -1,0 +1,31 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: MiMA
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Martin
+    family-names: Jucker
+  - given-names: Gerber
+    family-names: Edwin
+  - given-names: Ian
+    family-names: White
+  - given-names: Dominic
+    family-names: Orchard
+  - given-names: Jack
+    family-names: Atkinson
+  - given-names: Simon
+    family-names: Clifford
+  - given-names: Robert C.
+    family-names: King
+repository-code: 'https://github.com/Eddy-Stanford/MiMA'
+url: 'http://mjucker.github.io/MiMA/'
+keywords:
+  - GCM
+  - Model of an Idealized Moist Atmosphere
+license: GPL-3.0
+version: 1.2.2
