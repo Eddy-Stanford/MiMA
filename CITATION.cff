@@ -10,8 +10,8 @@ type: software
 authors:
   - given-names: Martin
     family-names: Jucker
-  - given-names: Gerber
-    family-names: Edwin
+  - given-names: Edwin
+    family-names: Gerber
   - given-names: Ian
     family-names: White
   - given-names: Dominic
