@@ -166,12 +166,14 @@ real    :: damping_coeff       = 1.15740741e-4, & ! (one tenth day)**-1
      reference_sea_level_press =  101325. , &
            water_correction_limit = 0.e2 !mj
 
+
+
 !epg+ray: this next namelist variable allows you to upload initial conditions
 !         u,v,T, ps, and q must be specified (as: ucomp, vcomp, temp, ps, and sphum, respecitively)
 !         in a netcdf file called "initial_conditions.nc" and placed in the INPUT/ directory
 logical :: specify_initial_conditions = .false.
 
-
+real :: add_noise=-1. ! Additional noise to add to the temperature field. 
 
 !===============================================================================================
 
@@ -189,7 +191,7 @@ namelist /spectral_dynamics_nml/ use_virtual_temperature, damping_option,       
                                  p_press, p_sigma, exponent, ocean_topog_smoothing, initial_sphum,   &
                                  valid_range_t, eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff, &
                                  print_interval, num_steps,                                          &
-                                 water_correction_limit, specify_initial_conditions        !mj + epg
+                                 water_correction_limit, specify_initial_conditions, add_noise        !mj + epg
 
 contains
 
@@ -479,6 +481,7 @@ character(len=4) :: ch1,ch2,ch3,ch4,ch5,ch6
 
 ! epg+ray: for loading the initial tracer distribution (after Lorenzo Polvani's code for doing this)
 real, allocatable,dimension(:,:,:) :: lmptmp
+real :: thmlnoise
 integer :: ncid,vid,err,counts(3)
 ! ------
 
@@ -611,6 +614,16 @@ else
     spec_tracers(:,:,:,2,ntr) = spec_tracers(:,:,:,1,ntr)
   enddo
 endif
+
+if (add_noise .gt. 0.0) then
+  !! add thermal noise 
+  !! print message
+  write(*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
+  do k=1,num_levels; do n=ns,ne; do m=ms,me
+    call random_number(thmlnoise)
+    ts(m,n,k,2) = ts(m,n,k,2) + add_noise*thmlnoise
+  enddo;enddo;enddo
+endif 
 
 return
 end subroutine read_restart_or_do_coldstart
