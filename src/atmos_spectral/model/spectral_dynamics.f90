@@ -621,7 +621,7 @@ if (add_noise .gt. 0.0) then
   write(*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
   do k=1,num_levels; do n=ns,ne; do m=ms,me
     call random_number(thmlnoise)
-    ts(m,n,k,2) = ts(m,n,k,2) + add_noise*thmlnoise
+    tg(m,n,k,2) = tg(m,n,k,2) + add_noise*thmlnoise
   enddo;enddo;enddo
 endif 
 
