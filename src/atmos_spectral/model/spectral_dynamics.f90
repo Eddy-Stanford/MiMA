@@ -618,11 +618,19 @@ endif
 if (add_noise .gt. 0.0) then
   !! add thermal noise 
   !! print message
+  ! call random_seed
   write(*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
-  do k=1,num_levels; do n=ns,ne; do m=ms,me
-    call random_number(thmlnoise)
-    tg(m,n,k,2) = tg(m,n,k,2) + add_noise*thmlnoise
-  enddo;enddo;enddo
+  do k=1,num_levels
+    do n=ns,3
+      do m=ms,3
+        call random_number(thmlnoise)
+        thmlnoise = 2*thmlnoise - 1.0 ! make random number between -1 and 1
+        ts(m,n,k,:) = ts(m,n,k,:) + cmplx(add_noise*thmlnoise,0.0)
+      enddo
+    enddo
+  enddo
+  call trans_spherical_to_grid(ts(:,:,:,1), tg(:,:,:,1))
+  call trans_spherical_to_grid(ts(:,:,:,2), tg(:,:,:,2))
 endif 
 
 return
