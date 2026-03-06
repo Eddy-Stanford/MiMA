@@ -621,8 +621,8 @@ if (add_noise .gt. 0.0) then
   ! call random_seed
   write(*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
   do k=1,num_levels
-    do n=ns,3
-      do m=ms,3
+    do n=ns,20
+      do m=ms,20
         call random_number(thmlnoise)
         thmlnoise = 2*thmlnoise - 1.0 ! make random number between -1 and 1
         ts(m,n,k,:) = ts(m,n,k,:) + cmplx(add_noise*thmlnoise,0.0)
