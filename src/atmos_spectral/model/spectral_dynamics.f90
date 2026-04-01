@@ -176,7 +176,8 @@ logical :: specify_initial_conditions = .false.
 real :: add_noise=-1. ! Additional noise to add to the temperature field. 
 
 !===============================================================================================
-
+integer :: noise_spectral_cutoff_minimum = 1
+integer :: noise_spectral_cutoff_maximum = 20
 real, dimension(2) :: valid_range_t = (/ 100.,500./)
 
 namelist /spectral_dynamics_nml/ use_virtual_temperature, damping_option,                            &
@@ -191,6 +192,7 @@ namelist /spectral_dynamics_nml/ use_virtual_temperature, damping_option,       
                                  p_press, p_sigma, exponent, ocean_topog_smoothing, initial_sphum,   &
                                  valid_range_t, eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff, &
                                  print_interval, num_steps,                                          &
+                                 noise_spectral_cutoff_minimum, noise_spectral_cutoff_maximum, &
                                  water_correction_limit, specify_initial_conditions, add_noise        !mj + epg
 
 contains
@@ -618,11 +620,11 @@ endif
 if (add_noise .gt. 0.0) then
   !! add thermal noise 
   !! print message
-  ! call random_seed
+  !! call random_seed
   write(*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
   do k=1,num_levels
-    do n=ns,20
-      do m=ms,20
+    do n=ns,20 ! TODO: Make this a variable or fixed offset from the max truncation
+      do m=ms,20 ! TODO: Make this a variable or fixed offset from the max truncation
         call random_number(thmlnoise)
         thmlnoise = 2*thmlnoise - 1.0 ! make random number between -1 and 1
         ts(m,n,k,:) = ts(m,n,k,:) + cmplx(add_noise*thmlnoise,0.0)
