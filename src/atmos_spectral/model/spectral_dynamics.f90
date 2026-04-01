@@ -486,7 +486,7 @@ contains
 
 ! epg+ray: for loading the initial tracer distribution (after Lorenzo Polvani's code for doing this)
       real, allocatable,dimension(:,:,:) :: lmptmp
-      real :: thmlnoise
+
       integer :: ncid,vid,err,counts(3)
 ! ------
 
@@ -580,21 +580,21 @@ contains
          do ntr = 1,num_tracers
             if(trim(tracer_attributes(ntr)%name) == 'sphum') then
                if(specify_initial_conditions) then
-                  !epg+ray: This loads in sphum from the file initial_conditions.nc
+!epg+ray: This loads in sphum from the file initial_conditions.nc
                   if (.not.file_exist('INPUT/initial_conditions.nc')) then
                      call error_mesg('spectral_initialize_fields','Could not find INPUT/initial_conditions.nc!',FATAL)
                   endif
 
-                  ! open up the netcdf file`
+! open up the netcdf file`
                   ncid = ncopn('INPUT/initial_conditions.nc',NCNOWRIT,err)
-                  ! This array tells us the size of input variables.
+! This array tells us the size of input variables.
                   counts(1) = size(grid_tracers,1)
                   counts(2) = size(grid_tracers,2)
                   counts(3) = size(grid_tracers,3)
-                  ! Allocate space to put the initial condition information, temporarily.
+! Allocate space to put the initial condition information, temporarily.
                   allocate(lmptmp(counts(1),counts(2),counts(3)))
 
-                  ! load sphum, if it has been specified.  Otherwise write error and break.
+! load sphum, if it has been specified.  Otherwise write error and break.
                   vid = ncvid(ncid,'sphum',err)
                   if(err == 0) then
                      call ncvgt(ncid,vid,(/is,js,1/),counts,lmptmp,err)
@@ -621,27 +621,43 @@ contains
       endif
 
       if (add_noise .gt. 0.0) then
-         !! add thermal noise
-         !! print message
-         !! call random_seed
-         write(*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
-         do k=1,num_levels
-            ! thought, here we are using the same cutoffs for the spherical and the fourier modes but they could be different
-            ! also note we NEVER want to inject noise at the highest wavenumbers as this leads to numerical instability.
-            do n=max(ns,noise_spectral_cutoff_minimum),min(ne-1,noise_spectral_cutoff_maximum)
-               do m=max(ms,noise_spectral_cutoff_minimum),min(me-1,noise_spectral_cutoff_maximum)
-                  call random_number(thmlnoise)
-                  thmlnoise = 2*thmlnoise - 1.0 ! make random number between -1 and 1
-                  ts(m,n,k,:) = ts(m,n,k,:) + cmplx(add_noise*thmlnoise,0.0)
-               enddo
-            enddo
-         enddo
-         call trans_spherical_to_grid(ts(:,:,:,1), tg(:,:,:,1))
-         call trans_spherical_to_grid(ts(:,:,:,2), tg(:,:,:,2))
+        call add_noise_to_ics
       endif
 
       return
    end subroutine read_restart_or_do_coldstart
+
+   subroutine add_noise_to_ics()
+      real :: thmlnoise
+      integer :: seedn ! length of default seed
+      integer :: k, n, m ! loop variables
+      integer, allocatable :: seed(:)
+    
+      if (add_noise_seed .ge. 0) then
+        call random_seed(size=seedn)
+        allocate(seed(seedn))
+        seed = add_noise_seed + 1  ! add 1 to avoid seed of 0, which some implementations treat as a special case
+        call random_seed(put=seed)
+      endif 
+      !! add thermal noise
+      !! print message
+      write(*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
+      do k=1,num_levels
+         ! thought, here we are using the same cutoffs for the spherical and the fourier modes but they could be different
+         ! also note we NEVER want to inject noise at the highest wavenumbers as this leads to numerical instability.
+         do n=max(ns,noise_spectral_cutoff_minimum),min(ne-1,noise_spectral_cutoff_maximum)
+            do m=max(ms,noise_spectral_cutoff_minimum),min(me-1,noise_spectral_cutoff_maximum)
+               call random_number(thmlnoise)
+               thmlnoise = 2*thmlnoise - 1.0 ! make random number between -1 and 1
+               ts(m,n,k,:) = ts(m,n,k,:) + cmplx(add_noise*thmlnoise,0.0)
+            enddo
+         enddo
+      enddo
+      call trans_spherical_to_grid(ts(:,:,:,1), tg(:,:,:,1))
+      call trans_spherical_to_grid(ts(:,:,:,2), tg(:,:,:,2))
+
+   endsubroutine add_noise_to_ics
+
 !===============================================================================================
 
    subroutine allocate_fields
