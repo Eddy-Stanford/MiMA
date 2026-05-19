@@ -103,7 +103,7 @@ module rrtm_astro
                   FATAL)
             endif
 
-            radpersec=2*PI/86400.
+            radpersec=-2*PI/86400.
             radperday=2*PI/daysperyear
 
             !get the time for origin
