@@ -13,7 +13,7 @@ The newest changes should be on the top of this list.
 
 Maintained at [Eddy-Stanford/MiMA](https://github.com/Eddy-Stanford/MiMA).
 
-* Unreleased: Documentation reorganised and updated for the CMake build. Outdated Apptainer definition `mima.def` removed. Python is no longer a build dependency. The `postprocessing/` directory (`mppnccombine`, `plevel_interpolation`, `output_to_input.py`) and the `BUILD_COMBINE` CMake option were removed. Use `mppnccombine` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) instead.
+* Unreleased: Documentation reorganised and updated for the CMake build. Outdated Apptainer definition `mima.def` removed. Python is no longer a build dependency. The `postprocessing/` directory (`mppnccombine`, `plevel_interpolation`, `output_to_input.py`) and the `BUILD_COMBINE` CMake option were removed. Use `mppnccombine` and `plevel.sh` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) instead.
 * v1.2.5 (March 2026): Improved initial-condition noise. `add_noise_seed`, `noise_spectral_cutoff_minimum` and `noise_spectral_cutoff_maximum` added to `spectral_dynamics_nml`. See [Adding noise to the initial conditions](Configurations.md#adding-noise-to-the-initial-conditions).
 * v1.2.3 – v1.2.4 (February 2026): `add_noise` option in `spectral_dynamics_nml` adds random thermal noise to the temperature field at start-up. Development container fixed.
 * v1.2.2 (January 2026): `diag_integral` flushes its output buffer and gives more helpful error messages. `CITATION.cff` added.

@@ -6,6 +6,7 @@ This page explains how to compile MiMA and run the test case that ships with the
 
 * [Downloading the source](#downloading-the-source)
 * [Dependencies](#dependencies)
+  * [Installing FRE-NCtools](#installing-fre-nctools)
 * [Compiling](#compiling)
 * [Running the test case](#running-the-test-case)
 * [Output](#output)
@@ -33,7 +34,7 @@ MiMA needs:
 * CMake ≥ 3.16
 * OpenMP support in the Fortran compiler
 
-To combine the output files you will also want `mppnccombine` (see [Output](#output)).
+To combine the per-processor output files you will also need `mppnccombine` from FRE-NCtools, which is installed separately (see [Installing FRE-NCtools](#installing-fre-nctools)).
 
 Typical ways to install them:
 
@@ -44,6 +45,30 @@ Typical ways to install them:
 | HPC cluster | load the equivalent modules, e.g. `module load gcc openmpi netcdf-c netcdf-fortran cmake` (names vary between systems) |
 
 CMake finds netCDF using `nc-config`/`nf-config` on your `PATH`. If netCDF is installed somewhere non-standard, point CMake at it by setting `NetCDF_ROOT` (or `NetCDF_C_ROOT` and `NetCDF_Fortran_ROOT` if they are installed separately), either as an environment variable or with `-DNetCDF_ROOT=/path/to/netcdf`.
+
+### Installing FRE-NCtools
+
+MiMA writes one output file per MPI process (see [Output](#output)). You join them with `mppnccombine`, which is part of NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) and is not included with MiMA. FRE-NCtools also provides `plevel.sh` for interpolating output to pressure levels.
+
+FRE-NCtools needs the same compilers and netCDF libraries as MiMA, plus `autoconf` and `automake` (`brew install autoconf automake` on macOS, `sudo apt install autoconf automake` on Ubuntu/Debian). Build it from source and install it into, for example, `~/fre-nctools`:
+
+```bash
+git clone --branch 2026.01.01 https://github.com/NOAA-GFDL/FRE-NCtools.git
+cd FRE-NCtools
+autoreconf -i
+mkdir build && cd build
+../configure --prefix=$HOME/fre-nctools
+make -j 8
+make install
+```
+
+`2026.01.01` is the latest release at the time of writing; see the [FRE-NCtools releases](https://github.com/NOAA-GFDL/FRE-NCtools/releases) for newer ones. Then add the tools to your `PATH` (e.g. in `~/.bashrc` or `~/.zshrc`):
+
+```bash
+export PATH=$HOME/fre-nctools/bin:$PATH
+```
+
+Check that it worked with `which mppnccombine`. On HPC systems, check whether FRE-NCtools is already provided as a module (e.g. `module avail fre-nctools`). See the [FRE-NCtools README](https://github.com/NOAA-GFDL/FRE-NCtools#readme) for more build options.
 
 ### Using the container
 
@@ -128,7 +153,7 @@ The test run is one 360-day year (12 months of 30 days) with the following setup
 
 ## Output
 
-MiMA writes one output file per MPI process for each file listed in `diag_table`, e.g. `atmos_daily.nc.0000`, `atmos_daily.nc.0001`, …. Each file holds a band of latitudes. Combine them into a single netCDF file with `mppnccombine`, which is part of NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) (it is not included with MiMA):
+MiMA writes one output file per MPI process for each file listed in `diag_table`, e.g. `atmos_daily.nc.0000`, `atmos_daily.nc.0001`, …. Each file holds a band of latitudes. Combine them into a single netCDF file with `mppnccombine` (see [Installing FRE-NCtools](#installing-fre-nctools)):
 
 ```bash
 for f in atmos_daily atmos_avg atmos_davg atmos_dext; do
@@ -147,7 +172,13 @@ The test case produces:
 | `atmos_davg.nc` | daily-mean surface temperature and precipitation |
 | `atmos_dext.nc` | daily maximum/minimum surface temperature and maximum precipitation |
 
-The output is on the model's hybrid sigma levels. The pressure at the level interfaces is `pk + bk * ps`, which is why the test case writes `pk`, `bk` and `ps` to `atmos_daily`. Use these to interpolate to pressure levels in your analysis tools.
+The output is on the model's hybrid sigma levels. To interpolate it to pressure levels, use `plevel.sh` from FRE-NCtools on a combined file:
+
+```bash
+plevel.sh -a -i atmos_daily.nc -o atmos_daily_plev.nc
+```
+
+`-a` interpolates all fields. By default the output is on 17 standard levels from 1000 to 10 hPa; use `-p "100000 85000 ..."` to choose your own levels (in Pa). Run `plevel.sh` without arguments for all options. The interpolation needs `pk`, `bk` and `ps` in the file, which is why the test case writes them to `atmos_daily` (the pressure at the level interfaces is `pk + bk * ps`).
 
 ## Restarting a run
 

@@ -6,7 +6,7 @@ Full documentation is in the [`docs/`](docs/) folder and online at <https://eddy
 
 ## Quick start
 
-You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries), CMake ≥ 3.16, and OpenMP. See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
+You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries), CMake ≥ 3.16, and OpenMP. To combine the output you also need [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools). See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
 
 Compile, and create a ready-to-run test case in `exec/`:
 
@@ -26,7 +26,7 @@ ulimit -s unlimited   # on macOS use: ulimit -s hard
 mpirun -n 4 ./mima
 ```
 
-MiMA writes one output file per MPI process. Combine them with `mppnccombine` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools):
+MiMA writes one output file per MPI process. Combine them with `mppnccombine` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools), which you install separately ([instructions](docs/GettingStarted.md#installing-fre-nctools)):
 
 ```bash
 for f in atmos_daily atmos_avg atmos_davg atmos_dext; do mppnccombine -r $f.nc $f.nc.????; done
