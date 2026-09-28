@@ -32,15 +32,16 @@ MiMA needs:
 * netCDF, **both** the C library and the Fortran library (`netcdf-c` and `netcdf-fortran`)
 * CMake ≥ 3.16
 * OpenMP support in the Fortran compiler
-* Python 3 with development headers (CMake looks for these at configure time)
+
+To combine the output files you will also want `mppnccombine` (see [Output](#output)).
 
 Typical ways to install them:
 
 | Platform | Command |
 |---|---|
-| macOS (Homebrew) | `brew install gcc open-mpi netcdf netcdf-fortran cmake python` |
-| Ubuntu / Debian | `sudo apt install gfortran libopenmpi-dev openmpi-bin libnetcdf-dev libnetcdff-dev cmake python3-dev` |
-| HPC cluster | load the equivalent modules, e.g. `module load gcc openmpi netcdf-c netcdf-fortran cmake python` (names vary between systems) |
+| macOS (Homebrew) | `brew install gcc open-mpi netcdf netcdf-fortran cmake` |
+| Ubuntu / Debian | `sudo apt install gfortran libopenmpi-dev openmpi-bin libnetcdf-dev libnetcdff-dev cmake` |
+| HPC cluster | load the equivalent modules, e.g. `module load gcc openmpi netcdf-c netcdf-fortran cmake` (names vary between systems) |
 
 CMake finds netCDF using `nc-config`/`nf-config` on your `PATH`. If netCDF is installed somewhere non-standard, point CMake at it by setting `NetCDF_ROOT` (or `NetCDF_C_ROOT` and `NetCDF_Fortran_ROOT` if they are installed separately), either as an environment variable or with `-DNetCDF_ROOT=/path/to/netcdf`.
 
@@ -53,27 +54,26 @@ If you would rather not install the dependencies yourself, a development contain
 MiMA is built with CMake. From the top of the repository:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DINSTALL_EXEC=ON -DBUILD_COMBINE=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DINSTALL_EXEC=ON
 cmake --build build -j 8
 cmake --install build
 ```
 
-The first command configures the build in the `build/` directory, the second compiles (using 8 parallel jobs), and the third installs the executables. The build produces the model executable `build/mima`.
+The first command configures the build in the `build/` directory, the second compiles (using 8 parallel jobs), and the third installs the executable. The build produces the model executable `build/mima`.
 
 The CMake options are:
 
 | Option | Default | Meaning |
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | `Debug` | Use `Release` for production runs (enables compiler optimisation). `Debug` builds are much slower. |
-| `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executables are installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
-| `BUILD_COMBINE` | `OFF` | Also build `mppnccombine`, which joins the per-processor output files. You almost certainly want this. |
+| `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
 
 ### Choosing the compiler
 
 CMake picks up the compilers from the `FC` and `CC` environment variables. The GNU and Intel compilers are both supported, and the correct compiler flags are chosen automatically. To use the Intel compilers, for example:
 
 ```bash
-FC=ifx CC=icx cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DINSTALL_EXEC=ON -DBUILD_COMBINE=ON
+FC=ifx CC=icx cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DINSTALL_EXEC=ON
 ```
 
 If you change compilers, delete the `build/` directory first so CMake starts afresh.
@@ -85,7 +85,6 @@ With `-DINSTALL_EXEC=ON`, `cmake --install build` creates a run directory `exec/
 ```
 exec/
 ├── mima            # model executable
-├── mppnccombine    # output combiner (if BUILD_COMBINE=ON)
 ├── input.nml       # namelists: all model parameters
 ├── diag_table      # which diagnostics to write, and how often
 ├── field_table     # tracers to advect
@@ -129,15 +128,15 @@ The test run is one 360-day year (12 months of 30 days) with the following setup
 
 ## Output
 
-MiMA writes one output file per MPI process for each file listed in `diag_table`, e.g. `atmos_daily.nc.0000`, `atmos_daily.nc.0001`, …. Combine them into a single netCDF file with `mppnccombine`:
+MiMA writes one output file per MPI process for each file listed in `diag_table`, e.g. `atmos_daily.nc.0000`, `atmos_daily.nc.0001`, …. Each file holds a band of latitudes. Combine them into a single netCDF file with `mppnccombine`, which is part of NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) (it is not included with MiMA):
 
 ```bash
 for f in atmos_daily atmos_avg atmos_davg atmos_dext; do
-    ./mppnccombine -r $f.nc $f.nc.????
+    mppnccombine -r $f.nc $f.nc.????
 done
 ```
 
-The `-r` flag removes the per-process files once they've been combined successfully.
+The `-r` flag removes the per-process files once they've been combined successfully. Run `mppnccombine` without arguments for its other options.
 
 The test case produces:
 
@@ -148,7 +147,7 @@ The test case produces:
 | `atmos_davg.nc` | daily-mean surface temperature and precipitation |
 | `atmos_dext.nc` | daily maximum/minimum surface temperature and maximum precipitation |
 
-See [Postprocessing](Postprocessing.md) for interpolating the output to pressure levels.
+The output is on the model's hybrid sigma levels. The pressure at the level interfaces is `pk + bk * ps`, which is why the test case writes `pk`, `bk` and `ps` to `atmos_daily`. Use these to interpolate to pressure levels in your analysis tools.
 
 ## Restarting a run
 
