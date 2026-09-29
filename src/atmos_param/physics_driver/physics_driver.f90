@@ -250,7 +250,6 @@ integer, dimension(5) :: restart_versions = (/ 1, 2, 3, 4, 5 /)
 !                   physics_driver_down on the next step.
 !----------------------------------------------------------------------
 real,    dimension(:,:,:), allocatable :: diff_t, diff_m
-real,    dimension(:,:)  , allocatable :: pbltop     
    
 !---------------------------------------------------------------------
 !    internal timing clock variables:
@@ -512,7 +511,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !---------------------------------------------------------------------
       allocate ( diff_t     (id, jd, kd) )
       allocate ( diff_m     (id, jd, kd) )
-      allocate ( pbltop     (id, jd) )
        
 !--------------------------------------------------------------------
 !    obtain initial values for the module variables from the restart
@@ -523,7 +521,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
       else
          diff_t      = 0.0
          diff_m      = 0.0
-         pbltop      = -999.0
       endif
 
 !---------------------------------------------------------------------
@@ -945,14 +942,13 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !    call damping_driver to calculate the various model dampings that
 !    are desired. 
 !----------------------------------------------------------------------
-      z_pbl(:,:) = pbltop(is:ie,js:je) 
       if(do_damping) then
         call mpp_clock_begin ( damping_clock )
         call damping_driver (is, js, lat, Time_next, dt,           &
                              p_full, p_half, z_full, z_half,          &
                              um, vm, tm, qm, rm(:,:,:,1:ntp), &
                              udt, vdt, tdt, qdt, rdt,&
-                             z_pbl , mask=mask, kbot=kbot)
+                             mask=mask, kbot=kbot)
        call mpp_clock_end ( damping_clock )
      endif
 
@@ -969,7 +965,6 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
                              diff_t_vert, diff_m_vert, gust, z_pbl,  &
                              mask=mask, kbot=kbot             )
      call mpp_clock_end ( turb_clock )
-     pbltop(is:ie,js:je) = z_pbl(:,:)
 
      
 !-----------------------------------------------------------------------
@@ -1394,7 +1389,6 @@ type(time_type), intent(in) :: Time
       !--------------------------------------------------------------------
       !    write out the data fields that are relevant for this experiment.
       !--------------------------------------------------------------------
-      call write_data (fname, 'pbltop', pbltop)
       call write_data (fname, 'diff_t', diff_t)
       call write_data (fname, 'diff_m', diff_m)
 !--------------------------------------------------------------------
@@ -1412,7 +1406,7 @@ type(time_type), intent(in) :: Time
 !---------------------------------------------------------------------
 !    deallocate the module variables.
 !---------------------------------------------------------------------
-      deallocate (diff_t, diff_m, pbltop)
+      deallocate (diff_t, diff_m)
  
 !---------------------------------------------------------------------
 !    mark the module as uninitialized.
@@ -1486,11 +1480,6 @@ subroutine read_restart_nc
          if(mpp_pe() == mpp_root_pe()) call mpp_error ('physics_driver_mod', &
             'Reading NetCDF formatted restart file: INPUT/physics_driver.res.nc', NOTE)
          call read_data(fname, 'vers', vers, no_domain=.true.)
-!---------------------------------------------------------------------
-!    pbl top is present in file versions 2 and up. if not present,
-!    set a flag.
-!---------------------------------------------------------------------
-         call read_data (fname, 'pbltop', pbltop)
 
 !---------------------------------------------------------------------
 !    the temperature and momentum diffusion coefficients are present

@@ -20,7 +20,6 @@ module damping_driver_mod
 
  use      mg_drag_mod, only:  mg_drag, mg_drag_init, mg_drag_end
  use      cg_drag_mod, only:  cg_drag_init, cg_drag_calc, cg_drag_end
- use    topo_drag_mod, only:  topo_drag_init, topo_drag, topo_drag_end
  use          fms_mod, only:  file_exist, mpp_pe, mpp_root_pe, stdlog, &
                               write_version_number, &
                               open_namelist_file, error_mesg, &
@@ -49,7 +48,6 @@ module damping_driver_mod
 ! mj actively choose rayleigh friction
    logical  :: do_rayleigh = .false.
    logical  :: do_cg_drag = .false.
-   logical  :: do_topo_drag = .false.
    logical  :: do_const_drag = .false.
    real     :: const_drag_amp = 3.e-04
    real     :: const_drag_off = 0.
@@ -57,7 +55,7 @@ module damping_driver_mod
 
    namelist /damping_driver_nml/  trayfric,  &
                                   do_rayleigh, sponge_pbottom,  & ! mj
-                                  do_cg_drag, do_topo_drag, &
+                                  do_cg_drag, &
                                   do_mg_drag, do_conserve_energy, &
                                   do_const_drag, const_drag_amp,const_drag_off    !mj
 
@@ -84,7 +82,7 @@ integer :: id_udt_rdamp,  id_vdt_rdamp,   &
 integer :: id_tdt_diss_rdamp,  id_diss_heat_rdamp, &
            id_tdt_diss_gwd,    id_diss_heat_gwd
 
-integer :: id_udt_topo,   id_vdt_topo,   id_taubx,  id_tauby
+integer :: id_taubx,  id_tauby
 
 !----- missing value for all fields ------
 
@@ -117,8 +115,7 @@ contains
 
  subroutine damping_driver (is, js, lat, Time, delt, pfull, phalf, zfull, zhalf, &
                             u, v, t, q, r,  udt, vdt, tdt, qdt, rdt,  &
-!                                   mask, kbot)
-                            z_pbl,  mask, kbot)
+                            mask, kbot)
 
 !-----------------------------------------------------------------------
  integer,         intent(in)                :: is, js
@@ -131,7 +128,6 @@ contains
  real,    intent(in),    dimension(:,:,:,:) :: r
  real,    intent(inout), dimension(:,:,:)   :: udt,vdt,tdt,qdt
  real,    intent(inout), dimension(:,:,:,:) :: rdt
- real, dimension(:,:), intent(in)           :: z_pbl
  real,    intent(in),    dimension(:,:,:), optional :: mask
  integer, intent(in),    dimension(:,:),   optional :: kbot
 
@@ -145,8 +141,7 @@ contains
 
  real, dimension(size(udt,1),size(udt,2),size(udt,3)+1) :: p_pass, &
                                                             t_pass
- integer :: k, j, i, locmax(3)
- real :: a,b
+ integer :: k, j, i
 !-----------------------------------------------------------------------
 !mj constant drag TOA
  real :: minp,cosday
@@ -293,52 +288,6 @@ contains
                           rmask=mask )
      endif
    endif
-
-!-----------------------------------------------------------------------
-!---------topographic   w a v e   d r a g -------------------
-!-----------------------------------------------------------------------
-   if (do_topo_drag) then
-
-    call topo_drag ( is, js, u, v, t, pfull, phalf, zfull, zhalf,  &
-!               taubx, tauby, utnd, vtnd,taus)
-                z_pbl, taubx, tauby, utnd, vtnd,taus)
-
-     b = maxval(abs(utnd))
-     locmax = maxloc(abs(utnd))
-
-
-     udt = udt + utnd
-     vdt = vdt + vtnd
-
-
-!----- diagnostics -----
-
-    if ( id_udt_topo > 0 ) then
-       used = send_data ( id_udt_topo, utnd, Time, is, js, 1, &
-                          rmask=mask )
-    endif
-
-    if ( id_vdt_topo > 0 ) then
-         used = send_data ( id_vdt_topo, vtnd, Time, is, js, 1, &
-                         rmask=mask )
-   endif
-
-     if ( id_taubx > 0 ) then
-       used = send_data ( id_taubx, taubx, Time, is, js )
-     endif
-
-     if ( id_tauby > 0 ) then
-        used = send_data ( id_tauby, tauby, Time, is, js )
-      endif
-
-     if ( id_taus > 0 ) then
-      used = send_data ( id_taus, taus, Time, is, js, 1, &
-                          rmask=mask )
-     endif
-
-
-
- endif
 
 !-----------------------------------------------------------------------
 
@@ -503,46 +452,6 @@ endif
    endif
 
 
-!-----------------------------------------------------------------------
-!----- topo wave drag -----
-
-
-
-  if (do_topo_drag) then
-          call topo_drag_init (lonb, latb, ierr)
-          sgsmtn(:,:) = -99999.
-  endif
-
-
-
-  if (do_topo_drag) then
-
-   id_udt_topo = &
-   register_diag_field ( mod_name, 'udt_topo', axes(1:3), Time,        &
-                       'u wind tendency for topo wave drag', 'm/s2', &
-                        missing_value=missing_value               )
-
-  id_vdt_topo = &
-   register_diag_field ( mod_name, 'vdt_topo', axes(1:3), Time,        &
-                       'v wind tendency for topo wave drag', 'm/s2', &
-                         missing_value=missing_value               )
-
-   id_taubx = &
-   register_diag_field ( mod_name, 'taubx', axes(1:2), Time,        &
-                     'x base flux for topo wave drag', 'kg/m/s2', &
-                        missing_value=missing_value               )
-
-    id_tauby = &
-    register_diag_field ( mod_name, 'tauby', axes(1:2), Time,        &
-                    'y base flux for topo wave drag', 'kg/m/s2', &
-                      missing_value=missing_value )
-
-    id_taus = &
-   register_diag_field ( mod_name, 'taus', axes(1:3), Time,        &
-                  'saturation flux for topo wave drag', 'kg/m/s2', &
-                     missing_value=missing_value               )
-
- endif
 
 
 
@@ -562,7 +471,6 @@ endif
 
      if (do_mg_drag) call mg_drag_end
      if (do_cg_drag)   call cg_drag_end
-     if (do_topo_drag) call topo_drag_end
 
      module_is_initialized =.false.
 

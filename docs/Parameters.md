@@ -478,7 +478,6 @@ Parameters are described in `atmos_param/damping_driver/damping_driver.f90` and 
  sponge_bottom | 50 | [Pa] bottom of Rayleigh friction layer (sponge)
  do_mg_drag | .false. | mountain gravity wave scheme (not tested!)
  do_cg_drag | .false. | non-orographic gravity wave scheme (under development)
- do_topo_drag | .false. | topographic drag scheme (not tested!)
  do_const_drag | .false. | constant "gravity wave" scheme (not tested!)
  do_conserve_energy | .false. | account for heat release due to momentum loss?
 
