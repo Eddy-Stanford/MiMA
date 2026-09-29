@@ -88,7 +88,6 @@ Namelist `moist_processes_nml`
  do_mca | .false. | Do moist convective adjustment
  do_lsc | .true. | Do large scale condensation
  do_bm  | .true. | Do Betts-Miller convetion
- use_df_stuff | .true. | When true, specific humidity = (rdgas/rvgas)*esat/pressure
 
 Namelist `betts_miller_nml`
 
@@ -102,14 +101,12 @@ Namelist `moist_conv_nml` is only touched to make sure moisture handling is cons
 
  Variable | Recommended Value | Meaning
  :--- | :---: | :---
- use_df_stuff | .true. | Make everything consistent with above `use_df_stuff`
 
 Namelist `lscale_cond_nml`: We want to re-evaporate outfalling precipitation if any of the layers below are sub-saturated.
 
  Variable | Recommended Value | Meaning
  :--- | :---: | :---
  do_evap | .true. | re-evaporate in below sub-saturated layers (if any)
- use_df_stuff | .true. | Make everything consistent
  
  
 ### Radiation
@@ -148,7 +145,6 @@ Variable | Recommended Value | Meaning
  :--- | :---: | :---
  use_virtual_temp | .false. | for consistency with df_stuff
  old_dtaudv       | .true. | use alternative d(stress)/d(wind component)
- use_df_stuff     | .true. | for consistency with df_stuff
  no_surface_momentum_flux  | .false. | use to turn off surface momentum fluxes
  no_surface_moisture_flux  | .false. | use to turn off surface moisture fluxes
  no_surface_heat_flux      | .false. | use to turn off surface heat fluxes
@@ -160,7 +156,6 @@ Namelist `diffusivity_nml`
 Variable | Recommended Value | Meaning
  :--- | :---: | :---
 do_entrain          | .false. | don't account for entrainment (which is off anyway)
-use_df_stuff        | .true. | for consistency with df_stuff
 
 
 ### Vertical numerics
@@ -292,7 +287,6 @@ The moist processes parameters are set in `atmos_param/moist_processes/moist_pro
  use_tau | .false. | Use current time values? (future time if .false.)
  do_gust_cv | .false. | Do convective gustiness?
  do_bm  | .false. | Do Betts-Miller convetion?
- use_df_stuff | .false. | When true, specific humidity = (rdgas/rvgas)*esat/pressure
  
  
 #### Betts-Miller 
@@ -317,7 +311,6 @@ Moist convective adjustment parameters are in `atmos_param/moist_conv/moist_conv
 
  Variable | Default Value | Meaning
  :--- | :---: | :---
- use_df_stuff | .false. | 
 
 #### Large Scale Condensation
 
@@ -327,7 +320,6 @@ We want to re-evaporate outfalling precipitation if any of the layers below are 
  :--- | :---: | :---
  hc | 1.0 | relative humidity at which condensation occurs
  do_evap | .false. | re-evaporate in below sub-saturated layers (if any)?
- use_df_stuff | .false. | For consistency with above
 
 ### Radiation
 
@@ -492,7 +484,6 @@ Variable | Default Value
  alt_gustiness    | .false. 
  old_dtaudv       | .false.
  use_mixing_ratio | .false. 
- use_df_stuff     | .false. 
  gust_const       |  1.0 
  ncar_ocean_flux  | .false. 
  raoult_sat_vap   | .false. 
@@ -506,7 +497,6 @@ depth_0     | 5000.0
 frac_inner  | 0.1 
 rich_crit_pbl | 1.0 
 entr_ratio    |  0.2 
-parcel_buoy         |  2.0 
 znom                |  1000.0 
 free_atm_diff       | .false. 
 free_atm_skyhi_diff | .false. 
@@ -519,7 +509,6 @@ background_t        |  0.0
 ampns               | .false. 
 ampns_max           | 1.0E20  
 do_entrain          | .true.
-use_df_stuff        | .false.
 
 
 ### Vertical numerics

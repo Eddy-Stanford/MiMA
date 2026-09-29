@@ -106,7 +106,6 @@ real    :: depth_0             =  5000.0
 real    :: frac_inner          =  0.1
 real    :: rich_crit_pbl       =  1.0
 real    :: entr_ratio          =  0.2
-real    :: parcel_buoy         =  2.0
 real    :: znom                =  1000.0
 logical :: free_atm_diff       = .false.
 logical :: free_atm_skyhi_diff = .false.
@@ -122,14 +121,13 @@ real    :: ampns_max           = 1.0E20  ! limit to reduction factor
                                          ! applied to ri due to delta z
                                          ! factor
 logical :: do_entrain          =.true.
-logical :: use_df_stuff        =.false.
 
 namelist /diffusivity_nml/ fixed_depth, depth_0, frac_inner,&
-                           rich_crit_pbl, entr_ratio, parcel_buoy,&
+                           rich_crit_pbl, entr_ratio,&
                            znom, free_atm_diff, free_atm_skyhi_diff,&
                            pbl_mcm, rich_crit_diff, mix_len, rich_prandtl,&
                            background_m, background_t, ampns, ampns_max, &
-                           do_entrain, use_df_stuff
+                           do_entrain
 
 !=======================================================================
 
@@ -269,11 +267,7 @@ end if
 do k = 1, nlev
   z_full_ag(:,:,k) = z_full(:,:,k) - z_surf(:,:)
   z_half_ag(:,:,k) = z_half(:,:,k) - z_surf(:,:)
-  if(use_df_stuff) then
-    svcp(:,:,k)  =   t(:,:,k) + gcp*(z_full_ag(:,:,k))
-  else
-    svcp(:,:,k)  =   t(:,:,k)*(1. + d608*q(:,:,k)) + gcp*(z_full_ag(:,:,k))
-  endif
+  svcp(:,:,k)  =   t(:,:,k) + gcp*(z_full_ag(:,:,k))
 end do
 z_half_ag(:,:,nlev+1) = z_half(:,:,nlev+1) - z_surf(:,:)
 
@@ -322,10 +316,9 @@ real,   intent(out),           dimension(:,:)   :: h
 integer,intent(in) , optional, dimension(:,:)   :: kbot
 
 real,    dimension(size(t,1),size(t,2),size(t,3))  :: rich
-real,    dimension(size(t,1),size(t,2))            :: ws,k_t_ref,&
-                                                      h_inner,tbot
+real,    dimension(size(t,1),size(t,2))            :: tbot
 real                                               :: rich1, rich2,&
-                                                      h1,h2,svp,t1,t2
+                                                      h1,h2
 integer, dimension(size(t,1),size(t,2))            :: ibot
 integer                                            :: i,j,k,nlon,&
                                                       nlat, nlev
@@ -354,56 +347,27 @@ do k = 1,nlev
                 /(u(:,:,k)*u(:,:,k) + v(:,:,k)*v(:,:,k) + small )
 end do
 
-!compute ws to be used in evaluating parcel buoyancy
-!ws = u_star / phi(h_inner,u_star,b_star)  .  To find phi
-!a call to mo_diff is made.
-
-h_inner(:,:)=frac_inner*znom
-call mo_diff(h_inner, u_star, b_star, ws, k_t_ref)
-ws = max(small,ws/vonkarm/h_inner)
-
 
 do j = 1, nlat
  do i = 1, nlon
 
-        !do neutral or stable case
-        if (b_star(i,j).le.0. .or. use_df_stuff) then
+        !neutral/stable Richardson-number method in all columns
 
-              h1     = z(i,j,ibot(i,j))
-              h(i,j) = h1
-              rich1  = rich(i,j,ibot(i,j))
-              do k = ibot(i,j)-1, 1, -1
-                       rich2 = rich(i,j,k)
-                       h2    = z(i,j,k)
-                       if(rich2.gt.rich_crit_pbl) then
-                             h(i,j) = h2 + (h1 - h2)*(rich2 - rich_crit_pbl)&
-                                                    /(rich2 - rich1        )
-                             go to 10
-                       endif
-                       rich1 = rich2
-                       h1    = h2
-              enddo
+        h1     = z(i,j,ibot(i,j))
+        h(i,j) = h1
+        rich1  = rich(i,j,ibot(i,j))
+        do k = ibot(i,j)-1, 1, -1
+                 rich2 = rich(i,j,k)
+                 h2    = z(i,j,k)
+                 if(rich2.gt.rich_crit_pbl) then
+                       h(i,j) = h2 + (h1 - h2)*(rich2 - rich_crit_pbl)&
+                                              /(rich2 - rich1        )
+                       go to 10
+                 endif
+                 rich1 = rich2
+                 h1    = h2
+        enddo
 
-        !do unstable case
-        else
-
-              svp    = tbot(i,j)*(1.+ &
-                       (parcel_buoy*u_star(i,j)*b_star(i,j)/grav/ws(i,j)) )
-              h1     = z(i,j,ibot(i,j))
-              h(i,j) = h1
-              t1     = tbot(i,j)
-              do k = ibot(i,j)-1 , 1, -1
-                       h2 = z(i,j,k)
-                       t2 = t(i,j,k)
-                       if (t2.gt.svp) then
-                             h(i,j) = h2 + (h1 - h2)*(t2 - svp)/(t2 - t1 )
-                             go to 10
-                       end if
-                       h1 = h2
-                       t1 = t2
-              enddo
-
-        end if
 10 continue
   enddo
 enddo

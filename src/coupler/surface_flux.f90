@@ -250,7 +250,6 @@ logical :: use_virtual_temp = .true.
 logical :: alt_gustiness    = .false.
 logical :: old_dtaudv       = .false.
 logical :: use_mixing_ratio = .false.
-logical :: use_df_stuff     = .false.
 real    :: gust_const       =  1.0
 logical :: ncar_ocean_flux  = .false.
 logical :: raoult_sat_vap   = .false.
@@ -266,7 +265,6 @@ namelist /surface_flux_nml/ no_neg_q,         &
                             gust_const,       &
                             old_dtaudv,       &
                             use_mixing_ratio, &
-                            use_df_stuff,     &
                             ncar_ocean_flux,  &
                             raoult_sat_vap,   &
                             no_surface_momentum_flux, &   
@@ -406,13 +404,9 @@ subroutine surface_flux_1d (                                           &
     ! surface mixing ratio at saturation
     q_sat   = d622*e_sat /(p_surf-e_sat )  
     q_sat1  = d622*e_sat1/(p_surf-e_sat1)     
-  elseif(use_df_stuff) then
+  else
     q_sat   = d622*e_sat / p_surf
     q_sat1  = d622*e_sat1/ p_surf
-  else
-    ! surface specific humidity at saturation
-    q_sat   = d622*e_sat /(p_surf-d378*e_sat )  
-    q_sat1  = d622*e_sat1/(p_surf-d378*e_sat1)     
   endif
 
   ! initilaize surface air humidity according to surface type

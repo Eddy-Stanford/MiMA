@@ -79,8 +79,7 @@ private
 
    logical :: do_mca=.false., do_lsc=.true.,  &
               use_tau=.false., do_gust_cv = .false., &
-              do_bm=.true., &
-              use_df_stuff=.true.
+              do_bm=.true.
 !mj correct numerical sphum sink
    logical :: do_correct_q=.false.
    real :: qsrc = 0.0 ! moisture source per second
@@ -117,9 +116,6 @@ private
 !
 !   do_bm    = switch to turn on/off betts-miller scheme
 !                [logical, default: do_bm=true ]
-!   use_df_stuff = switch to turn on alternative definition of specific humidity.
-!               When true, specific humidity = (rdgas/rvgas)*esat/pressure
-!               [logical, default: do_df_stuff=true]
 !
 !   notes: pdepth and tfreeze are used to determine liquid vs. solid
 !          precipitation for the mca and lsc schemes.
@@ -131,7 +127,7 @@ namelist /moist_processes_nml/ do_mca, do_lsc,  &
                                use_tau, &
                                do_gust_cv, &
                                gustmax, gustconst, &
-                               do_bm, use_df_stuff, &
+                               do_bm, &
                                do_correct_q, qsrc !mj
 
 !-----------------------------------------------------------------------
@@ -769,7 +765,7 @@ enddo
 !!-- compute and write out CAPE and CIN--
    if ( id_cape > 0 .or. id_cin > 0) then
 !! calculate r
-         rin = qin/(1.0 - qin) ! XXX rin is not mixing ratio when use_df_stuff=.true.
+         rin = qin/(1.0 - qin)
          avgbl = .false.
          do j=js,je
             do i=is,ie
@@ -1041,11 +1037,7 @@ end subroutine moist_processes_end
         CALL LOOKUP_ES(T,esat)
 
         !calculate denominator in qsat formula
-        if(use_df_stuff) then
-          RH(:,:,:) = pfull(:,:,:)
-        else
-          RH(:,:,:) = pfull(:,:,:)-d378*esat(:,:,:)
-        endif
+        RH(:,:,:) = pfull(:,:,:)
 
         !limit denominator to esat, and thus qs to epsilon
         !this is done to avoid blow up in the upper stratosphere

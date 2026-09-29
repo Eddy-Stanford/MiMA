@@ -34,9 +34,8 @@ private
 
 real    :: hc=1.00
 logical :: do_evap=.true.
-logical :: use_df_stuff=.true.
 
-namelist /lscale_cond_nml/  hc, do_evap, use_df_stuff
+namelist /lscale_cond_nml/  hc, do_evap
 
 !-----------------------------------------------------------------------
 !           description of namelist variables
@@ -108,15 +107,7 @@ integer :: k, kx, i, j
       kx=size(tin,3)
 
 !----- compute proper latent heat --------------------------------------
-      if(use_df_stuff) then
-             hlcp = HLv/Cp_Air
-      else
-        WHERE (coldT)
-             hlcp = HLs/Cp_Air
-        ELSEWHERE
-             hlcp = HLv/Cp_Air
-        END WHERE
-      endif
+      hlcp = HLv/Cp_Air
 
 !----- saturation vapor pressure (esat) & specific humidity (qsat) -----
 
@@ -129,11 +120,7 @@ integer :: k, kx, i, j
    do j=1,size(tin,2)
    do i=1,size(tin,1)
      if(pfull(i,j,k) > d378*esat(i,j,k)) then
-       if(use_df_stuff) then
-         pmes(i,j,k)=1.0/pfull(i,j,k)
-       else
-         pmes(i,j,k)=1.0/(pfull(i,j,k)-d378*esat(i,j,k))
-       endif
+       pmes(i,j,k)=1.0/pfull(i,j,k)
        qsat(i,j,k)=d622*esat(i,j,k)*pmes(i,j,k)
        qsat(i,j,k)=max(0.0,qsat(i,j,k))
       dqsat(i,j,k)=d622*pfull(i,j,k)*desat(i,j,k)*pmes(i,j,k)*pmes(i,j,k)
@@ -196,18 +183,8 @@ integer :: k, kx, i, j
       precip(:,:)=max(precip(:,:),0.0)
 
    !assign precip to snow or rain
-   if(use_df_stuff) then
-        rain = precip
-        snow = 0.
-   else
-     WHERE (coldT)
-        snow = precip
-        rain = 0.
-     ELSEWHERE
-        rain = precip
-        snow = 0.
-     END WHERE
-   endif
+   rain = precip
+   snow = 0.
 
 !-----------------------------------------------------------------------
 

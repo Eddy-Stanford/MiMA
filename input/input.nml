@@ -133,8 +133,7 @@
  &moist_processes_nml
      do_bm           =.true.,   
      do_mca          =.false.,
-     do_lsc          =.true.,
-     use_df_stuff = .true. /
+     do_lsc          =.true. /
 
  &betts_miller_nml
        tau_bm = 7200.,
@@ -147,8 +146,7 @@
        capetaubm = 900., 
        tau_min = 2400./
 
-&moist_conv_nml
-       use_df_stuff = .true./
+&moist_conv_nml /
 
  &monin_obukhov_nml
        rich_crit  = 2.0,
@@ -157,8 +155,7 @@
 
 
  &lscale_cond_nml
-       do_evap = .true.,
-       use_df_stuff = .true. /
+       do_evap = .true. /
 
  &vert_diff_driver_nml
         do_conserve_energy = .true.,
@@ -167,12 +164,10 @@
 
 
  &diffusivity_nml
-     do_entrain = .false
-     use_df_stuff = .true. /
+     do_entrain = .false /
 
  &surface_flux_nml
      use_virtual_temp = .false.,
-     use_df_stuff = .true.,
      old_dtaudv = .true.,
      gust_const       =  1.0 /
 

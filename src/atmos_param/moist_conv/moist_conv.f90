@@ -36,9 +36,8 @@ public :: moist_conv, moist_conv_Init, moist_conv_end
  real :: HC   = 1.00
  real :: TOLmin=.02, TOLmax=.10
  integer :: ITSMOD=30
- logical :: use_df_stuff=.true.
 
- namelist /moist_conv_nml/  HC, TOLmin, TOLmax, ITSMOD, use_df_stuff
+ namelist /moist_conv_nml/  HC, TOLmin, TOLmax, ITSMOD
 
 !-----------------------------------------------------------------------
 !---- VERSION NUMBER -----
@@ -160,15 +159,7 @@ integer  :: tr
       KX=size(Tin,3)
 
 !------ compute Proper HL
-      if(use_df_stuff) then
-            HL = HLv
-      else
-        WHERE (coldT)
-            HL = HLs
-        ELSEWHERE
-            HL = HLv
-        END WHERE
-      endif
+      HL = HLv
 
 !------ convert spec hum to mixing ratio ------
       Temp(:,:,:)=Tin(:,:,:)
@@ -183,11 +174,7 @@ integer  :: tr
       call EsComp (Temp,Esat)
 
       Esat(:,:,:)=Esat(:,:,:)*HC
-      if(use_df_stuff) then
-        Qsat(:,:,:)=Pfull(:,:,:)
-      else
-        Qsat(:,:,:)=Pfull(:,:,:)-d378*Esat(:,:,:)
-      endif
+      Qsat(:,:,:)=Pfull(:,:,:)
       Qsat(:,:,:)=Max(0.0,d622*Esat(:,:,:)/Qsat(:,:,:))
       Qdif(:,:,:)=Max(0.0,Qmix(:,:,:)-Qsat(:,:,:))
 
@@ -300,21 +287,8 @@ integer  :: tr
 !-----------------------------------------------------------------------
                       do 1630 k=KTOP,KBOT
 !-----------------------------------------------------------------------
-      if(use_df_stuff) then
-        call DEsComp (Temp(i,j,k),EsDiff)
-        C(k)=d622*HC*EsDiff/Pfull(i,j,k)
-      else
-        C(k)=Pfull(i,j,k)-d378*Esat(i,j,k)
-        if (C(k) <= 0.0) then
-           C(k)=0.0
-        else
-!DIR$ INLINE
-           call DEsComp (Temp(i,j,k),EsDiff)
-!DIR$ NOINLINE
-           C(k)=d622*Pfull(i,j,k)*HC*EsDiff/  &
-                        ((Pfull(i,j,k)-d378*Esat(i,j,k))**2)
-        endif
-      endif
+      call DEsComp (Temp(i,j,k),EsDiff)
+      C(k)=d622*HC*EsDiff/Pfull(i,j,k)
 
       Sum0=0.0
       if (k == KBOT) GO TO 1625
@@ -355,11 +329,7 @@ integer  :: tr
         call EsComp (Temp(i,j,k),EsVal)
 !DIR$ NOINLINE
         Esat(i,j,k)=HC*EsVal
-        if(use_df_stuff) then
-          Qsat(i,j,k)=Pfull(i,j,k)
-        else
-          Qsat(i,j,k)=Pfull(i,j,k)-d378*Esat(i,j,k)
-        endif
+        Qsat(i,j,k)=Pfull(i,j,k)
         Qsat(i,j,k)=Max(0.0,d622*Esat(i,j,k)/Qsat(i,j,k))
         Qdif(i,j,k)=Max(0.0,Qmix(i,j,k)-Qsat(i,j,k))
       enddo
@@ -459,18 +429,8 @@ integer  :: tr
       Snow(:,:)=0.0
    do k =1,KX
 
-     if(use_df_stuff) then
-       Rain(:,:)=Rain(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
-                               Qdel(:,:,k)*grav_inv
-     else
-       WHERE(coldT(:,:))
-         Snow(:,:)=Snow(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
-                               Qdel(:,:,k)*grav_inv
-       ELSEWHERE
-         Rain(:,:)=Rain(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
-                               Qdel(:,:,k)*grav_inv
-       END WHERE
-     endif
+     Rain(:,:)=Rain(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
+                             Qdel(:,:,k)*grav_inv
 
    enddo
       Rain(:,:)=Max(Rain(:,:),0.0)
