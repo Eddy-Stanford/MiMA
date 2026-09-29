@@ -76,14 +76,6 @@ use fms_io_mod,              only: get_restart_io_mode
 
 use constants_mod,           only: cp_air !mj for rrtmg
 
-!    shared radiation package modules:
-
-use rad_utilities_mod,       only: aerosol_type, radiative_gases_type, &
-                                   rad_utilities_init, rad_output_type,&
-                                   cld_specification_type,   &
-                                   surface_type, &
-                                   atmos_input_type, microphysics_type
-
 !    component modules:
 
 use  moist_processes_mod,    only: moist_processes,    &
@@ -100,25 +92,6 @@ use vert_diff_driver_mod,    only: vert_diff_driver_down,  &
                                    vert_diff_driver_init,  &
                                    vert_diff_driver_end,   &
                                    surf_diff_type
-
-use radiation_driver_mod,    only: radiation_driver_init,    &
-                                   define_rad_times, define_surface,   &
-                                   define_atmos_input_fields, &
-                                   radiation_driver,  &
-                                   atmos_input_dealloc,    &
-                                   surface_dealloc, &
-                                   radiation_driver_end
-  
-use cloud_spec_mod,          only: cloud_spec_init, cloud_spec, &
-                                   cloud_spec_dealloc, cloud_spec_end
-
-use aerosol_mod,             only: aerosol_init, aerosol_driver, &
-                                   aerosol_dealloc, aerosol_end
- 
-use radiative_gases_mod,     only: radiative_gases_init,   &
-                                   define_radiative_gases, &
-                                   radiative_gases_dealloc, &
-                                   radiative_gases_end
 
 use damping_driver_mod,      only: damping_driver,      &
                                    damping_driver_init, &
@@ -186,9 +159,6 @@ logical :: do_moist_processes = .true.
                                ! call moist_processes routines
 real    :: tau_diff = 3600.    ! time scale for smoothing diffusion 
                                ! coefficients
-logical :: do_radiation = .false.
-                               ! calculating radiative fluxes and
-                               ! heating rates?
 
 logical :: do_grey_radiation = .false.
 
@@ -209,10 +179,6 @@ logical :: do_netcdf_restart = .true.
 !  <DATA NAME="do_netcdf_restart" UNITS="" TYPE="logical" DIM="" DEFAULT=".true.">
 ! netcdf/native format restart file
 !  </DATA>
-!  <DATA NAME="do_radiation" UNITS="" TYPE="logical" DIM="" DEFAULT=".true.">
-!calculating radiative fluxes and
-! heating rates?
-!  </DATA>
 !  <DATA NAME="do_moist_processes" UNITS="" TYPE="logical" DIM="" DEFAULT=".true.">
 !call moist_processes routines
 !  </DATA>
@@ -231,7 +197,7 @@ logical :: do_netcdf_restart = .true.
 !  </DATA>
 ! </NAMELIST>
 !
-namelist / physics_driver_nml / do_netcdf_restart, do_radiation, &
+namelist / physics_driver_nml / do_netcdf_restart, &
                                 do_moist_processes, tau_diff,      &
                                 diff_min, diffusion_smooth, &
                                 do_grey_radiation, do_rrtm_radiation, &
@@ -447,8 +413,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !  local variables:
 
       real, dimension (size(lonb(:))-1, size(latb(:))-1) :: sgsmtn
-      character(len=64), dimension(:), pointer :: aerosol_names => NULL()
-      character(len=64), dimension(:), pointer :: aerosol_family_names => NULL()
       integer          ::  id, jd, kd
       integer          ::  ierr, io, unit
       integer          ::  ndum
@@ -458,11 +422,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !
 !       sgsmtn        sgs orography obtained from mg_drag_mod;
 !                     appears to not be currently used
-!       aerosol_names names associated with the activated aerosols
-!                     that will be seen by the radiation package
-!       aerosol_family_names
-!              names associated with the activated aerosol
-!              families that will be seen by the radiation package
 !       id,jd,kd      model dimensions on the processor  
 !       ierr          error code
 !       io            io status returned from an io call
@@ -491,14 +450,9 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 10      call close_file (unit)
       endif
 
-      if(do_radiation .and. do_grey_radiation) &
-        call error_mesg('physics_driver_init','do_radiation and do_grey_radiation cannot both be .true.',FATAL)
-      if(do_radiation .and. do_rrtm_radiation) &
-        call error_mesg('physics_driver_init','do_radiation and do_rrtm_radiation cannot both be .true.',FATAL)
       if(do_grey_radiation .and. do_rrtm_radiation) &
         call error_mesg('physics_driver_init','do_grey_radiation and do_rrtm_radiation cannot both be .true.',FATAL)
 
-      if(do_radiation) call rad_utilities_init
       call time_manager_init
       call tracer_manager_init
       call field_manager_init (ndum)
@@ -541,35 +495,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !    initialize vert_diff_driver_mod.
 !-----------------------------------------------------------------------
       call vert_diff_driver_init (Surf_diff, id, jd, kd, axes, Time )
-
-     if (do_radiation) then
-!-----------------------------------------------------------------------
-!    initialize cloud_spec_mod.
-!-----------------------------------------------------------------------
-      call cloud_spec_init (pref, lonb, latb, axes, Time)
- 
-!-----------------------------------------------------------------------
-!    initialize aerosol_mod.     
-!-----------------------------------------------------------------------
-      call aerosol_init (lonb, latb, aerosol_names, aerosol_family_names)
- 
-!-----------------------------------------------------------------------
-!    initialize radiative_gases_mod.
-!-----------------------------------------------------------------------
-      call radiative_gases_init (pref, latb, lonb)
- 
-!-----------------------------------------------------------------------
-!    initialize radiation_driver_mod.
-!-----------------------------------------------------------------------
-      call radiation_driver_init (lonb, latb, pref, axes, time,  &
-                                  aerosol_names, aerosol_family_names)
-
-!---------------------------------------------------------------------
-!    deallocate space for local pointers.
-!---------------------------------------------------------------------
-      deallocate (aerosol_names, aerosol_family_names)
-
-      endif ! do_radiation
 
       if(do_grey_radiation) call grey_radiation_init(axes, Time)
 
@@ -992,20 +917,8 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
       real, dimension(size(u,1),size(u,2),size(u,3)) :: diff_t_vert, &
                                                         diff_m_vert
       real, dimension(size(u,1),size(u,2))           :: z_pbl 
-      type(aerosol_type)                             :: Aerosol
-      type(cld_specification_type)                   :: Cld_spec
-      type(radiative_gases_type)                     :: Rad_gases
-      type(atmos_input_type)                         :: Atmos_input
-      type(surface_type)                             :: Surface
-      type(rad_output_type)                          :: Radiation
-      type(time_type)                                :: Rad_time
-      type(microphysics_type)                        :: Lsc_microphys, &
-                                                        Meso_microphys,&
-                                                        Cell_microphys
       integer          ::    sec, day
       real             ::    dt, alpha, dt2
-      logical          ::    need_aerosols, need_clouds, need_gases,   &
-                             need_basic
 
 !---------------------------------------------------------------------
 !   local variables:
@@ -1015,45 +928,11 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !      diff_m_vert     vertical diffusion coefficient for momentum   
 !                      calculated on the current step
 !      z_pbl           height of planetary boundary layer
-!      Aerosol         aerosol_type variable describing the aerosol
-!                      fields to be seen by the radiation package
-!      Cld_spec        cld_specification_type variable describing the
-!                      cloud field to be seen by the radiation package 
-!      Rad_gases       radiative_gases_type variable describing the
-!                      radiatively-active gas distribution to be seen 
-!                      by the radiation package
-!      Atmos_input     atmos_input_type variable describing the atmos-
-!                      pheric state to be seen by the radiation package
-!      Surface         surface_type variable describing the surface
-!                      characteristics to be seen by the radiation 
-!                      package
-!      Radiation       rad_output_type variable containing the variables
-!                      output from the radiation package, for passage
-!                      to other modules
-!      Rad_time        time at which the radiation calculation is to
-!                      apply [ time_type ]
-!      Lsc_microphys   microphysics_type variable containing the micro-
-!                      physical characteristics of the large-scale
-!                      clouds to be seen by the radiation package 
-!      Meso_microphys  microphysics_type variable containing the micro-
-!                      physical characteristics of the mesoscale
-!                      clouds to be seen by the radiation package 
-!      Cell_microphys  microphysics_type variable containing the micro-
-!                      physical characteristics of the cell-scale
-!                      clouds to be seen by the radiation package 
 !      sec, day        second and day components of the time_type 
 !                      variable
 !      dt              model physics time step [ seconds ]
 !      alpha           ratio of physics time step to diffusion-smoothing
 !                      time scale
-!      need_aerosols   need to obtain aerosol data on this time step
-!                      to input to the radiation package ?
-!      need_clouds     need to obtain cloud data on this time step
-!                      to input to the radiation package ?
-!      need_gases      need to obtain radiative gas data on this time 
-!                      step to input to the radiation package ?
-!      need_basic      need to obtain atmospheric state variables on
-!                      this time step to input to the radiation package?
 !
 !---------------------------------------------------------------------
 
@@ -1080,206 +959,21 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
       call get_time (Time_next - Time_prev, sec, day)
       dt = real(sec + day*86400)
 
-     if (do_radiation) then
-!----------------------------------------------------------------------
-!    prepare to calculate radiative forcings. obtain the valid time
-!    at which the radiation calculation is to apply, the needed atmos-
-!    pheric fields, and any needed inputs from other physics modules.
-!---------------------------------------------------------------------
+      flux_sw = 0.0
+      flux_sw_dir = 0.0
+      flux_sw_dif = 0.0
+      flux_sw_down_vis_dir = 0.0
+      flux_sw_down_vis_dif = 0.0
+      flux_sw_down_total_dir = 0.0
+      flux_sw_down_total_dif = 0.0
+      flux_sw_vis = 0.0
+      flux_sw_vis_dir = 0.0
+      flux_sw_vis_dif = 0.0
+      flux_lw = 0.0
+      coszen  = 0.0
+      lw_tendency(is:ie,js:je,:) = 0.0
+
       call mpp_clock_begin ( radiation_clock )
- 
-!----------------------------------------------------------------------
-!    call define_rad_times to obtain the time to be used in the rad-
-!    iation calculation (Rad_time) and to determine which, if any, 
-!    externally-supplied inputs to radiation_driver must be obtained on 
-!    this timestep.  logical flags are returned indicating the need or 
-!    lack of need for the aerosol fields, the cloud fields, the rad-
-!    iative gas fields, and the basic atmospheric variable fields.
-!----------------------------------------------------------------------
-      call define_rad_times (Time, Time_next, Rad_time, &
-                             need_aerosols, need_clouds, &
-                             need_gases, need_basic)
-
-!---------------------------------------------------------------------
-!    call define_surface to define a surface_type variable containing
-!    the surface albedoes and land fractions for each grid box. this
-!    variable must be provided on all timesteps for use in generating
-!    netcdf output.
-!---------------------------------------------------------------------
-      call define_surface (is, ie, js, je, albedo, albedo_vis_dir,  &
-                           albedo_nir_dir, albedo_vis_dif, &
-                           albedo_nir_dif, frac_land, Surface)
-
-!---------------------------------------------------------------------
-!    if the basic atmospheric input variables to the radiation package
-!    are needed, pass the model pressure (p_full, p_half), temperature 
-!    (t, t_surf_rad) and specific humidity (q) to subroutine
-!    define_atmos_input_fields, which will put these fields and some
-!    additional auxiliary fields into the form desired by the radiation
-!    package and store them as components of the derived-type variable 
-!    Atmos_input.
-!---------------------------------------------------------------------
-      if (need_basic) then
-        call define_atmos_input_fields     &
-                              (is, ie, js, je, p_full, p_half, t, q,  &
-                               t_surf_rad, Atmos_input, kbot=kbot)
-      endif
-
-!---------------------------------------------------------------------
-!    if the aerosol fields are needed as input to the radiation_package,
-!    call aerosol_driver to access the aerosol data and place it into 
-!    an aerosol_type derived-type variable Aerosol.
-!---------------------------------------------------------------------
-      if (need_aerosols) then
-        call aerosol_driver (is, js, Rad_time, Atmos_input%pflux, &
-                             Aerosol)
-      endif
- 
-!---------------------------------------------------------------------
-!    if the cloud fields are needed, call cloud_spec to retrieve bulk
-!    cloud data and place it into a cld_specification_type derived-type 
-!    variable Cld_spec and retrieve microphysical data which is returned
-!    in microphysics_type variables Lsc_microphys, Meso_microphys and 
-!    Cell_microphys, when applicable. 
-!---------------------------------------------------------------------
-      if (need_clouds) then
-        if (present(kbot) ) then
-          call cloud_spec (is, ie, js, je, lat,              &
-                           z_half, z_full, Rad_time,   &
-                           Atmos_input, Surface, Cld_spec,   &
-                           Lsc_microphys, Meso_microphys,    &
-                           Cell_microphys, r=r(:,:,:,1:ntp), &
-                           kbot=kbot, mask=mask)
-        else
-          call cloud_spec (is, ie, js, je, lat,              &
-                           z_half, z_full, Rad_time,   &
-                           Atmos_input, Surface, Cld_spec,   &
-                           Lsc_microphys, Meso_microphys,    &
-                           Cell_microphys, r=r(:,:,:,1:ntp))
-        endif
-      endif
-
-!---------------------------------------------------------------------
-!    if the radiative gases are needed, call define_radiative_gases to 
-!    obtain the values to be used for the radiatively-active gases and 
-!    place them in radiative_gases_type derived-type variable Rad_gases.
-!---------------------------------------------------------------------
-      if (need_gases) then
-        call define_radiative_gases (is, ie, js, je, Rad_time, lat, &
-                                     Atmos_input, r, Time_next, Rad_gases)
-      endif
-
-!---------------------------------------------------------------------
-!    allocate the components of a rad_output_type variable which will
-!    be used to return the output from radiation_driver_mod that is
-!    needed by other modules.
-!---------------------------------------------------------------------
-      allocate (Radiation%tdt_rad               (size(q,1), size(q,2),size(q,3)))
-      allocate (Radiation%flux_sw_surf          (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_surf_dir      (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_surf_dif      (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_down_vis_dir  (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_down_vis_dif  (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_down_total_dir(size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_down_total_dif(size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_vis           (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_vis_dir       (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_sw_vis_dif       (size(q,1), size(q,2)          ))
-      allocate (Radiation%flux_lw_surf          (size(q,1), size(q,2)          ))
-      allocate (Radiation%coszen_angle          (size(q,1), size(q,2)          ))
-      allocate (Radiation%tdtlw                 (size(q,1), size(q,2),size(q,3)))
-
-!--------------------------------------------------------------------
-!    call  radiation_driver to perform the radiation calculation.
-!--------------------------------------------------------------------
-      !call radiation_driver (is, ie, js, je, Time, Time_next, lat,  &
-      !                       lon, Surface, Atmos_input, Aerosol, &
-      !                       Cld_spec, Rad_gases, Lsc_microphys, &
-      !                       Meso_microphys, Cell_microphys,&
-      !                       Radiation=Radiation, mask=mask, kbot=kbot)
-
-!-------------------------------------------------------------------
-!    process the variables returned from radiation_driver_mod. the 
-!    radiative heating rate is added to the accumulated physics heating
-!    rate (tdt). net surface lw and sw fluxes and the cosine of the 
-!    zenith angle are placed in locations where they can be exported
-!    for use in other component models. the lw heating rate is stored
-!    in a module variable for potential use in other physics modules.
-!    the radiative heating rate is also added to a variable which is
-!    accumulating the radiative and turbulent heating rates, and which
-!    is needed by strat_cloud_mod.
-!-------------------------------------------------------------------
-      tdt     = tdt + Radiation%tdt_rad(:,:,:)
-      flux_sw = Radiation%flux_sw_surf
-      flux_sw_dir            = Radiation%flux_sw_surf_dir
-      flux_sw_dif            = Radiation%flux_sw_surf_dif
-      flux_sw_down_vis_dir   = Radiation%flux_sw_down_vis_dir
-      flux_sw_down_vis_dif   = Radiation%flux_sw_down_vis_dif
-      flux_sw_down_total_dir = Radiation%flux_sw_down_total_dir
-      flux_sw_down_total_dif = Radiation%flux_sw_down_total_dif
-      flux_sw_vis            = Radiation%flux_sw_vis
-      flux_sw_vis_dir        = Radiation%flux_sw_vis_dir
-      flux_sw_vis_dif        = Radiation%flux_sw_vis_dif
-      flux_lw = Radiation%flux_lw_surf
-      coszen  = Radiation%coszen_angle
-      lw_tendency(is:ie,js:je,:) = Radiation%tdtlw(:,:,:)
-      radturbten (is:ie,js:je,:) = radturbten(is:ie,js:je,:) + &
-                                   Radiation%tdt_rad(:,:,:)
-
-!--------------------------------------------------------------------
-!    deallocate the arrays used to return the radiation_driver_mod 
-!    output.
-!--------------------------------------------------------------------
-      deallocate ( Radiation%tdt_rad      )
-      deallocate ( Radiation%flux_sw_surf )
-      deallocate ( Radiation%flux_sw_surf_dir )
-      deallocate ( Radiation%flux_sw_surf_dif )
-      deallocate ( Radiation%flux_sw_down_vis_dir )
-      deallocate ( Radiation%flux_sw_down_vis_dif )
-      deallocate ( Radiation%flux_sw_down_total_dir )
-      deallocate ( Radiation%flux_sw_down_total_dif )
-      deallocate ( Radiation%flux_sw_vis )
-      deallocate ( Radiation%flux_sw_vis_dir )
-      deallocate ( Radiation%flux_sw_vis_dif )
-      deallocate ( Radiation%flux_lw_surf )
-      deallocate ( Radiation%coszen_angle )
-      deallocate ( Radiation%tdtlw        )
- 
-!---------------------------------------------------------------------
-!    call routines to deallocate the components of the derived type 
-!    arrays input to radiation_driver.
-!---------------------------------------------------------------------
-      if (need_gases) then
-        call radiative_gases_dealloc (Rad_gases)
-      endif
-      if (need_clouds) then
-        call cloud_spec_dealloc (Cld_spec, Lsc_microphys,   &
-                                 Meso_microphys, Cell_microphys)
-      endif
-      if (need_aerosols) then
-        call aerosol_dealloc (Aerosol)
-      endif
-      if (need_basic) then
-        call atmos_input_dealloc (Atmos_input)
-      endif
-      call surface_dealloc (Surface)
-      call mpp_clock_end ( radiation_clock )
-      else
-        flux_sw = 0.0
-        flux_sw_dir = 0.0
-        flux_sw_dif = 0.0
-        flux_sw_down_vis_dir = 0.0
-        flux_sw_down_vis_dif = 0.0
-        flux_sw_down_total_dir = 0.0
-        flux_sw_down_total_dif = 0.0
-        flux_sw_vis = 0.0
-        flux_sw_vis_dir = 0.0
-        flux_sw_vis_dif = 0.0
-        flux_lw = 0.0
-        coszen  = 0.0
-        lw_tendency(is:ie,js:je,:) = 0.0
-      endif ! do_radiation
-
       if(do_grey_radiation) then
          call grey_radiation(is, js, Time_next, lat, lon, p_half, albedo, t_surf_rad, t, tdt, flux_sw, flux_lw)
          coszen = 1.0
@@ -1289,6 +983,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
          call interp_temp(z_full,z_half,t_surf_rad,t)
          call run_rrtmg(is,js,Time,lat,lon,p_full,p_half,albedo,q,t,t_surf_rad,tdt,coszen,flux_sw,flux_lw)
       endif
+      call mpp_clock_end ( radiation_clock )
 !----------------------------------------------------------------------
 !    artificial local heating if required
 !----------------------------------------------------------------------
@@ -1866,12 +1561,6 @@ type(time_type), intent(in) :: Time
 !--------------------------------------------------------------------
       call vert_turb_driver_end
       call vert_diff_driver_end
-      if (do_radiation) then
-        call radiation_driver_end
-        call radiative_gases_end
-        call cloud_spec_end
-        call aerosol_end
-      endif
       if(do_grey_radiation) call grey_radiation_end
       if(do_rrtm_radiation) call rrtm_radiation_end
       call moist_processes_end

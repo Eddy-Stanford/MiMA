@@ -237,7 +237,6 @@ The namelist `physics_driver_nml` steers which physics components are used. It r
  :--- | :---: | :---
  do_moist_processes | .true. | call moist_processes routines
  tau_diff | 3600.    | time scale for smoothing diffusion coefficients
- do_radiation | .false. | calculating radiative fluxes and heating rates with AM2 radiation?
  do_grey_radiation | .false. | rather do grey radiation?
  do_rrtm_radiation | .true. | or RRTM radiation?
  do_damping | .true. | do any of the damping schemes?

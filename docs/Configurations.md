@@ -10,11 +10,9 @@ This page describes some common ways of changing the model setup beyond the defa
 
 ## Radiation options
 
-By default, MiMA uses the RRTM radiation code. This is set by `do_rrtm_radiation = .true.` (default). There are, however, two more options for radiation, described below.
+By default, MiMA uses the RRTM radiation code. This is set by `do_rrtm_radiation = .true.` (default).
 
 MiMA includes the gray radiation scheme developed by Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)). To switch between the radiation schemes, the flags `do_grey_radiation` and `do_rrtm_radiation` in the namelist `physics_driver_nml` can be set accordingly (only one of them should be `.true.` of course).
-
-Theoretically, there is also the possibility of running the full AM2 radiation scheme, with the flag `do_radiation` in `physics_driver_nml`. However, this option will need a lot of input files for tracer concentration, which are not part of the MiMA repository. This option, although all the relevant files are present and being compiled, has never been tested, and should only be used with great caution.
 
 ## Specified initial conditions
 
