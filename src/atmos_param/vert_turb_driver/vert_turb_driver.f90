@@ -22,8 +22,6 @@ use    diffusivity_mod, only: diffusivity, molecular_diff
 
 use            edt_mod, only: edt_init, edt, edt_end
 
-use    strat_cloud_mod, only: strat_cloud_on
-
 use   shallow_conv_mod, only: shallow_conv_init, shallow_conv
 
 use stable_bl_turb_mod, only: stable_bl_turb_init, stable_bl_turb
@@ -41,10 +39,6 @@ use       fms_mod,      only: mpp_pe, mpp_root_pe, stdlog, &
                               check_nml_error, close_file, FATAL, &
                               write_version_number
  
-
-use  field_manager_mod, only: MODEL_ATMOS
-
-use tracer_manager_mod, only: get_tracer_index
 
 implicit none
 private
@@ -71,8 +65,6 @@ logical            :: module_is_initialized = .false.
 !---------------- private data -------------------
 
  real :: gust_zi = 1000.   ! constant for computed gustiness (meters)
-
- integer :: nql, nqi, nqa    !  tracer indices for stratiform clouds
 
 !-----------------------------------------------------------------------
 !-------------------- namelist -----------------------------------------
@@ -188,27 +180,10 @@ logical :: used
           qq = qm + dt*qdt
       endif
 
-      !------ setup cloud variables: ql & qi & qa -----
-      if (strat_cloud_on) then
-           nt=size(r,4)
-           if (nt == 0 .or. nt < max(nql,nqi,nqa))                    &
-        call error_mesg ('vert_turb_driver',                  & 
-                     'number of tracers less than nql or nqi or nqa', &
-      FATAL) 
-           if (use_tau) then
-                qlin (:,:,:)=r(:,:,:,nql)
-                qiin (:,:,:)=r(:,:,:,nqi)
-                qain (:,:,:)=r(:,:,:,nqa)
-           else
-                qlin (:,:,:)=rm(:,:,:,nql)+rdt(:,:,:,nql)*dt
-                qiin (:,:,:)=rm(:,:,:,nqi)+rdt(:,:,:,nqi)*dt
-                qain (:,:,:)=rm(:,:,:,nqa)+rdt(:,:,:,nqa)*dt
-           endif
-      else
-           qlin = 0.0
-           qiin = 0.0
-           qain = 0.0
-      end if
+      !------ no cloud condensate: ql, qi and qa are zero -----
+      qlin = 0.0
+      qiin = 0.0
+      qain = 0.0
 
 !--------------------------------------------------------------------
 
@@ -591,18 +566,6 @@ subroutine vert_turb_driver_init (lonb, latb, id, jd, kd, axes, Time, &
 
 !-----------------------------------------------------------------------
         
-       if (strat_cloud_on) then
-! get tracer indices for stratiform cloud variables
-          nql = get_tracer_index ( MODEL_ATMOS, 'liq_wat' )
-          nqi = get_tracer_index ( MODEL_ATMOS, 'ice_wat' )
-          nqa = get_tracer_index ( MODEL_ATMOS, 'cld_amt' )
-          if (mpp_pe() == mpp_root_pe()) &
-                 write (stdlog(),'(a,3i4)') 'Stratiform cloud tracer indices: nql,nqi,nqa =',nql,nqi,nqa
-          if (min(nql,nqi,nqa) <= 0) call error_mesg ('moist_processes', &
-                         'stratiform cloud tracer(s) not found', FATAL)
-          if (nql == nqi .or. nqa == nqi .or. nql == nqa) call error_mesg ('moist_processes',  &
-       'tracers indices cannot be the same (i.e., nql=nqi=nqa).', FATAL)
-      endif
 
 !----------------------------------------------------------------------
 

@@ -8,7 +8,6 @@
 !             Betts-Miller convective adjustment
 !             moist convective adjustment
 !             large-scale condensation
-!             stratiform prognostic cloud scheme
 !
 !-----------------------------------------------------------------------
 
@@ -27,9 +26,6 @@ use             fms_mod, only: file_exist, check_nml_error,    &
                                write_version_number,           &
                                mpp_pe, mpp_root_pe, stdlog,    &
                                error_mesg, FATAL, NOTE
-
-use     strat_cloud_mod, only: strat_cloud_init, strat_driv, strat_cloud_end, &
-                               strat_cloud_sum
 
 use diag_integral_mod, only:     diag_integral_field_init, &
                              sum_diag_integral_field
@@ -61,8 +57,7 @@ private
 !-----------------------------------------------------------------------
 !-------------------- public data/interfaces ---------------------------
 
-   public   moist_processes, moist_processes_init, moist_processes_end, &
-            doing_strat
+   public   moist_processes, moist_processes_init, moist_processes_end
 
 !-----------------------------------------------------------------------
 !-------------------- private data -------------------------------------
@@ -73,7 +68,6 @@ private
    real, parameter :: d622 = RDGAS/RVGAS
    real, parameter :: d378 = 1.-d622
 
-   integer :: nsphum, nql, nqi, nqa   ! tracer indices for stratiform clouds
 
 !--------------------- version number ----------------------------------
    character(len=128) :: version = '$Id: moist_processes.f90,v 12.0.4.3 2005/05/21 02:02:03 pjp Exp $'
@@ -84,7 +78,6 @@ private
 
 
    logical :: do_mca=.false., do_lsc=.true.,  &
-              do_strat=.false., &
               use_tau=.false., do_gust_cv = .false., &
               do_bm=.true., &
               use_df_stuff=.true.
@@ -105,8 +98,6 @@ private
 !                [logical, default: do_mca=false ]
 !   do_lsc   = switch to turn on/off large scale condensation
 !                [logical, default: do_lsc=true ]
-!   do_strat = switch to turn on/off stratiform cloud scheme
-!                [logical, default: do_strat=false ]
 !   use_tau  = switch to determine whether current time level (tau)
 !                will be used or else future time level (tau+1).
 !                if use_tau = true then the input values for t,q, and r
@@ -130,16 +121,12 @@ private
 !               When true, specific humidity = (rdgas/rvgas)*esat/pressure
 !               [logical, default: do_df_stuff=true]
 !
-!   notes: 1) do_lsc and do_strat cannot both be true
-!          2) pdepth and tfreeze are used to determine liquid vs. solid
-!             precipitation for mca and lsc schemes, the
-!             stratiform scheme determines it's own precipitation type.
-!          3) if do_strat=true then stratiform cloud tracers: liq_wat,
-!             ice_wat, cld_amt must be present
+!   notes: pdepth and tfreeze are used to determine liquid vs. solid
+!          precipitation for the mca and lsc schemes.
 !
 !-----------------------------------------------------------------------
 
-namelist /moist_processes_nml/ do_mca, do_lsc, do_strat,  &
+namelist /moist_processes_nml/ do_mca, do_lsc,  &
                                pdepth, tfreeze,        &
                                use_tau, &
                                do_gust_cv, &
@@ -152,13 +139,9 @@ namelist /moist_processes_nml/ do_mca, do_lsc, do_strat,  &
 
 integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
            id_tdt_ls  , id_qdt_ls  , id_prec_ls  , id_snow_ls  , &
-           id_precip  , id_WVP, id_LWP, id_IWP, id_AWP, id_gust_conv, &
-           id_rh, id_mc_full, &
-           id_qldt_ls , id_qidt_ls , id_qldt_conv, id_qidt_conv, &
-           id_qadt_ls , id_qadt_conv,id_ql_ls_col, id_qi_ls_col, &
-           id_ql_conv_col, id_qi_conv_col, id_qa_ls_col, id_qa_conv_col,&
+           id_precip  , id_WVP, id_gust_conv, id_rh, &
            id_q_conv_col, id_q_ls_col, id_t_conv_col, id_t_ls_col, &
-           id_prod_no, id_cape, id_cin, id_tref, id_qref, id_rhsurf, &
+           id_cape, id_cin, id_tref, id_qref, id_rhsurf, &
            id_bmflag, id_klzbs, id_invtaubmt, id_invtaubmq, &
            id_capeflag, id_entrop_ls
 
@@ -184,7 +167,6 @@ contains
 
 subroutine moist_processes (is, ie, js, je, Time, dt, land,            &
                             phalf, pfull, zhalf, zfull, omega, diff_t, &
-                            radturbten,                                &
                             t, q, r, u, v, tm, qm, rm, um, vm,         &
                             tdt, qdt, rdt, udt, vdt,                   &
                             convect, lprec, fprec, gust_cv, area,      &
@@ -289,7 +271,6 @@ type(time_type), intent(in)              :: Time
    real, intent(in) , dimension(:,:,:)   :: phalf, pfull, zhalf, zfull,&
                                             omega, diff_t,             &
                                             t, q, u, v, tm, qm, um, vm
-   real, dimension(:,:,:), intent(in)    :: radturbten
    real, intent(in) , dimension(:,:,:,:) :: r, rm
    real, intent(inout),dimension(:,:,:)  :: tdt, qdt, udt, vdt
    real, intent(inout),dimension(:,:,:,:):: rdt
@@ -317,11 +298,9 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: utnd,vtnd,uin,vin
 real, dimension(size(t,1),size(t,2),size(t,3)) :: qltnd,qitnd,qatnd, &
                                                   qlin, qiin, qain
 real, dimension(size(r,1),size(r,2),size(r,3),size(r,4)) :: tracer, tracertnd
-real, dimension(size(t,1),size(t,2),size(t,3)+1) :: mc,mask3
-real, dimension(size(t,1),size(t,2),size(t,3)) :: mc_full
 real, dimension(size(t,1),size(t,2),size(t,3)) :: RH, pmass, wetdeptnd, q_ref, t_ref
 real, dimension(size(t,1),size(t,2))           :: rain, precip, cape, cin
-real, dimension(size(t,1),size(t,2))           :: wvp,lwp,iwp
+real, dimension(size(t,1),size(t,2))           :: wvp
 real, dimension(size(t,1),size(t,2))           :: tempdiag, bmflag, &
                                                   klzbs, invtaubmt, invtaubmq, &
                                                   capeflag
@@ -347,37 +326,12 @@ logical :: alpha, alphc
 ! end tracer code
 
 
-!chemistry start
 real, dimension(size(rdt,1),size(rdt,2),size(rdt,3),size(rdt,4)) :: wet_data
-real, dimension(size(rdt,1),size(rdt,2),size(rdt,3)) :: prod_no
-integer, dimension(size(rdt,1),size(rdt,2)) :: cldtop, cldbot
-real, parameter :: boltz = 1.38044e-16
-real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
-!chemistry end
-!-----------------------------------------------------------------------
-
-! The following local quantitities are used exclusively for diagnostic clouds
-!      LGSCLDELQ  Averaged rate of change in mix ratio due to lg scale precip
-!               at full model levels
-!               (dimensioned IX x JX x KX)
-!      CNVCNTQ  Accumulated count of change in mix ratio due to conv precip
-!               at full model levels
-!               (dimensioned IX x JX x KX)
-!      CONVPRC  Accumulated conv precip rate summed over all
-!               full model levels (mm/day )
-!               (dimensioned IX x JX)
-
-
-
-!    print *, 'entering moist_processes    ', mpp_pe()
 !-----------------------------------------------------------------------
 
       if (.not. module_is_initialized) call error_mesg ('moist_processes',  &
                      'moist_processes_init has not been called.', FATAL)
 
-
-!-----------------------------------------------------------------------
-      conc_air = 10. * pfull / (boltz * t)
 
 !-------- input array size and position in global storage --------------
 
@@ -432,9 +386,6 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
         enddo
       endif
 
-!----------------   reset mc  ------------------------------------------
-
-   mc(:,:,:) = 0.0
 
 !   initialize qrat and ahuco
 
@@ -448,12 +399,7 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
 
       if ( id_q_conv_col  > 0 .or. id_t_conv_col  > 0 .or. &
            id_q_ls_col    > 0 .or. id_t_ls_col    > 0 .or. &
-           id_ql_conv_col > 0 .or. id_qi_conv_col > 0 .or. &
-           id_qa_conv_col > 0 .or. id_ql_ls_col   > 0 .or. &
-           id_qi_ls_col   > 0 .or. id_qa_ls_col   > 0 .or. &
-           id_WVP         > 0 .or. id_LWP         > 0 .or. &
-           id_IWP         > 0 .or. id_AWP         > 0  .or. &
-           alpha .or. alphc) then
+           id_WVP         > 0 .or. alpha .or. alphc) then
         do k=1,kx
           pmass(:,:,k) = (phalf(:,:,k+1)-phalf(:,:,k))/GRAV
         end do
@@ -519,33 +465,16 @@ call mpp_clock_begin( convection_clock )
         end do
          call moist_conv (tin,qin,pfull,phalf,coldT,&
                           ttnd,qtnd,rain,snow,kbot,&
-                       do_strat, tracer(:,:,:,nql), tracer(:,:,:,nqi), &
-                     tracer(:,:,:,nqa), tracertnd(:,:,:,nql),     &
-                     tracertnd(:,:,:,nqi), tracertnd(:,:,:,nqa), &
-                      dtinv, Time, mask, is, js, &
-                      tracers=mca_tracers, qtrmca=qtrmca )
+                          dtinv, Time, mask, is, js, &
+                          tracers=mca_tracers, qtrmca=qtrmca )
       else
          call moist_conv (tin,qin,pfull,phalf,coldT,&
                           ttnd,qtnd,rain,snow,kbot,&
-                       do_strat, tracer(:,:,:,nql), tracer(:,:,:,nqi), &
-                     tracer(:,:,:,nqa), tracertnd(:,:,:,nql),     &
-                     tracertnd(:,:,:,nqi), tracertnd(:,:,:,nqa), &
-                      dtinv, Time, mask, is, js )
+                          dtinv, Time, mask, is, js )
       endif
 
 !------- add on tendency ----------
      tdt=tdt+ttnd; qdt=qdt+qtnd
-
-!------- update input values , compute and add on tendency -----------
-!-------              in the case of strat                 -----------
-
-      if (do_strat) then
-
-         rdt(:,:,:,nql)=rdt(:,:,:,nql)+tracertnd(:,:,:,nql)
-         rdt(:,:,:,nqi)=rdt(:,:,:,nqi)+tracertnd(:,:,:,nqi)
-         rdt(:,:,:,nqa)=rdt(:,:,:,nqa)+tracertnd(:,:,:,nqa)
-
-      end if
 
 !------- save total precip and snow ---------
       lprec=lprec+rain
@@ -683,75 +612,6 @@ call mpp_clock_begin( convection_clock )
         used = send_data ( id_t_conv_col, tempdiag, Time, is, js )
       end if
 
-   !------- stratiform cloud tendencies from cumulus convection ------------
-   if ( do_strat ) then
-
-      !------- diagnostics for dql/dt from convection -------
-      if ( id_qldt_conv > 0 ) then
-        used = send_data ( id_qldt_conv, tracertnd(:,:,:,nql), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for dqi/dt from convection -------
-      if ( id_qidt_conv > 0 ) then
-        used = send_data ( id_qidt_conv, tracertnd(:,:,:,nqi), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for dqa/dt from convection -------
-      if ( id_qadt_conv > 0 ) then
-        used = send_data ( id_qadt_conv, tracertnd(:,:,:,nqa), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for liquid water path tendency ------
-      if ( id_ql_conv_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,nql)*pmass(:,:,k)
-        end do
-        used = send_data ( id_ql_conv_col, tempdiag, Time, is, js )
-      end if
-
-      !------- diagnostics for ice water path tendency ---------
-      if ( id_qi_conv_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,nqi)*pmass(:,:,k)
-        end do
-        used = send_data ( id_qi_conv_col, tempdiag, Time, is, js )
-      end if
-
-      !---- diagnostics for column integrated cloud mass tendency ---
-      if ( id_qa_conv_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,nqa)*pmass(:,:,k)
-        end do
-        used = send_data ( id_qa_conv_col, tempdiag, Time, is, js )
-      end if
-
-      !------- diagnostics for tracers from convection -------
-      do n = 1, size(tracertnd,4)
-        if (tracers_in_mca(n)) then
-        if ( id_tracerdt_conv(n) > 0 ) then
-          used = send_data ( id_tracerdt_conv(n), tracertnd(:,:,:,n), Time, is, js, 1, &
-                             rmask=mask )
-        endif
-
-      !------- diagnostics for tracers column integral tendency ------
-        if ( id_tracerdt_conv_col(n) > 0 ) then
-          tempdiag(:,:)=0.
-          do k=1,kx
-            tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,n)*pmass(:,:,k)
-          end do
-          used = send_data ( id_tracerdt_conv_col(n), tempdiag, Time, is, js )
-        end if
-        end if
-      enddo
-
-   end if !end do strat if
-
 
 ! convection diagnostics
   call mpp_clock_end ( convection_clock )
@@ -784,55 +644,6 @@ call mpp_clock_begin( convection_clock )
 
 !-----------------------------------------------------------------------
                            endif
-!-----------------------------------------------------------------------
-!***********************************************************************
-!----------------- stratiform precip/cloud scheme ----------------------
-                     if (do_strat) then
-
-!-----------------------------------------------------------------------
-         do k=1,kx
-           mc_full(:,:,k) = 0.5*(mc(:,:,k) + mc(:,:,k+1))
-         end do
-         call strat_driv (Time,is,ie,js,je,dt,pfull,phalf,      &
-                          radturbten,                      &
-                          tin,qin,tracer(:,:,:,nql),tracer(:,:,:,nqi),&
-                          tracer(:,:,:,nqa),omega,mc_full,diff_t,land,&
-                          ttnd,qtnd,tracertnd(:,:,:,nql),             &
-                          tracertnd(:,:,:,nqi),tracertnd(:,:,:,nqa),  &
-                          rain,snow,qrat,ahuco,mask=mask)
-
-!
-!------- update fields before passing to the clouds
-      tracer(:,:,:,nql)=tracer(:,:,:,nql)+tracertnd(:,:,:,nql)
-      tracer(:,:,:,nqi)=tracer(:,:,:,nqi)+tracertnd(:,:,:,nqi)
-      tracer(:,:,:,nqa)=tracer(:,:,:,nqa)+tracertnd(:,:,:,nqa)
-      tin=tin+ttnd; qin=qin+qtnd
-      call strat_cloud_sum (is,js,tracer(:,:,:,nql),tracer(:,:,:,nqi),tracer(:,:,:,nqa))
-!     call average_clouds (is,js,qlin,qiin,qain)
-!     call average_clouds (is,ie,js,je,qlin,qiin,qain)
-
-!------- compute and add on tendencies ----------
-
-      !note mask multiplication is not necessary since the
-      !strat scheme already does this
-      ttnd=ttnd*dtinv; qtnd=qtnd*dtinv
-      tracertnd(:,:,:,nql)=tracertnd(:,:,:,nql)*dtinv
-      tracertnd(:,:,:,nqi)=tracertnd(:,:,:,nqi)*dtinv
-      tracertnd(:,:,:,nqa)=tracertnd(:,:,:,nqa)*dtinv
-      rain=rain*dtinv; snow=snow*dtinv
-
-      tdt=tdt+ttnd; qdt=qdt+qtnd
-      rdt(:,:,:,nql)=rdt(:,:,:,nql)+tracertnd(:,:,:,nql)
-      rdt(:,:,:,nqi)=rdt(:,:,:,nqi)+tracertnd(:,:,:,nqi)
-      rdt(:,:,:,nqa)=rdt(:,:,:,nqa)+tracertnd(:,:,:,nqa)
-
-!------- save total precip and snow ---------
-      lprec=lprec+rain
-      fprec=fprec+snow
-      precip=precip+rain+snow
-
-!-----------------------------------------------------------------------
-                           endif
 ! Do wet deposition for the large scale routine here
 ! qdt should give the vertical distribution here
 do n = 1, size(tracertnd,4)
@@ -853,36 +664,6 @@ wet_data(:,:,:,n) = wet_data(:,:,:,n) + wetdeptnd
 ! end chemistry
 enddo
 
-! start chemistry
-!cldbot = 0
-!cldtop = 0
-!if ( get_tracer_index(MODEL_ATMOS,'no') .ne. NO_TRACER ) then
-!  do i = 1,size(t,1)
-!    do j = 1, size(t,2)
-!      do k = 1, size(t,3)
-!        if (mc_full(i,j,k) /= 0 ) then
-!          cldtop(i,j) = k
-!          exit
-!        endif
-!      enddo
-!      do k = size(r,3),1,-1
-!        if (mc_full(i,j,k) /= 0 ) then
-!          cldbot(i,j) = k
-!          exit
-!        endif
-!      enddo
-!    enddo
-!  enddo
-!  call MOZ_HOOK(cldtop, cldbot, land, zfull, zhalf, t, prod_no, area, lat, &
-!                Time, is, js)
-!  rdt(:,:,:,get_tracer_index(MODEL_ATMOS,'no')) = &
-!    rdt(:,:,:,get_tracer_index(MODEL_ATMOS,'no')) + &
-!    prod_no/conc_air
-!  if ( id_prod_no > 0 ) then
-!    used = send_data(id_prod_no,prod_no, Time, is_in=is, js_in=js)
-!  endif
-!endif
-! end chemistry
 !-----------------------------------------------------------------------
 !***********************************************************************
 !--------------- DIAGNOSTICS FOR LARGE-SCALE SCHEME --------------------
@@ -898,7 +679,7 @@ enddo
    endif
  endif
 
- if ( do_lsc .or. do_strat ) then
+ if ( do_lsc ) then
 !------- diagnostics for dt/dt_strat -------
       if ( id_tdt_ls > 0 ) then
         used = send_data ( id_tdt_ls, ttnd, Time, is, js, 1, &
@@ -935,62 +716,6 @@ enddo
         end do
         used = send_data ( id_t_ls_col, tempdiag, Time, is, js )
       end if
-
-!------- stratiform cloud tendencies from strat cloud -------
-   if ( do_strat ) then
-
-!------- diagnostics for total cumulus mass flux ------
-      if ( id_mc_full > 0 ) then
-          used = send_data ( id_mc_full, mc_full, Time, is, js, 1, &
-                             rmask=mask )
-      endif
-
-      !------- diagnostics for dql/dt from strat_cloud ------
-      if ( id_qldt_ls > 0 ) then
-        used = send_data ( id_qldt_ls, tracertnd(:,:,:,nql), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for dqi/dt from strat_cloud ------
-      if ( id_qidt_ls > 0 ) then
-        used = send_data ( id_qidt_ls, tracertnd(:,:,:,nqi), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for dqa/dt from strat_cloud ------
-      if ( id_qadt_ls > 0 ) then
-        used = send_data ( id_qadt_ls, tracertnd(:,:,:,nqa), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for liquid water path tendency ------
-      if ( id_ql_ls_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,nql)*pmass(:,:,k)
-        end do
-        used = send_data ( id_ql_ls_col, tempdiag, Time, is, js )
-      end if
-
-      !------- diagnostics for ice water path tendency ---------
-      if ( id_qi_ls_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,nqi)*pmass(:,:,k)
-        end do
-        used = send_data ( id_qi_ls_col, tempdiag, Time, is, js )
-      end if
-
-      !---- diagnostics for stratiform cloud volume tendency ---
-      if ( id_qa_ls_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,nqa)*pmass(:,:,k)
-        end do
-        used = send_data ( id_qa_ls_col, tempdiag, Time, is, js )
-      end if
-
-   end if !end do strat if
 
  endif  !end large-scale or strat diagnostics
   call mpp_clock_end ( largescale_clock )
@@ -1036,35 +761,8 @@ enddo
         used = send_data ( id_WVP, wvp, Time, is, js )
    end if
 
-!-- compute and write out liquid and ice water path --
-   if ( id_LWP > 0 .and. do_strat ) then
-        lwp(:,:)=0.
-        do k=1,kx
-          lwp(:,:) = lwp(:,:) + tracer(:,:,k,nql)*pmass(:,:,k)
-        end do
 
-        used = send_data ( id_LWP, lwp, Time, is, js )
-   end if
 
-!-- compute and write out liquid and ice water path --
-   if ( id_IWP > 0 .and. do_strat ) then
-        iwp(:,:)=0.
-        do k=1,kx
-          iwp(:,:) = iwp(:,:) + tracer(:,:,k,nqi)*pmass(:,:,k)
-        end do
-
-        used = send_data ( id_IWP, iwp, Time, is, js )
-   end if
-
-!-- compute and write out column integrated cloud mass --
-   if ( id_AWP > 0 .and. do_strat ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + tracer(:,:,k,nqa)*pmass(:,:,k)
-        end do
-
-        used = send_data ( id_AWP, tempdiag, Time, is, js )
-   end if
 
 !-----------------------------------------------------------------------
 !------- diagnostics for relative humidity -------
@@ -1159,35 +857,12 @@ character(len=80)  :: scheme
                    ('moist_processes_init',  &
                     'both do_mca and do_bm cannot be specified', FATAL)
 
-         if ( do_lsc .and. do_strat ) call error_mesg   &
-                 ('moist_processes_init',  &
-                  'both do_lsc and do_strat cannot be specified', FATAL)
 
-
-      endif
-
-!---------------------------------------------------------------------
-! --- Find the tracer indices
-!---------------------------------------------------------------------
-
-      if (do_strat) then
-        ! get tracer indices for stratiform cloud variables
-        nsphum = get_tracer_index ( MODEL_ATMOS, 'sphum' )
-        nql = get_tracer_index ( MODEL_ATMOS, 'liq_wat' )
-        nqi = get_tracer_index ( MODEL_ATMOS, 'ice_wat' )
-        nqa = get_tracer_index ( MODEL_ATMOS, 'cld_amt' )
-        if (min(nql,nqi,nqa) <= 0) call error_mesg ('moist_processes', &
-                                                    'stratiform cloud tracer(s) not found', FATAL)
-        if (nql == nqi .or. nqa == nqi .or. nql == nqa) call error_mesg ('moist_processes',  &
-                                 'tracers indices cannot be the same (i.e., nql=nqi=nqa).', FATAL)
-        if (mpp_pe() == mpp_root_pe()) &
-            write (stdlog(),'(a,3i4)') 'Stratiform cloud tracer indices: nql,nqi,nqa =',nql,nqi,nqa
       endif
 
 !------------ initialize various schemes ----------
       if (do_bm) call betts_miller_init ()
       if (do_lsc)    call lscale_cond_init ()
-      if (do_strat)  call strat_cloud_init (axes,Time,id,jd,kd)
 
 
 !----- initialize quantities for global integral package -----
@@ -1278,7 +953,6 @@ subroutine moist_processes_end
 
 !----------------close various schemes-----------------
 
-      if (do_strat)       call strat_cloud_end
       module_is_initialized = .false.
 
 !-----------------------------------------------------------------------
@@ -1286,15 +960,6 @@ subroutine moist_processes_end
 end subroutine moist_processes_end
 
 !#######################################################################
-function doing_strat()
-logical :: doing_strat
-
-  if (.not. module_is_initialized) call error_mesg ('doing_strat',  &
-                     'moist_processes_init has not been called.', FATAL)
-
-  doing_strat = do_strat
-
-end function doing_strat
 !#######################################################################
 
       subroutine tempavg (pdepth,phalf,temp,tsnow,mask)
@@ -1824,68 +1489,6 @@ if ( do_lsc ) then
 
 endif
 
-if ( do_strat ) then
-
-   id_mc_full = register_diag_field ( mod_name, &
-     'mc_full', axes(1:3), Time, &
-     'Net Mass Flux from RAS',   'kg/m2/s', &
-                       missing_value=missing_value               )
-
-   id_tdt_ls = register_diag_field ( mod_name, &
-     'tdt_ls', axes(1:3), Time, &
-     'Temperature tendency from strat cloud',        'deg_K/s',  &
-                        missing_value=missing_value               )
-
-   id_qdt_ls = register_diag_field ( mod_name, &
-     'qdt_ls', axes(1:3), Time, &
-     'Spec humidity tendency from strat cloud',      'kg/kg/s',  &
-                        missing_value=missing_value               )
-
-   id_prec_ls = register_diag_field ( mod_name, &
-     'prec_ls', axes(1:2), Time, &
-    'Precipitation rate from strat cloud',          'kg/m2/s' )
-
-   id_snow_ls = register_diag_field ( mod_name, &
-     'snow_ls', axes(1:2), Time, &
-    'Frozen precip rate from strat cloud',          'kg/m2/s' )
-
-   id_q_ls_col = register_diag_field ( mod_name, &
-     'q_ls_col', axes(1:2), Time, &
-    'Water vapor path tendency from strat cloud',   'kg/m2/s' )
-
-   id_t_ls_col = register_diag_field ( mod_name, &
-     't_ls_col', axes(1:2), Time, &
-    'Column static energy tendency from strat cloud','W/m2' )
-
-   id_qldt_ls = register_diag_field ( mod_name, &
-     'qldt_ls', axes(1:3), Time, &
-     'Liquid water tendency from strat cloud',       'kg/kg/s',  &
-                        missing_value=missing_value               )
-
-   id_qidt_ls = register_diag_field ( mod_name, &
-     'qidt_ls', axes(1:3), Time, &
-     'Ice water tendency from strat cloud',          'kg/kg/s',  &
-                        missing_value=missing_value               )
-
-   id_qadt_ls = register_diag_field ( mod_name, &
-     'qadt_ls', axes(1:3), Time, &
-     'Cloud fraction tendency from strat cloud',     '1/sec',    &
-                        missing_value=missing_value               )
-
-   id_ql_ls_col = register_diag_field ( mod_name, &
-     'ql_ls_col', axes(1:2), Time, &
-    'Liquid water path tendency from strat cloud',   'kg/m2/s' )
-
-   id_qi_ls_col = register_diag_field ( mod_name, &
-     'qi_ls_col', axes(1:2), Time, &
-    'Ice water path tendency from strat cloud',      'kg/m2/s' )
-
-   id_qa_ls_col = register_diag_field ( mod_name, &
-     'qa_ls_col', axes(1:2), Time, &
-    'Cloud mass tendency from strat cloud',          'kg/m2/s' )
-
-endif
-
    id_cape = register_diag_field ( mod_name, &
      'cape', axes(1:2), Time, &
      'Convectively available potential energy',      'J/Kg')
@@ -1901,22 +1504,6 @@ endif
    id_WVP = register_diag_field ( mod_name, &
      'WVP', axes(1:2), Time, &
         'Column integrated water vapor',                'kg/m2'  )
-
-if ( do_strat ) then
-
-   id_LWP = register_diag_field ( mod_name, &
-     'LWP', axes(1:2), Time, &
-        'Liquid water path',                            'kg/m2'   )
-
-   id_IWP = register_diag_field ( mod_name, &
-     'IWP', axes(1:2), Time, &
-        'Ice water path',                               'kg/m2'   )
-
-   id_AWP = register_diag_field ( mod_name, &
-     'AWP', axes(1:2), Time, &
-        'Column integrated cloud mass ',                'kg/m2'   )
-
-endif
 
    id_rh = register_diag_field ( mod_name, &
      'rh', axes(1:3), Time, &

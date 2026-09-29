@@ -134,7 +134,6 @@
      do_bm           =.true.,   
      do_mca          =.false.,
      do_lsc          =.true.,
-     do_strat        =.false., 
      use_df_stuff = .true. /
 
  &betts_miller_nml
@@ -149,7 +148,6 @@
        tau_min = 2400./
 
 &moist_conv_nml
-       beta = 0.0,
        use_df_stuff = .true./
 
  &monin_obukhov_nml

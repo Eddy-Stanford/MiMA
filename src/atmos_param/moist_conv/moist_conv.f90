@@ -17,8 +17,7 @@ use       constants_mod, ONLY: HLv, HLs, cp_air, grav, rdgas, rvgas
 
 use           fms_mod, only : write_version_number, ERROR_MESG, FATAL
 use field_manager_mod, only : MODEL_ATMOS
-use tracer_manager_mod, only : get_tracer_index,   &
-                               get_number_tracers, &
+use tracer_manager_mod, only : get_number_tracers, &
                                get_tracer_names,   &
                                get_tracer_indices, &
                                query_method,       &
@@ -35,15 +34,11 @@ public :: moist_conv, moist_conv_Init, moist_conv_end
 !---- namelist ----
 
  real :: HC   = 1.00
- real :: beta = 0.0
  real :: TOLmin=.02, TOLmax=.10
  integer :: ITSMOD=30
  logical :: use_df_stuff=.true.
 
-!----- note beta is the fraction of convective condensation that is
-!----- detrained into a stratiform cloud
-
- namelist /moist_conv_nml/  HC, beta, TOLmin, TOLmax, ITSMOD, use_df_stuff
+ namelist /moist_conv_nml/  HC, TOLmin, TOLmax, ITSMOD, use_df_stuff
 
 !-----------------------------------------------------------------------
 !---- VERSION NUMBER -----
@@ -62,11 +57,8 @@ public :: moist_conv, moist_conv_Init, moist_conv_end
 real :: missing_value = -999.
 !integer               :: num_tracers
 !nteger, allocatable, dimension(:) :: id_tracer_conv, id_tracer_conv_col
- integer :: nsphum, nql, nqi, nqa   ! tracer indices for stratiform clouds
 
 integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
-           id_qldt_conv,   id_qidt_conv,   id_qadt_conv, &
-           id_ql_conv_col, id_qi_conv_col, id_qa_conv_col,&
            id_q_conv_col, id_t_conv_col
 
 character(len=3) :: mod_name = 'mca'
@@ -86,8 +78,6 @@ CONTAINS
 
  subroutine moist_conv ( Tin, Qin, Pfull, Phalf, coldT,    &
                          Tdel, Qdel, Rain, Snow, Lbot, &
-                         do_strat, ql, qi, cf,  &
-                         qldel, qidel, cfdel,   &
                          dtinv, Time, mask, is, js, Conv, &
                          tracers, qtrmca )
 
@@ -113,16 +103,9 @@ CONTAINS
 !
 !   INPUT:   Lbot    integer index of the lowest model level,
 !                      Lbot is always <= size(Tin,3)
-!              cf    stratiform cloud fraction (used only when
-!                    operating with stratiform cloud scheme) (fraction)
 !
 !  OUTPUT:   Conv    logical flag; TRUE then moist convective
 !                       adjustment was performed at that model level.
-!            cfdel   change in stratiform cloud fraction (fraction)
-!            qldel   change in liquid water condensate due to
-!                    convective detrainment (kg condensate /kg air)
-!            qidel   change in ice condensate due to
-!                    convective detrainment (kg condensate /kg air)
 !
 !-----------------------------------------------------------------------
 !----------------------PUBLIC INTERFACE ARRAYS--------------------------
@@ -133,13 +116,10 @@ CONTAINS
     real, intent(OUT),   dimension(:,:)             :: Rain, Snow
  integer, intent(IN) ,   dimension(:,:),   optional :: Lbot
  logical, intent(OUT),   dimension(:,:,:), optional :: Conv
- logical, intent(in)                                :: do_strat
     real, intent(IN)                                :: dtinv
  integer, intent(IN)                                :: is, js
-    real, intent(INOUT), dimension(:,:,:) :: ql, qi, cf
     real, dimension(:,:,:,:), intent(in), optional :: tracers
     real, dimension(:,:,:,:), intent(out), optional :: qtrmca
-    real, intent(INOUT), dimension(:,:,:) :: qldel, qidel, cfdel
 type(time_type), intent(in)                         :: Time
    real, intent(in) ,    dimension(:,:,:), optional :: mask
 
@@ -164,12 +144,6 @@ real, dimension(size(Tin,1),size(Tin,2)) :: HL
 integer :: i,j,k,kk,KX,ITER,MXLEV,MXLEV1,kstart,KTOP,KBOT,KBOTM1
 real    :: ALTOL,Sum0,Sum1,Sum2,EsDiff,EsVal,Thaf,Pdelta
 
-
-!real, dimension(SIZE(tracer,1),SIZE(tracer,2),SIZE(tracer,3)) :: cf
-!real, pointer, dimension(:,:,:) :: cfdel => NULL(), &
-!                                   qldel => NULL(), &
-!                                   qidel => NULL()
-logical :: cf_Present
 real, dimension(size(Phalf,1),size(Phalf,2),size(Phalf,3)) :: pmass
 real, dimension(size(Phalf,1),size(Phalf,2)) :: tempdiag
 integer  :: tr
@@ -178,15 +152,6 @@ integer  :: tr
       if (.not. module_is_initialized) call ERROR_MESG( 'MCA',  &
                                  'moist_conv_init has not been called', FATAL )
                                  !moist_conv_init ( )
-
-      cf_Present = .FALSE.
-      if ( do_strat ) then
-        cf_Present = .TRUE.
-!       cf=tracer(:,:,:,nqa)
-!       cfdel => tracertnd(:,:,:,nqa)
-!       qldel => tracertnd(:,:,:,nql)
-!       qidel => tracertnd(:,:,:,nqi)
-      endif
 
         do k=1,size(Phalf,3)
           pmass(:,:,k) = (Phalf(:,:,k+1)-Phalf(:,:,k))/GRAV
@@ -483,20 +448,6 @@ integer  :: tr
 !---------------------- END OF i,j LOOP --------------------------------
 !-----------------------------------------------------------------------
 
-!---- call Convective Detrainment subroutine -----
-
-!     if (Present(cf)) then
-     if (cf_Present) then
-
-          !reset quantities
-          cfdel = 0.
-          qldel = 0.
-          qidel = 0.
-
-          CALL CONV_DETR(Qmix,Qin,Phalf,Temp,cf,coldT,cfdel,qldel,qidel)
-
-     endif
-
 !----- compute adjustments to temp and spec hum ----
 
       Tdel(:,:,:)=Temp(:,:,:)-Tin(:,:,:)
@@ -511,10 +462,6 @@ integer  :: tr
      if(use_df_stuff) then
        Rain(:,:)=Rain(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
                                Qdel(:,:,k)*grav_inv
-       if (cf_Present) then
-          Rain(:,:)=Rain(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
-                                qldel(:,:,k)*grav_inv
-       endif
      else
        WHERE(coldT(:,:))
          Snow(:,:)=Snow(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
@@ -523,18 +470,6 @@ integer  :: tr
          Rain(:,:)=Rain(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
                                Qdel(:,:,k)*grav_inv
        END WHERE
-
-!      subtract off detrained condensate from surface precip
-!      if (present(cf)) then
-       if (cf_Present) then
-         WHERE(coldT(:,:))
-           Snow(:,:)=Snow(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
-                                qidel(:,:,k)*grav_inv
-         ELSEWHERE
-           Rain(:,:)=Rain(:,:)+(Phalf(:,:,k)-Phalf(:,:,k+1))*  &
-                                qldel(:,:,k)*grav_inv
-         END WHERE
-       end if
      endif
 
    enddo
@@ -557,19 +492,6 @@ integer  :: tr
 
       Tdel=Tdel*dtinv; Qdel=Qdel*dtinv
       Rain=Rain*dtinv; Snow=Snow*dtinv
-!------- update input values , compute and add on tendency -----------
-!-------              in the case of strat                 -----------
-
-      if (do_strat) then
-         ql    (:,:,:    )=ql    (:,:,:    )+qldel    (:,:,:    )
-         qi    (:,:,:    )=qi    (:,:,:    )+qidel    (:,:,:    )
-         cf    (:,:,:    )=cf    (:,:,:    )+cfdel    (:,:,:    )
-
-         qldel    (:,:,:)=qldel    (:,:,:)*dtinv
-         qidel    (:,:,:)=qidel    (:,:,:)*dtinv
-         cfdel    (:,:,:)=cfdel    (:,:,:)*dtinv
-      endif
-
 !---------------------------------------------------------------------
 !   define the effect of moist convective adjustment on the tracer
 !   fields. code to do so does not currently exist.
@@ -616,56 +538,6 @@ integer  :: tr
         used = send_data ( id_t_conv_col, tempdiag, Time, is, js )
       end if
 
-   !------- stratiform cloud tendencies from cumulus convection ------------
-   if ( do_strat ) then
-
-      !------- diagnostics for dql/dt from RAS or donner -------
-      if ( id_qldt_conv > 0 ) then
-        used = send_data ( id_qldt_conv, qldel(:,:,:), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for dqi/dt from RAS or donner -------
-      if ( id_qidt_conv > 0 ) then
-        used = send_data ( id_qidt_conv, qidel(:,:,:), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for dqa/dt from RAS or donner -------
-      if ( id_qadt_conv > 0 ) then
-        used = send_data ( id_qadt_conv, cfdel(:,:,:), Time, is, js, 1, &
-                           rmask=mask )
-      endif
-
-      !------- diagnostics for liquid water path tendency ------
-      if ( id_ql_conv_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + qldel(:,:,k)*pmass(:,:,k)
-        end do
-        used = send_data ( id_ql_conv_col, tempdiag, Time, is, js )
-      end if
-
-      !------- diagnostics for ice water path tendency ---------
-      if ( id_qi_conv_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + qidel(:,:,k)*pmass(:,:,k)
-        end do
-        used = send_data ( id_qi_conv_col, tempdiag, Time, is, js )
-      end if
-
-      !---- diagnostics for column integrated cloud mass tendency ---
-      if ( id_qa_conv_col > 0 ) then
-        tempdiag(:,:)=0.
-        do k=1,kx
-          tempdiag(:,:) = tempdiag(:,:) + cfdel(:,:,k)*pmass(:,:,k)
-        end do
-        used = send_data ( id_qa_conv_col, tempdiag, Time, is, js )
-      end if
-
-   end if !end do strat if
-
    do tr = 1, num_mca_tracers
 !------- diagnostics for dtracer/dt from RAS -------------
      if ( id_tracer_conv(tr) > 0 ) then
@@ -688,144 +560,6 @@ integer  :: tr
  end subroutine moist_conv
 
 !#######################################################################
-!#######################################################################
-
-SUBROUTINE CONV_DETR(qvout,qvin,phalf,T,cf,coldT,cfdel,qldel,qidel)
-
-
-IMPLICIT NONE
-
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!
-!      This subroutine takes a fraction of the water condensed
-!      by the convection scheme and detrains in the top level
-!      undergoing convective adjustment.
-!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!
-!       VARIABLES
-!
-!   ------
-!   INPUT:
-!   ------
-!
-!       qvout    water vapor specific humidity AFTER adjustment
-!                (kg vapor/kg air)
-!       qvin     water  vapor specific humidity BEFORE adjustment
-!                (kg vapor/kg air)
-!       phalf    pressure at model half levels (Pascals)
-!       T        Temperature (Kelvin)
-!       cf       cloud fraction (fraction)
-!       coldT    is condensation of ice nature?
-!
-!   -------------
-!   INPUT/OUTPUT:
-!   -------------
-!
-!       cfdel    Change in cloud fraction due to detrainment (fraction)
-!       qldel    Increase in liquid water due to detrainment
-!                (kg condensate/kg air)
-!       qidel    Increase in ice due to detrainment
-!                (kg condensate/kg air)
-!
-!   -------------------
-!       INTERNAL VARIABLES:
-!   -------------------
-!
-!       precipsource  accumulated source of precipitation
-!                     (kg condensate /meter/ (seconds*squared))
-!       ktop          integer of top level undergoing convection
-!       accum         logical variable indicating whether or not to
-!                     add precip
-!       fT            fraction of condensate that is liquid
-!       i,j,k         looping variables
-!       IDIM,JDIM,KDIM dimensions of input arrays
-!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!
-!  User Interface variables
-!  ------------------------
-
-REAL,     INTENT (IN), DIMENSION(:,:,:)  :: qvout,qvin,T,cf
-REAL,     INTENT (IN), DIMENSION(:,:,:)  :: phalf
-LOGICAL,  INTENT (IN), DIMENSION(:,:)    :: coldT
-REAL,     INTENT (INOUT),DIMENSION(:,:,:):: cfdel,qldel,qidel
-
-!  Internal variables
-!  ------------------
-
-INTEGER                                  :: i,j,k,IDIM,JDIM,KDIM,ktop
-LOGICAL                                  :: accum
-REAL                                     :: precipsource
-
-!
-! Code
-! ----
-
-        ! reinitialize variables
-        cfdel(:,:,:)   = 0.
-        qidel(:,:,:)   = 0.
-        qldel(:,:,:)   = 0.
-        IDIM           = SIZE(qvout,1)
-        JDIM           = SIZE(qvout,2)
-        KDIM           = SIZE(qvout,3)
-
-        !---loop over grid columns----!
-        DO i = 1, IDIM
-        DO j = 1, JDIM
-
-             !reset variables
-             precipsource     = 0.
-             accum            = .FALSE.
-
-             DO k = 1, KDIM
-
-                 !begin new convective event
-                 IF ((qvout(i,j,k) .ne. qvin(i,j,k)) .and. &
-                     (.NOT. accum)) THEN
-                     ktop  = k
-                     accum = .TRUE.
-                 END IF
-
-                 !if convective event is over compute detrainment
-                 IF ( (accum) .and. (qvout(i,j,k) .eq. qvin(i,j,k)) &
-                      .and. (precipsource .gt. 0.)) THEN
-                      if (coldT(i,j)) then
-                      qidel(i,j,ktop) = beta * precipsource / &
-                                    (phalf(i,j,ktop+1)-phalf(i,j,ktop))
-                      else
-                      qldel(i,j,ktop) = beta * precipsource / &
-                                    (phalf(i,j,ktop+1)-phalf(i,j,ktop))
-                      end if
-                      cfdel(i,j,ktop) = MAX(0.,HC-cf(i,j,ktop))
-                      accum        = .FALSE.
-                      precipsource = 0.
-                 END IF
-
-                 !accumulate precip
-                 IF (accum) THEN
-                      precipsource = precipsource + &
-                                   ( qvin(i,j,k)  -qvout(i,j,k))* &
-                                   (phalf(i,j,k+1)-phalf(i,j,k))
-                 END IF
-
-             END DO    !---end k loop over vertical column
-
-            !---clear any remaining precip
-            IF ( (precipsource .gt. 0.) .and. (accum) ) THEN
-                 if (coldT(i,j)) then
-                 qidel(i,j,ktop) = beta * precipsource / &
-                                    (phalf(i,j,ktop+1)-phalf(i,j,ktop))
-                 else
-                 qldel(i,j,ktop) = beta * precipsource / &
-                                    (phalf(i,j,ktop+1)-phalf(i,j,ktop))
-                 end if
-            END IF
-
-        END DO    !---end j loop
-        END DO    !---end i loop
-
-END SUBROUTINE CONV_DETR
 
 !#######################################################################
 
@@ -895,11 +629,6 @@ subroutine moist_conv_init (axes, Time, tracers_in_mca)
   else
     call error_mesg('moist_conv_init', 'No atmospheric tracers found', FATAL)
   endif
-    ! get tracer indices for stratiform cloud variables
-      nsphum = get_tracer_index ( MODEL_ATMOS, 'sphum' )
-      nql = get_tracer_index ( MODEL_ATMOS, 'liq_wat' )
-      nqi = get_tracer_index ( MODEL_ATMOS, 'ice_wat' )
-      nqa = get_tracer_index ( MODEL_ATMOS, 'cld_amt' )
 
 
 !----------------------------------------------------------------------

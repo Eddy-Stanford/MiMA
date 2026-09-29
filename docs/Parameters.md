@@ -290,7 +290,6 @@ The moist processes parameters are set in `atmos_param/moist_processes/moist_pro
  :--- | :---: | :---
  do_mca | .true. | Do moist convective adjustment?
  do_lsc | .true. | Do large scale condensation?
- do_strat | .false. | Do stratiform clouds?
  do_rh_clodus | .false. | Do relative humidity cloud scheme?
  use_tau | .false. | Use current time values? (future time if .false.)
  do_gust_cv | .false. | Do convective gustiness?
@@ -320,7 +319,6 @@ Moist convective adjustment parameters are in `atmos_param/moist_conv/moist_conv
 
  Variable | Default Value | Meaning
  :--- | :---: | :---
- beta | 0.0 | fraction of condensate detrained into stratiform cloud
  use_df_stuff | .false. | 
 
 #### Large Scale Condensation

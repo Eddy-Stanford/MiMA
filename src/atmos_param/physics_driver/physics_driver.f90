@@ -75,8 +75,7 @@ use constants_mod,           only: cp_air !mj for rrtmg
 
 use  moist_processes_mod,    only: moist_processes,    &
                                    moist_processes_init,  &
-                                   moist_processes_end,  &
-                                   doing_strat
+                                   moist_processes_end
 
 use vert_turb_driver_mod,    only: vert_turb_driver,  &
                                    vert_turb_driver_init,  &
@@ -238,10 +237,6 @@ integer, dimension(5) :: restart_versions = (/ 1, 2, 3, 4, 5 /)
 !    diff_m         vertical diffusion coefficient for momentum
 !                   which optionally may be time smoothed, meaning
 !                   values must be saved between steps
-!    radturbten     the sum of the radiational and turbulent heating,
-!                   generated in both physics_driver_down (radiation)
-!                   and physics_driver_up (turbulence) and then used
-!                   in moist_processes
 !    lw_tendency    longwave heating rate, generated in radiation and
 !                   needed in vert_turb_driver when either edt_mod
 !                   or entrain_mod is active. must be saved because
@@ -255,7 +250,7 @@ integer, dimension(5) :: restart_versions = (/ 1, 2, 3, 4, 5 /)
 !                   physics_driver_down on the next step.
 !----------------------------------------------------------------------
 real,    dimension(:,:,:), allocatable :: diff_t, diff_m
-real,    dimension(:,:,:), allocatable :: radturbten, lw_tendency
+real,    dimension(:,:,:), allocatable :: lw_tendency
 real,    dimension(:,:)  , allocatable :: pbltop     
 logical, dimension(:,:)  , allocatable :: convect
    
@@ -524,7 +519,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
       allocate ( diff_m     (id, jd, kd) )
       allocate ( pbltop     (id, jd) )
       allocate ( convect    (id, jd) )
-      allocate ( radturbten (id, jd, kd))
       allocate ( lw_tendency(id, jd, kd))
        
 !--------------------------------------------------------------------
@@ -538,7 +532,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
          diff_m      = 0.0
          pbltop      = -999.0
          convect     = .false.
-         radturbten  = 0.0
          lw_tendency = 0.0
       endif
 
@@ -1047,7 +1040,6 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !    pheric vertical diffusion.
 !-----------------------------------------------------------------------
       call mpp_clock_begin ( diff_down_clock )
-      radturbten(is:ie,js:je,:) = radturbten(is:ie,js:je,:) - tdt(:,:,:)
       call vert_diff_driver_down (is, js, Time_next, dt, p_half,   &
                                   p_full, z_full,   &
                                   diff_m(is:ie,js:je,:),         &
@@ -1337,7 +1329,6 @@ integer,dimension(:,:), intent(in),   optional :: kbot
         call vert_diff_driver_up (is, js, Time_next, dt, p_half,   &
                                   Surf_diff, tdt, qdt, mask=mask,  &
                                   kbot=kbot, t=t)
-      radturbten(is:ie,js:je,:) = radturbten(is:ie,js:je,:) + tdt(:,:,:)
       call mpp_clock_end ( diff_up_clock )
 
 !-----------------------------------------------------------------------
@@ -1349,13 +1340,11 @@ integer,dimension(:,:), intent(in),   optional :: kbot
       call moist_processes (is, ie, js, je, Time_next, dt, frac_land, &
                             p_half, p_full, z_half, z_full, omega,    &
                             diff_t(is:ie,js:je,:),                    &
-                            radturbten(is:ie,js:je,:),                &
                             t, q, r, u, v, tm, qm, rm, um, vm,        &
                             tdt, qdt, rdt, udt, vdt,                  &
                             convect(is:ie,js:je), lprec, fprec,       &
                             gust_cv, area, lat, mask=mask, kbot=kbot)
       call mpp_clock_end ( moist_processes_clock )
-      radturbten(is:ie,js:je,:) = 0.0
 
 !---------------------------------------------------------------------
 !    add the convective gustiness effect to that previously obtained 
@@ -1417,11 +1406,6 @@ type(time_type), intent(in) :: Time
          call error_mesg('physics_driver_mod', 'Writing netCDF formatted restart file: RESTART/physics_driver.res.nc', NOTE)
       endif
       call write_data(fname, 'vers', real(restart_versions(size(restart_versions(:)))), no_domain =.true. )
-      if(doing_strat()) then 
-         call write_data(fname, 'doing_strat', 1.0, no_domain=.true.)
-      else
-         call write_data(fname, 'doing_strat', 0.0, no_domain=.true.)
-      endif
       if(doing_edt) then 
          call write_data(fname, 'doing_edt', 1.0, no_domain=.true.)
       else
@@ -1443,9 +1427,6 @@ type(time_type), intent(in) :: Time
          r_convect = 1.0
       end where
       call write_data (fname, 'convect', r_convect)
-      if (doing_strat()) then
-         call write_data (fname, 'radturbten', radturbten)
-      endif
       if (doing_edt .or. doing_entrain) then
          call write_data (fname, 'lw_tendency', lw_tendency)
       endif
@@ -1465,7 +1446,7 @@ type(time_type), intent(in) :: Time
 !    deallocate the module variables.
 !---------------------------------------------------------------------
       deallocate (diff_t, diff_m, pbltop, convect,   &
-                  radturbten, lw_tendency)
+                  lw_tendency)
  
 !---------------------------------------------------------------------
 !    mark the module as uninitialized.
@@ -1521,7 +1502,7 @@ subroutine read_restart_nc
 
       real  :: vers, vers2
       character(len=8) :: chvers
-      real  :: was_doing_strat=0., was_doing_edt=0., was_doing_entrain=0.
+      real  :: was_doing_edt=0., was_doing_entrain=0.
       logical  :: success = .false.
       character(len=64) :: fname = 'INPUT/physics_driver.res.nc'
       real, dimension(size(convect,1), size(convect,2)) :: r_convect
@@ -1532,8 +1513,6 @@ subroutine read_restart_nc
 !                        file; otherwise the first word of first data 
 !                        record of file
 !      vers2             second word of first data record of file
-!      was_doing_strat   logical indicating if strat_cloud_mod was 
-!                        active in job which wrote restart file
 !      was_doing_edt     logical indicating if edt_mod was active
 !                        in job which wrote restart file
 !      was_doing_entrain logical indicating if entrain_mod was active
@@ -1547,7 +1526,6 @@ subroutine read_restart_nc
          if(mpp_pe() == mpp_root_pe()) call mpp_error ('physics_driver_mod', &
             'Reading NetCDF formatted restart file: INPUT/physics_driver.res.nc', NOTE)
          call read_data(fname, 'vers', vers, no_domain=.true.)
-         call read_data(fname, 'doing_strat', was_doing_strat, no_domain=.true.)
          call read_data(fname, 'doing_edt', was_doing_edt, no_domain=.true.)
          call read_data(fname, 'doing_entrain', was_doing_entrain, no_domain=.true.)
 !---------------------------------------------------------------------
@@ -1574,30 +1552,6 @@ subroutine read_restart_nc
             convect = .true.
          end where
          
-!---------------------------------------------------------------------
-!    radturbten may be present in versions 5 onward, if strat_cloud_mod
-!    was active in the job writing the .res file.
-!---------------------------------------------------------------------
-
-!--------------------------------------------------------------------
-!    if radturbten was written, read it.
-!--------------------------------------------------------------------
-          if (was_doing_strat .GT. 0.) then
-            call read_data (fname, 'radturbten', radturbten)
-
-!---------------------------------------------------------------------
-!    if strat_cloud_mod was not active in the job which wrote the 
-!    restart file but it is active in the current job, initialize
-!    radturbten to 0.0 and put a message in the output file.  
-!---------------------------------------------------------------------
-          else
-            if (doing_strat()) then
-              radturbten = 0.0
-              call error_mesg ('physics_driver_mod', &
-              ' initializing radturbten to 0.0, since it not present'//&
-                            ' in physics_driver.res.nc file', NOTE)
-            endif
-          endif
 
 !--------------------------------------------------------------------
 !    if lw_tendency was written, read it.

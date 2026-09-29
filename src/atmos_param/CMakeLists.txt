@@ -3,7 +3,6 @@ vert_diff_driver/vert_diff_driver.f90
 moist_conv/moist_conv.f90
 moist_processes/moist_processes.f90
 damping_driver/damping_driver.f90
-cloud_rad/cloud_rad.f90
 cg_drag/cg_drag.f90
 diag_integral/diag_integral.f90
 edt/edt.f90
@@ -15,7 +14,6 @@ vert_turb_driver/vert_turb_driver.f90
 qflux/qflux.f90
 entrain/entrain.f90
 mg_drag/mg_drag.f90
-cloud_generator/null/cloud_generator.f90
 topo_drag/topo_drag.f90
 diffusivity/diffusivity.f90
 physics_driver/physics_driver.f90
@@ -91,7 +89,6 @@ rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg13.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_tbl.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg02.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg07.f90
-strat_cloud/strat_cloud.f90
 )
 
 target_sources (mima PRIVATE ${ATMOS_PARAM_SOURCES} )
