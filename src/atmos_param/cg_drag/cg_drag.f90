@@ -846,7 +846,7 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
       integer, dimension (nc) ::   msk
       real   , dimension (nc) ::   c0mu0, B0
       real                    ::   fm, fe, Hb, alp2, Foc, c, test, rbh,&
-                                   eps, Bsum
+                                   eps, Bsum, mom_top, mass_top
       integer                 ::   iz0, iztop
       integer                 ::   i, j, k, ink, n
       real                    ::   ampl, cwthis, Bnthis, flagthis, kelvin_kludgethis
@@ -1124,11 +1124,18 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
             end do  ! (k loop)  
             
 !cig: place the extra momentum flux in the layers above a specific threshold instead of all in the top layer   (k=0 isn't a real model level)
-!	  write (*,*) "iztop",iztop, '  ', damp_level(i,j), '  ', damp_level_pressure, '  ', iz0, '  ', source_level_pressure
- 	   do k=1,iztop
-              wv_frcng(k) =  wv_frcng(k) + wv_frcng(0)/REAL(iztop)
-               diff_coeff(k) = diff_coeff(k) + diff_coeff(0)/REAL(iztop) 
-            end do   
+!    the momentum deposited above the model top (k = 0) is spread over
+!    levels 1..iztop as a uniform acceleration that conserves momentum:
+!    the layer masses are rho*dz, as in the definition of wv_frcng.
+            mom_top  = wv_frcng(0)*sqrt(rho(i,j,0)*rho(i,j,1))*dz(0)
+            mass_top = 0.
+            do k=1,iztop
+              mass_top = mass_top + sqrt(rho(i,j,k)*rho(i,j,k+1))*dz(k)
+            end do
+            do k=1,iztop
+              wv_frcng(k) =  wv_frcng(k) + mom_top/mass_top
+              diff_coeff(k) = diff_coeff(k) + diff_coeff(0)/REAL(iztop)
+            end do
 
 !cig: place the extra momentum flux in the top 3 layers instead of all in the top layer  
 !	    wv_frcng(1) =  wv_frcng(1) + weighttop*wv_frcng(0)           
