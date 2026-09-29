@@ -123,9 +123,6 @@
      cwtropics = 35.0,
      cn =  2.0,
      kelvin_kludge = 1.0,
-     weighttop = 0.7,
-     weightminus1 = 0.28,
-     weightminus2 = 0.02,
      source_level_pressure = 315.e+02,
      damp_level_pressure = 0.85e+02,
      cg_drag_freq = 21600 /

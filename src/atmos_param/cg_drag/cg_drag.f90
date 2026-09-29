@@ -97,8 +97,7 @@ real        :: dc=1.2             ! gravity wave spectral resolution
                                   ! previous values: 0.6
 real        :: Bt_0=.004          ! sum across the wave spectrum of 
                                   ! the magnitude of total GW stress [Pa]
-            
-real        :: Bt_aug=.000        ! magnitude of momentum flux divided by density 
+
 
 real        :: Bt_nh=.001         ! additional momentum stress for NH [Pa]
 
@@ -122,23 +121,14 @@ real       :: cwtropics = 40.0 ! half-width for the wide c spectrum [ m/s ]
                         ! previous values: 50.0, 25.0 
 real       :: cn =  2.0 ! half-width for the narrow c spectrum  [ m/s ]
 
-real        :: Bt_eq=.000         ! additional momentum stress at equator - CURRENTLY NOT USED! 
-
-real        :: Bt_eq_width=4.0    ! scaling for width of equtorial momentum flux  (equator) CURRENTLY NOT USED!
+real        :: Bt_eq=.000         ! momentum stress at the equator; the source
+                                  ! amplitude varies linearly from Bt_eq at
+                                  ! the equator to Bt_0 poleward of phi0n/phi0s
 
 real        :: phi0n = 30., phi0s = -30., dphin = 5., dphis = -5.
 
-!add by chaim jan 2017
-real        :: weightminus2=0.  
-
-real        :: weightminus1=0.
-
-real        :: weighttop=1.
-
 real        :: kelvin_kludge=1.
 
-logical     :: calculate_ked=.false. 
-                                  ! calculate ked diagnostic ?
 integer     :: num_diag_pts_ij=0  ! number of diagnostic columns specif-
                                   ! ied by global (i,j) coordinates
 integer     :: num_diag_pts_latlon=0 
@@ -163,14 +153,13 @@ real,    dimension(MAX_PTS)  ::  lon_coords_gl=-999.
 namelist / cg_drag_nml /         &
                           cg_drag_freq, cg_drag_offset, &
                           source_level_pressure, damp_level_pressure,   &
-                          nk, cmax, dc, Bt_0, Bt_aug,  &
-                          Bt_sh, Bt_nh, Bt_eq,  Bt_eq_width,  &
-                          calculate_ked,    &
+                          nk, cmax, dc, Bt_0,  &
+                          Bt_sh, Bt_nh, Bt_eq,  &
                           num_diag_pts_ij, num_diag_pts_latlon, &
                           i_coords_gl, j_coords_gl,   &
                           lat_coords_gl, lon_coords_gl, &
                           phi0n,phi0s,dphin,dphis, Bw, Bn, cw, cwtropics, cn, flag, &
-			  weightminus2, weightminus1, weighttop,kelvin_kludge
+			  kelvin_kludge
 
 
 !--------------------------------------------------------------------
