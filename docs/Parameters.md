@@ -243,7 +243,6 @@ The namelist `physics_driver_nml` steers which physics components are used. It r
  do_local_heating | .false. | add artificial local heating? If so, see `local_heating_nml` namelist
  diff_min | 1.e-3    | minimum value of a diffusion coefficient beneath which the coefficient is reset to zero
  diffusion_smooth | .true. | diffusion coefficients should be smoothed in time?
- do_netcdf_restart | .true. | make restart files netCDF format?
 
 ### Mixed layer
 

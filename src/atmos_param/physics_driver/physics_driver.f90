@@ -29,10 +29,6 @@ module physics_driver_mod
 ! </DESCRIPTION>
 ! <DIAGFIELDS>
 ! </DIAGFIELDS>
-! <DATASET NAME="physics_driver.res">
-! native format restart file
-! </DATASET>
-!
 ! <DATASET NAME="physics_driver.res.nc">
 ! netcdf format restart file
 ! </DATASET>
@@ -69,10 +65,9 @@ use fms_mod,                 only: mpp_clock_id, mpp_clock_begin,   &
                                    write_version_number, &
                                    file_exist, error_mesg, FATAL,   &
                                    WARNING, NOTE, check_nml_error, &
-                                   open_restart_file, read_data, &
+                                   read_data, &
                                    close_file, mpp_pe, mpp_root_pe, &
                                    write_data, mpp_error, mpp_chksum
-use fms_io_mod,              only: get_restart_io_mode
 
 use constants_mod,           only: cp_air !mj for rrtmg
 
@@ -139,7 +134,7 @@ public  physics_driver_init, physics_driver_down,   &
 private          &
 
 !  called from physics_driver_init:
-         read_restart_file, read_restart_nc,    &
+         read_restart_nc,    &
 
 !  called from physics_driver_down:
          check_args, &
@@ -174,11 +169,7 @@ real    :: diff_min = 1.e-3    ! minimum value of a diffusion
 logical :: diffusion_smooth = .true.
                                ! diffusion coefficients should be 
                                ! smoothed in time?
-logical :: do_netcdf_restart = .true.              
 ! <NAMELIST NAME="physics_driver_nml">
-!  <DATA NAME="do_netcdf_restart" UNITS="" TYPE="logical" DIM="" DEFAULT=".true.">
-! netcdf/native format restart file
-!  </DATA>
 !  <DATA NAME="do_moist_processes" UNITS="" TYPE="logical" DIM="" DEFAULT=".true.">
 !call moist_processes routines
 !  </DATA>
@@ -197,8 +188,7 @@ logical :: do_netcdf_restart = .true.
 !  </DATA>
 ! </NAMELIST>
 !
-namelist / physics_driver_nml / do_netcdf_restart, &
-                                do_moist_processes, tau_diff,      &
+namelist / physics_driver_nml / do_moist_processes, tau_diff,      &
                                 diff_min, diffusion_smooth, &
                                 do_grey_radiation, do_rrtm_radiation, &
                                 do_damping, do_local_heating
@@ -456,7 +446,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
       call time_manager_init
       call tracer_manager_init
       call field_manager_init (ndum)
-      call get_restart_io_mode(do_netcdf_restart)
 
 !--------------------------------------------------------------------
 !    write version number and namelist to log file.
@@ -552,13 +541,19 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
       allocate ( lw_tendency(id, jd, kd))
        
 !--------------------------------------------------------------------
-!    call read_restart_file to obtain initial values for the module
-!    variables.
+!    obtain initial values for the module variables from the restart
+!    file, or initialize them if there is none.
 !--------------------------------------------------------------------
       if(file_exist('INPUT/physics_driver.res.nc')) then
          call read_restart_nc
       else
-         call read_restart_file ! Also handles initialization when no restart data exists
+         diff_t      = 0.0
+         diff_m      = 0.0
+         diff_cu_mo  = 0.0
+         pbltop      = -999.0
+         convect     = .false.
+         radturbten  = 0.0
+         lw_tendency = 0.0
       endif
 
 !---------------------------------------------------------------------
@@ -1468,7 +1463,6 @@ type(time_type), intent(in) :: Time
 !---------------------------------------------------------------------
 !   local variable:
 
-     integer :: unit    ! unit number for restart file
      character(len=64)  :: fname='RESTART/physics_driver.res.nc'
      real,dimension(size(convect, 1), size(convect, 2))    :: r_convect
 !---------------------------------------------------------------------
@@ -1479,81 +1473,42 @@ type(time_type), intent(in) :: Time
               'module has not been initialized', FATAL)
       endif
 
-      if(do_netcdf_restart) then
-         if (mpp_pe() == mpp_root_pe() ) then
-            call error_mesg('physics_driver_mod', 'Writing netCDF formatted restart file: RESTART/physics_driver.res.nc', NOTE)
-         endif
-         call write_data(fname, 'vers', real(restart_versions(size(restart_versions(:)))), no_domain =.true. )
-         if(doing_strat()) then 
-            call write_data(fname, 'doing_strat', 1.0, no_domain=.true.)
-         else
-            call write_data(fname, 'doing_strat', 0.0, no_domain=.true.)
-         endif
-         if(doing_edt) then 
-            call write_data(fname, 'doing_edt', 1.0, no_domain=.true.)
-         else
-            call write_data(fname, 'doing_edt', 0.0, no_domain=.true.)
-         endif
-         if(doing_entrain) then 
-            call write_data(fname, 'doing_entrain', 1.0, no_domain=.true.)
-         else
-            call write_data(fname, 'doing_entrain', 0.0, no_domain=.true.)
-         endif
-         !--------------------------------------------------------------------
-         !    write out the data fields that are relevant for this experiment.
-         !--------------------------------------------------------------------
-         call write_data (fname, 'diff_cu_mo', diff_cu_mo)
-         call write_data (fname, 'pbltop', pbltop)
-         call write_data (fname, 'diff_t', diff_t)
-         call write_data (fname, 'diff_m', diff_m)
-         r_convect = 0.
-         where(convect)
-            r_convect = 1.0
-         end where
-         call write_data (fname, 'convect', r_convect)
-         if (doing_strat()) then
-            call write_data (fname, 'radturbten', radturbten)
-         endif
-         if (doing_edt .or. doing_entrain) then
-            call write_data (fname, 'lw_tendency', lw_tendency)
-         endif
+      if (mpp_pe() == mpp_root_pe() ) then
+         call error_mesg('physics_driver_mod', 'Writing netCDF formatted restart file: RESTART/physics_driver.res.nc', NOTE)
+      endif
+      call write_data(fname, 'vers', real(restart_versions(size(restart_versions(:)))), no_domain =.true. )
+      if(doing_strat()) then 
+         call write_data(fname, 'doing_strat', 1.0, no_domain=.true.)
       else
-         if (mpp_pe() == mpp_root_pe() ) then
-            call error_mesg('physics_driver_mod', 'Writing native formatted restart file.', NOTE)
-         endif
-         !---------------------------------------------------------------------
-         !    open a unit for the restart file.
-         !---------------------------------------------------------------------
-         unit = open_restart_file ('RESTART/physics_driver.res', 'write')
-         
-         !---------------------------------------------------------------------
-         !    write the header records, indicating restart version number and
-         !    which variables fields are present.
-         !---------------------------------------------------------------------
-         if (mpp_pe() == mpp_root_pe() ) then
-            write (unit) restart_versions(size(restart_versions(:)))
-            write (unit) doing_strat(), doing_edt, doing_entrain
-         endif
-         
-         !--------------------------------------------------------------------
-         !    write out the data fields that are relevant for this experiment.
-         !--------------------------------------------------------------------
-         call write_data (unit, diff_cu_mo)
-         call write_data (unit, pbltop    )
-         call write_data (unit, diff_t)
-         call write_data (unit, diff_m)
-         call write_data (unit, convect)
-         if (doing_strat()) then
-            call write_data (unit, radturbten)
-         endif
-         if (doing_edt .or. doing_entrain) then
-            call write_data (unit, lw_tendency)
-         endif
-         
-         !--------------------------------------------------------------------
-         !    close the restart file unit.
-         !--------------------------------------------------------------------
-         call close_file (unit)
+         call write_data(fname, 'doing_strat', 0.0, no_domain=.true.)
+      endif
+      if(doing_edt) then 
+         call write_data(fname, 'doing_edt', 1.0, no_domain=.true.)
+      else
+         call write_data(fname, 'doing_edt', 0.0, no_domain=.true.)
+      endif
+      if(doing_entrain) then 
+         call write_data(fname, 'doing_entrain', 1.0, no_domain=.true.)
+      else
+         call write_data(fname, 'doing_entrain', 0.0, no_domain=.true.)
+      endif
+      !--------------------------------------------------------------------
+      !    write out the data fields that are relevant for this experiment.
+      !--------------------------------------------------------------------
+      call write_data (fname, 'diff_cu_mo', diff_cu_mo)
+      call write_data (fname, 'pbltop', pbltop)
+      call write_data (fname, 'diff_t', diff_t)
+      call write_data (fname, 'diff_m', diff_m)
+      r_convect = 0.
+      where(convect)
+         r_convect = 1.0
+      end where
+      call write_data (fname, 'convect', r_convect)
+      if (doing_strat()) then
+         call write_data (fname, 'radturbten', radturbten)
+      endif
+      if (doing_edt .or. doing_entrain) then
+         call write_data (fname, 'lw_tendency', lw_tendency)
       endif
 !--------------------------------------------------------------------
 !    call the destructor routines for those modules who were initial-
@@ -1706,317 +1661,6 @@ end subroutine zero_radturbten
           
                
      
-!#####################################################################
-! <SUBROUTINE NAME="read_restart_file">
-!  <OVERVIEW>
-!    read_restart_file will read the physics_driver.res file and process
-!    its contents. if no restart data can be found, the module variables
-!    are initialized to flag values.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    read_restart_file will read the physics_driver.res file and process
-!    its contents. if no restart data can be found, the module variables
-!    are initialized to flag values.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call read_restart_file
-!  </TEMPLATE>
-! </SUBROUTINE>
-!
-subroutine read_restart_file                                     
-
-!---------------------------------------------------------------------
-!    read_restart_file will read the physics_driver.res file and process
-!    its contents. if no restart data can be found, the module variables
-!    are initialized to flag values.
-!---------------------------------------------------------------------
-
-!--------------------------------------------------------------------
-!   local variables:
-
-      integer  :: ierr, io, unit
-      integer  :: vers, vers2
-      character(len=8) :: chvers
-      logical  :: was_doing_strat, was_doing_edt, was_doing_entrain
-      logical  :: success = .false.
-
-!--------------------------------------------------------------------
-!   local variables:
-!
-!      ierr              error code
-!      io                error status returned from i/o operation
-!      unit              io unit number for reading restart file
-!      vers              restart version number if that is contained in 
-!                        file; otherwise the first word of first data 
-!                        record of file
-!      vers2             second word of first data record of file
-!      was_doing_strat   logical indicating if strat_cloud_mod was 
-!                        active in job which wrote restart file
-!      was_doing_edt     logical indicating if edt_mod was active
-!                        in job which wrote restart file
-!      was_doing_entrain logical indicating if entrain_mod was active
-!                        in job which wrote restart file
-!      success           logical indicating that restart data has been
-!                        processed
-!
-!---------------------------------------------------------------------
-
-!--------------------------------------------------------------------
-!    obtain values for radturbten, either from physics_driver.res, if
-!    reading a newer version of the file which contains it, or from 
-!    strat_cloud.res when an older version of physics_driver.res is
-!    being read.
-!--------------------------------------------------------------------
-      if(mpp_pe() == mpp_root_pe()) call mpp_error ('physics_driver_mod', &
-            'Reading native formatted restart file.', NOTE)
-      if (file_exist('INPUT/physics_driver.res')) then
-        unit = open_restart_file ('INPUT/physics_driver.res', 'read')
-
-!--------------------------------------------------------------------
-!    read restart file version number.
-!--------------------------------------------------------------------
-        read (unit) vers
-        if ( .not. any(vers ==restart_versions) ) then
-          write (chvers, '(i4)') vers
-          call error_mesg ('physics_driver_mod', &
-            'restart version ' //chvers// ' cannot be read by this'//&
-                                              'module version', FATAL)
-        endif
-
-!--------------------------------------------------------------------
-!    starting with v5,  logicals are written indicating which variables
-!    are present.
-!--------------------------------------------------------------------
-        if (vers >= 5 ) then
-          read (unit) was_doing_strat, was_doing_edt, was_doing_entrain
-        endif
-
-!---------------------------------------------------------------------
-!    read the contribution to diffusion coefficient from cumulus
-!    momentum transport.
-!---------------------------------------------------------------------
-        call read_data (unit, diff_cu_mo)
-
-!---------------------------------------------------------------------
-!    pbl top is present in file versions 2 and up. if not present,
-!    set a flag.
-!---------------------------------------------------------------------
-        if (vers >= 2) then
-          call read_data (unit, pbltop)
-        else
-          pbltop     = -999.0
-        endif
-
-!---------------------------------------------------------------------
-!    the temperature and momentum diffusion coefficients are present
-!    beginning with v3. if not prsent, set to 0.0.
-!---------------------------------------------------------------------
-        if (vers >= 3) then
-          call read_data (unit, diff_t)
-          call read_data (unit, diff_m)
-        else
-          diff_t = 0.0
-          diff_m = 0.0
-        end if 
-
-!---------------------------------------------------------------------
-!    a flag indicating columns in which convection is occurring is
-!    present beginning with v4. if not present, set it to .false.
-!---------------------------------------------------------------------
-        if (vers >= 4) then
-          call read_data (unit, convect)
-        else
-          convect = .false.
-        end if 
-
-!---------------------------------------------------------------------
-!    radturbten may be present in versions 5 onward, if strat_cloud_mod
-!    was active in the job writing the .res file.
-!---------------------------------------------------------------------
-        if (vers >= 5) then
-
-!--------------------------------------------------------------------
-!    if radturbten was written, read it.
-!--------------------------------------------------------------------
-          if (was_doing_strat) then
-            call read_data (unit, radturbten)
-
-!---------------------------------------------------------------------
-!    if strat_cloud_mod was not active in the job which wrote the 
-!    restart file but it is active in the current job, initialize
-!    radturbten to 0.0 and put a message in the output file.  
-!---------------------------------------------------------------------
-          else
-            if (doing_strat()) then
-              radturbten = 0.0
-              call error_mesg ('physics_driver_mod', &
-              ' initializing radturbten to 0.0, since it not present'//&
-                            ' in physics_driver.res file', NOTE)
-            endif
-          endif
-
-!--------------------------------------------------------------------
-!    if lw_tendency was written, read it.
-!--------------------------------------------------------------------
-          if (was_doing_edt .or. was_doing_entrain) then
-            call read_data (unit, lw_tendency)
-
-!---------------------------------------------------------------------
-!    if edt_mod or entrain_mod was not active in the job which wrote the
-!    restart file but it is active in the current job, initialize
-!    lw_tendency to 0.0 and put a message in the output file.  
-!---------------------------------------------------------------------
-          else
-            if (doing_edt .or. doing_entrain) then
-              lw_tendency = 0.0
-              call error_mesg ('physics_driver_mod', &
-             ' initializing lw_tendency to 0.0, since it not present'//&
-                  ' in physics_driver.res file', NOTE)
-            endif
-          endif
-
-!---------------------------------------------------------------------
-!    close the io unit associated with physics_driver.res. set flag
-!    to indicate that the restart data has been processed. 
-!---------------------------------------------------------------------
-          call close_file (unit)
-          success = .true.
-        endif  ! (vers >=5)
-
-!---------------------------------------------------------------------
-!    if there is no physics_driver.res, set the remaining module
-!    variables to 0.0
-!---------------------------------------------------------------------
-      else
-        diff_t = 0.0
-        diff_m = 0.0
-        diff_cu_mo = 0.0
-        pbltop     = -999.0
-        convect = .false.
-      endif  ! present(.res)
-
-!--------------------------------------------------------------------
-!    if a version of physics_driver.res containing the needed data is
-!    not present, check for the presence of the radturbten data in 
-!    strat_cloud.res.
-!--------------------------------------------------------------------
-      if ( .not. success) then
-        if (doing_strat()) then
-          if (file_exist('INPUT/strat_cloud.res')) then
-            unit = open_restart_file ('INPUT/strat_cloud.res', 'read')
-            read (unit, iostat=io, err=142) vers, vers2
-
-!----------------------------------------------------------------------
-!    if an i/o error does not occur, then the strat_cloud.res file 
-!    contains the variable radturbten. rewind and read. close file upon
-!    completion.
-!----------------------------------------------------------------------
-142         continue
-            if (io == 0) then
-              call error_mesg ('physics_driver_mod',  &
-                'reading pre-version number strat_cloud.res file, '//&
-                 'reading  radturbten', NOTE)
-              rewind (unit)
-              call read_data (unit, radturbten)
-              call close_file (unit)
-
-!---------------------------------------------------------------------
-!    if the eor was reached (io /= 0), then the strat_cloud.res file
-!    does not contain the radturbten data.  set values to 0.0 and
-!    put a note in the output file.
-!---------------------------------------------------------------------
-            else
-              radturbten = 0.0
-              call error_mesg ('physics_driver_mod',  &
-                  'neither strat_cloud.res nor physics_driver.res '//&
-                   'contain the radturbten data, setting it to 0.0', &
-                                                                NOTE)
-            endif
-
-!----------------------------------------------------------------------
-!    if strat_cloud.res is not present, set radturbten to 0.0.
-!----------------------------------------------------------------------
-          else
-            radturbten = 0.0
-            call error_mesg ('physics_driver_mod',  &
-              'setting radturbten to zero, no strat_cloud.res '//&
-               'file present, data not in physics_driver.res', NOTE)
-          endif
-        endif
-
-!--------------------------------------------------------------------
-!    check if the lw_tendency data is in edt.res.
-!--------------------------------------------------------------------
-        if (doing_edt) then
-          if (file_exist('INPUT/edt.res')) Then
-            unit = open_restart_file ('INPUT/edt.res', 'read')
-            read (unit, iostat=io, err=143) vers, vers2
-
-!----------------------------------------------------------------------
-!    if an i/o error does not occur, then the edt.res file 
-!    contains the variable lw_tendency. rewind and read. close file 
-!    upon completion.
-!----------------------------------------------------------------------
-143         continue
-            if (io == 0) then
-              call error_mesg ('physics_driver_mod',  &
-                'reading pre-version number edt.res file, &
-                 &reading  lw_tendency', NOTE)
-              rewind (unit)
-              call read_data (unit, lw_tendency)
-              call close_file (unit)
-
-!---------------------------------------------------------------------
-!    if the eor was reached (io /= 0), then the edt.res file 
-!    does not contain the lw_tendency data.  set values to 0.0 and
-!    put a note in the output file.
-!---------------------------------------------------------------------
-            else
-              lw_tendency = 0.0
-              call error_mesg ('physics_driver_mod',  &
-                  'neither edt.res nor physics_driver.res &
-                   &contain the lw_tendency data, setting it to 0.0', &
-                                                                NOTE)
-            endif
-
-!----------------------------------------------------------------------
-!    if edt.res is not present, set lw_tendency to 0.0.
-!----------------------------------------------------------------------
-          else
-            lw_tendency = 0.0
-            call error_mesg ('physics_driver_mod',  &
-               'setting lw_tendency to zero, no edt.res &
-               &file present, data not in physics_driver.res', NOTE)
-          endif
-        endif
-
-!--------------------------------------------------------------------
-!    check if the lw_tendency data is in entrain.res. only 1 form of
-!    entrain.res has ever existed, containing only the lw_tendency
-!    variable, so it can be read without further checking.
-!--------------------------------------------------------------------
-        if (doing_entrain) then
-          if (file_exist('INPUT/entrain.res')) Then
-            unit = open_restart_file ('INPUT/entrain.res', 'read')
-            call read_data (unit, lw_tendency)
-            call close_file (unit)
-
-!----------------------------------------------------------------------
-!    if entrain.res is not present, set lw_tendency to 0.0.
-!----------------------------------------------------------------------
-          else
-            lw_tendency = 0.0
-            call error_mesg ('physics_driver_mod',  &
-              'setting lw_tendency to zero, no entrain.res &
-               &file present, data not in physics_driver.res', NOTE)
-          endif
-        endif
-      endif  ! (.not. success)
-
-!----------------------------------------------------------------------
-
-
- end subroutine read_restart_file     
 
 !#####################################################################
 ! <SUBROUTINE NAME="read_restart_nc">
@@ -2038,9 +1682,8 @@ subroutine read_restart_file
 subroutine read_restart_nc
 
 !---------------------------------------------------------------------
-!    read_restart_file will read the physics_driver.res file and process
-!    its contents. if no restart data can be found, the module variables
-!    are initialized to flag values.
+!    read_restart_nc will read the physics_driver.res.nc file and
+!    process its contents.
 !---------------------------------------------------------------------
 
 !--------------------------------------------------------------------
