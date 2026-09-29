@@ -386,7 +386,10 @@ type(time_type),         intent(in)      :: Time
 !    define the k level which will serve as source level for the grav-
 !    ity waves. it is that model level just below the pressure specif-
 !    ied as the source location via namelist input.
+!    the damping level is the lowest model level above the pressure
+!    specified via namelist input, or the top level if there is none.
 !--------------------------------------------------------------------
+      klevel_of_damp = 1
       do k=1,kmax
 	 if (pref(k) < damp_level_pressure) then
           klevel_of_damp = k        
@@ -1348,7 +1351,7 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
 
         do i=1,size(u,1)  
 !added by cig, january 2017
-	  if ((lat(i+is-1,j+js-1)*pifinv <= dphin) .and. (lat(i+is-1,j+js-1)*pifinv >= dphis)) then
+	  if ((lat(i,j)*pifinv <= dphin) .and. (lat(i,j)*pifinv >= dphis)) then
                 cwthis=cwtropics
 		Bnthis=0.
 		flagthis=0
