@@ -29,6 +29,6 @@ These changes were made after v1.1 and are included from v1.2 onwards (the `lega
 
 ## v1.X
 
-* v1.1 (February 2020): Restart from arbitrary initial conditions (`specify_initial_conditions`, as used in [Yamada and Pauluis (2017)](https://doi.org/10.1175/JAS-D-16-0329.1)), switches to turn off surface fluxes for life cycle experiments, local (and moving) Gaussian heating (`local_heating_nml`), option to use the Navy high-resolution land-sea mask, and `postprocessing/output_to_input.py`.
+* v1.1 (February 2020): Restart from arbitrary initial conditions (`specify_initial_conditions`), switches to turn off surface fluxes, local (and moving) Gaussian heating (`local_heating_nml`), option to use the Navy high-resolution land-sea mask, and `postprocessing/output_to_input.py`.
 * v1.0.1: Patch for v1.0. Addresses incoming solar radiation issues when diurnal cycle averaging is used.
 * v1.0: initial published version, as described in [Jucker and Gerber, J Clim (2017)](https://doi.org/10.1175/JCLI-D-17-0127.1).
