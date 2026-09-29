@@ -380,10 +380,6 @@ if(trim(vert_difference_option) == 'simmons_and_burridge') then
     dlog_2 = ln_p_full(k)   - ln_p_half(k)
     x(k) = rdgas*tg(k) * (bk(k+1)*dlog_1 + bk(k)*dlog_2)/(dpk(k) + dbk(k)*p_surf)
   end do
-else if(trim(vert_difference_option) == 'mcm') then
-  do k=1,size(ln_p_full,1)
-    x(k) = rdgas*tg(k)/p_surf
-  end do
 endif
 
 return
@@ -419,17 +415,6 @@ if(vert_difference_option == 'simmons_and_burridge') then
     dlog_3 = ln_p_half_ref(k+1) - ln_p_half_ref(k)
     dmean = div(:,:,k)*dp
     dt_t(:,:,k) =  - kappa*t_ref(k)*(dmean_tot*dlog_3 + dmean*dlog_1)*dp_inv
-    dmean_tot = dmean_tot + dmean
-    vert_vel(:,:,k+1) = - dmean_tot
-  enddo
-
-else if (vert_difference_option == 'mcm') then
-
-  do k=1,num_levels
-    dp = dpk(k) + dbk(k)*p_surf_ref
-    dmean = div(:,:,k)*dp
-    p_full_ref = 0.5*(pk(k+1) + pk(k)) + 0.5*(bk(k+1) + bk(k))*p_surf_ref
-    dt_t(:,:,k) = - (kappa*t_ref(k)/p_full_ref)*(dmean_tot + 0.5*dmean)
     dmean_tot = dmean_tot + dmean
     vert_vel(:,:,k+1) = - dmean_tot
   enddo

@@ -68,12 +68,11 @@ real  ::  flux_cut_level= 0.0
 
 logical :: do_netcdf_restart = .true.
 logical :: do_conserve_energy = .false.
-logical :: do_mcm_mg_drag = .false.
 character(len=128) :: source_of_sgsmtn = 'input'
 
     namelist / mg_drag_nml / do_netcdf_restart,  &
                              xl_mtn, gmax, acoef, rho, low_lev_frac, &
-                             do_conserve_energy, do_mcm_mg_drag,     &
+                             do_conserve_energy,                     &
                              source_of_sgsmtn, flux_cut_level 
 
  public mg_drag, mg_drag_init, mg_drag_end
@@ -219,7 +218,6 @@ real,    dimension(size(uwnd,1),size(uwnd,2))              :: rlow, zsvar, bvfre
 real,    dimension(size(uwnd,1),size(uwnd,2))              :: depth, ave_p
 integer, dimension(size(uwnd,1),size(uwnd,2))              :: ntop 
 real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) :: th, sh_ang, test
-real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) :: sigma, del_sigma
 !real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)+1) :: sigma_half
 
 !---------------------------------------------------------------------
@@ -269,7 +267,6 @@ real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) :: sigma, del_sigma
 !              	  A = 1.0
 !=======================================================================
 
-if ( .not.do_mcm_mg_drag ) then
 
 !--- export sub grid scale topography
   ie = is + idim - 1
@@ -330,132 +327,6 @@ if ( .not.do_mcm_mg_drag ) then
 !  calculate mountain gravity wave drag tendency contributions
     call mgwd_tend (is,js,xn,yn,taub,phalf,taus,dtaux,dtauy, tausf)
 
-else if ( do_mcm_mg_drag ) then
-
-    if(present(kbot)) then
-      call error_mesg ('mg_drag','kbot cannot be present in the calling arguments when using the Manabe Climate Model option',FATAL)
-    endif
-
-    do k=1,kdim
-      sigma(:,:,k) = pfull(:,:,k)/phalf(:,:,kdimp1)
-      del_sigma(:,:,k) = (phalf(:,:,k+1) - phalf(:,:,k))/phalf(:,:,kdimp1)
-!     sigma_half(:,:,k) = phalf(:,:,k)/phalf(:,:,kdimp1)
-    enddo
-!    sigma_half(:,:,kdimp1) = 1.0
-
-    ie = is + idim - 1
-    je = js + jdim - 1
-
-    zsvar = (Ghprime(is:ie,js:je))**2
-
-    do k = 1,kdim
-      th(:,:,k) = temp(:,:,k) + grav*(zfull(:,:,k)-zhalf(:,:,kdimp1))*kappa/rdgas
-    end do
-
-    sigtop = 1.0 - low_lev_frac
-    do j = 1,jdim
-      do i = 1,idim
-        do k = kdim,1,-1
-          if (sigma(i,j,k) .lt. sigtop) then
-              if ( (sigtop - sigma(i,j,k)) .le. (sigma(i,j,k+1)-sigtop) ) then
-                ntop(i,j) = k
-              else
-                ntop(i,j) = k + 1
-              endif
-              go to 10
-          endif
-        end do
-        10 continue
-      enddo
-    enddo
-
-    ulow  = 0.0
-    vlow  = 0.0
-    tlow  = 0.0
-    thlow = 0.0
-    depth = 0.0
-
-    do j = 1,jdim
-      do i = 1,idim
-        do k = ntop(i,j), kdim
-           ulow(i,j)  = ulow(i,j)  + del_sigma(i,j,k)* uwnd(i,j,k) 
-           vlow(i,j)  = vlow(i,j)  + del_sigma(i,j,k)* vwnd(i,j,k) 
-           tlow(i,j)  = tlow(i,j)  + del_sigma(i,j,k)* temp(i,j,k)  
-           thlow(i,j) = thlow(i,j) + del_sigma(i,j,k)*th(i,j,k)
-           depth(i,j) = depth(i,j) + del_sigma(i,j,k)
-        end do
-      enddo
-    enddo
-    ulow  = ulow/depth
-    vlow  = vlow/depth
-    tlow  = tlow/depth
-    thlow = thlow/depth
-
-    do j = 1,jdim
-      do i = 1,idim
-        ave_p(i,j)  = (phalf(i,j,ntop(i,j)-1) + phalf(i,j,kdim))/2.
-        bvfreq(i,j) = (th(i,j,kdim) - th(i,j,ntop(i,j)))/(pfull(i,j,kdim) - pfull(i,j,ntop(i,j)))
-        bvfreq(i,j) = -grav*grav*ave_p(i,j)*bvfreq(i,j)/(rdgas*tlow(i,j)*thlow(i,j))  ! thlow should be tlow !IH
-      enddo
-    enddo
-
-    where(bvfreq > 0.0)
-      bvfreq = sqrt(bvfreq)
-    elsewhere
-      bvfreq = 0.0
-    endwhere
-
-!     TK mod: original had rk0*grav*bvfreq*zsvar*ulow .... etc..
-
-    x = grav*bvfreq*zsvar/(rdgas*tlow*xl_mtn)
-
-    rlow = 1.0/sqrt(ulow**2 + vlow**2 + small)
-    do k = 1, kdim
-      sh_ang(:,:,k) = rlow*(ulow*uwnd(:,:,k) + vlow*vwnd(:,:,k))/      &
-                     sqrt(uwnd(:,:,k)**2 + vwnd(:,:,k)**2 + small)
-    enddo
-    sh_ang = min(sh_ang, 0.99999)
-    sh_ang = max(sh_ang,-0.99999)
-    sh_ang = acos(sh_ang)
-
-    test = 1.0
-    where (sh_ang > 2.*atan(1.0))
-      test = 0.0
-    endwhere
-    do j = 1,jdim
-      do i = 1,idim
-        do k=ntop(i,j),kdim
-          test(i,j,k) = 1.0
-        enddo
-      enddo
-    enddo
-
-    do j = 1,jdim
-      do i = 1,idim
-        do k = ntop(i,j) - 1, 1, -1
-          klast = k
-          if (test(i,j,k) /= 1.0 )  go to 20
-        end do
-        klast = 0
-        20 continue
-        if ( klast /= 0 )  test(i,j,1:klast) = 0.0
-        kcrit = klast + 1
-        x(i,j) = x(i,j)/(1.-sigma(i,j,kcrit))  
-!       should be  x(i,j) = x(i,j)/(1 - sigma_half(klast)/sigma_half(kdim))
-      end do
-    end do
-
-    do k = 1,kdim
-      dtaux(:,:,k) = - x*ulow*test(:,:,k)
-      dtauy(:,:,k) = - x*vlow*test(:,:,k)
-    end do
-
-    taub = 0.0
-    taubx = 0.0
-    tauby = 0.0
-    tausf = 0.0
-
-endif
 
 !  calculate temperature tendency due to dissipation of kinetic energy
 if (do_conserve_energy) then

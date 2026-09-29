@@ -172,23 +172,6 @@ if(trim(vert_difference_option) == 'simmons_and_burridge') then
   end if
   p_full = exp(ln_p_full)
 
-else if(trim(vert_difference_option) == 'mcm') then
-
-  do k = 1,size(p_full,3)
-    p_full   (:,:,k) = 0.5*(p_half(:,:,k+1) + p_half(:,:,k))
-    ln_p_full(:,:,k) = log(p_full(:,:,k))
-  end do
-  if(pk(1).eq.0.0 .and. bk(1).eq.0.0) then
-    do k=2,size(p_half,3)
-      ln_p_half(:,:,k) = log(p_half(:,:,k))
-    end do
-    ln_p_half(:,:,1) = 0.
-  else
-    do k=1,size(p_half,3)
-      ln_p_half(:,:,k) = log(p_half(:,:,k))
-    end do
-  end if
-
 else
 
   call error_mesg('pressure_variables','"'//trim(vert_difference_option)//'"'// &
@@ -218,8 +201,6 @@ if(trim(vert_difference_option) == 'simmons_and_burridge') then
   ln_p_half_nxt = log(p_half_nxt)
   alpha  = 1.0  - p_half_nxt*(ln_p_half_bot - ln_p_half_nxt)/(p_half_bot - p_half_nxt)
   ln_p_full_bot = ln_p_half_bot - alpha
-else if(trim(vert_difference_option) == 'mcm') then
-  ln_p_full_bot = log(.5*(p_half_bot + p_half_nxt))
 endif
 
 if(use_virtual_temperature) then

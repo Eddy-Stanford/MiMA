@@ -500,7 +500,6 @@ entr_ratio    |  0.2
 znom                |  1000.0 
 free_atm_diff       | .false. 
 free_atm_skyhi_diff | .false. 
-pbl_mcm             | .false. 
 rich_crit_diff      |  0.25 
 mix_len             | 30. 
 rich_prandtl        |  1.00 
@@ -532,7 +531,4 @@ File `atmos_param/vert_diff_driver/vert_diff_driver.f90` and namelist `vert_diff
 Variable | Default Value
 :-- | :--:
 do_conserve_energy         | .false.
-do_mcm_no_neg_q            | .false.
 use_virtual_temp_vert_diff | .true.
-do_mcm_plev                | .false.
-do_mcm_vert_diff_tq        | .false.

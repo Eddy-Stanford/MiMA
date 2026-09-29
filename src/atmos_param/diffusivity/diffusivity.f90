@@ -109,7 +109,6 @@ real    :: entr_ratio          =  0.2
 real    :: znom                =  1000.0
 logical :: free_atm_diff       = .false.
 logical :: free_atm_skyhi_diff = .false.
-logical :: pbl_mcm             = .false.
 real    :: rich_crit_diff      =  0.25
 real    :: mix_len             = 30.
 real    :: rich_prandtl        =  1.00
@@ -125,7 +124,7 @@ logical :: do_entrain          =.true.
 namelist /diffusivity_nml/ fixed_depth, depth_0, frac_inner,&
                            rich_crit_pbl, entr_ratio,&
                            znom, free_atm_diff, free_atm_skyhi_diff,&
-                           pbl_mcm, rich_crit_diff, mix_len, rich_prandtl,&
+                           rich_crit_diff, mix_len, rich_prandtl,&
                            background_m, background_t, ampns, ampns_max, &
                            do_entrain
 
@@ -278,13 +277,8 @@ else
    call pbl_depth(svcp,u,v,z_full_ag,u_star,b_star,h,kbot=kbot)
 end if
 
-if(pbl_mcm) then
-   call diffusivity_pbl_mcm (u,v, t, p_full, p_half, &
-                             z_full_ag, z_half_ag, h, k_m, k_t)
-else
-   call diffusivity_pbl  (svcp, u, v, z_half_ag, h, u_star, b_star,&
-                       k_m, k_t, kbot=kbot)
-end if
+call diffusivity_pbl  (svcp, u, v, z_half_ag, h, u_star, b_star,&
+                     k_m, k_t, kbot=kbot)
 
 if(free_atm_diff) &
    call diffusivity_free (svcp, u, v, z_full_ag, z_half_ag, h, k_m, k_t)
@@ -441,82 +435,6 @@ end do
 return
 end subroutine diffusivity_pbl
 
-!=======================================================================
-
-subroutine diffusivity_pbl_mcm(u, v, t, p_full, p_half, z_full, z_half, &
-                               h, k_m, k_t)
-
-real, intent(in)  , dimension(:,:,:) :: u, v, t, z_full, z_half
-real, intent(in)  , dimension(:,:,:) :: p_full, p_half
-real, intent(in)  , dimension(:,:)   :: h
-real, intent(inout) , dimension(:,:,:) :: k_m, k_t
-
-integer                                        :: k, nlev
-real, dimension(size(z_full,1),size(z_full,2)) :: elmix, htcrit
-real, dimension(size(z_full,1),size(z_full,2)) :: delta_u, delta_v, delta_z
-
-real :: htcrit_ss
-real :: h_ss
-real, dimension(size(z_full,1),size(z_full,2)) :: sig_half, z_half_ss, elmix_ss
-
-!  htcrit_ss = height at which mixing length is a maximum (75m)
-!  h_ss   = height at which mixing length vanishes (4900m)
-!  elmix_ss   = mixing length
-
-! Define some constants:
-!  salaps = standard atmospheric lapse rate (K/m)
-!  tsfc   = idealized global mean surface temperature (15C)
-real :: tsfc = 288.16
-real :: salaps = -6.5e-3
-
-nlev = size(z_full,3)
-
-k_m = 0.
-
-h_ss = depth_0
-htcrit_ss = frac_inner*h_ss
-
-do k = 2, nlev
-
-! TK mods 8/13/01:  (code derived from SS)
-! Compute the height of each half level assuming a constant
-! standard lapse rate using the above procedure.
-! WARNING: These should be used with caution.  They will
-!  have large errors above the tropopause.
-
-! In order to determine the height, the layer mean temperature
-! from the surface to that level is required.  A surface
-! temperature of 15 deg Celsius and a standard lapse rate of
-! -6.5 deg/km will be used to estimate an average temperature
-! profile.
-
-   sig_half = p_half(:,:,k)/p_half(:,:,nlev+1)
-   z_half_ss = -rdgas * .5*(tsfc+tsfc*(sig_half**(-rdgas*salaps/grav))) * alog(sig_half)/grav
-
-   !compute mixing length as in SS (no geographical variation)
-    elmix_ss = 0.
-
-    where (z_half_ss < htcrit_ss .and. z_half_ss > 0.)
-         elmix_ss = vonkarm*z_half_ss
-    endwhere
-    where (z_half_ss >= htcrit_ss .and. z_half_ss < h_ss)
-         elmix_ss = vonkarm*htcrit_ss*(h_ss-z_half_ss)/(h_ss-htcrit_ss)
-    endwhere
-
-   delta_z = rdgas*0.5*(t(:,:,k)+t(:,:,k-1))*(p_full(:,:,k)-p_full(:,:,k-1))/&
-             (grav*p_half(:,:,k))
-   delta_u =      u(:,:,k-1) -      u(:,:,k)
-   delta_v =      v(:,:,k-1) -      v(:,:,k)
-
-   k_m(:,:,k) =   elmix_ss * elmix_ss *&
-                  sqrt(delta_u*delta_u + delta_v*delta_v)/delta_z
-
-end do
-
-k_t = k_m
-
-return
-end subroutine diffusivity_pbl_mcm
 
 !=======================================================================
 

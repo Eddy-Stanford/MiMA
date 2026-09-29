@@ -1042,7 +1042,7 @@ contains
 !  wg_full is the vertical velocity at full levels.
 
       real, dimension(is:ie, js:je) :: dp, dp_inv, dlog_1, dlog_2, dlog_3, dmean, dmean_tot
-      real, dimension(is:ie, js:je) :: x1, x2, x3, x4, x5, p_surf_inv
+      real, dimension(is:ie, js:je) :: x1, x2, x3, x4, x5
 
       real :: kappa
       integer :: k
@@ -1074,25 +1074,7 @@ contains
             dmean_tot = dmean_tot + dmean
             wg(:,:,k+1) = - dmean_tot
          enddo
-      else if(vert_difference_option == 'mcm') then
-         p_surf_inv = 1.0/p_surf
-         do k = 1,num_levels
-            dp = dpk(k) + dbk(k)*p_surf
-            x2 = dx_psg*p_surf_inv
-            x3 = dy_psg*p_surf_inv
-            dt_ug(:,:,k) = dt_ug(:,:,k) - rdgas*t_grid(:,:,k)*x2
-            dt_vg(:,:,k) = dt_vg(:,:,k) - rdgas*t_grid(:,:,k)*x3
-            dmean = divg(:,:,k)*dp + dbk(k)*(u_grid(:,:,k)*dx_psg + v_grid(:,:,k)*dy_psg)
-            x4 = (dmean_tot + 0.5*dmean)/p_full(:,:,k)
-            x5 = x4 - u_grid(:,:,k)*x2 - v_grid(:,:,k)*x3
-            dt_tg(:,:,k) = dt_tg(:,:,k) - kappa*t_grid(:,:,k) * x5
-            wg_full(:,:,k) = -x5*p_full(:,:,k)
-            dmean_tot = dmean_tot + dmean
-            wg(:,:,k+1) = - dmean_tot
-         enddo
-         kegen      = 0.0
-         kegenq     = 0.0
-         kegenqtinv = 0.0
+
       endif
 
       dt_psg = dt_psg - dmean_tot

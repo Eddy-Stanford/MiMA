@@ -55,7 +55,7 @@ real,    allocatable, dimension(:,:,:) :: e_global, f_t_global, f_q_global
 
       
 logical :: do_conserve_energy = .true.
-logical :: use_virtual_temp_vert_diff, do_mcm_plev
+logical :: use_virtual_temp_vert_diff
 integer :: sphum, mix_rat
 
 !--------------------- version number ---------------------------------
@@ -72,14 +72,12 @@ contains
 
 subroutine vert_diff_init (Tri_surf, idim, jdim, kdim,    &
                                do_conserve_energy_in,         &
-                               use_virtual_temp_vert_diff_in, &
-                               do_mcm_plev_in )
+                               use_virtual_temp_vert_diff_in )
 
  type(surf_diff_type), intent(inout) :: Tri_surf
  integer,              intent(in)    :: idim, jdim, kdim
  logical,              intent(in)    :: do_conserve_energy_in
  logical, optional,    intent(in)    :: use_virtual_temp_vert_diff_in
- logical, optional,    intent(in)    :: do_mcm_plev_in
 
     call write_version_number ( version, tagname )
 
@@ -100,11 +98,6 @@ subroutine vert_diff_init (Tri_surf, idim, jdim, kdim,    &
       use_virtual_temp_vert_diff = use_virtual_temp_vert_diff_in
     else
       use_virtual_temp_vert_diff = .false.
-    endif
-    if(present(do_mcm_plev_in)) then
-      do_mcm_plev = do_mcm_plev_in
-    else
-      do_mcm_plev = .false.
     endif
 
  if (.not. module_is_initialized) then
@@ -905,13 +898,8 @@ endif
 rho_half(:,:,2:nlev) =  &         ! density at half levels
       2.0*p_half(:,:,2:nlev)/(RDGAS*(tt(:,:,2:nlev)+tt(:,:,1:nlev-1)))
 
-if(do_mcm_plev) then
-  nu(:,:,2:nlev) = GRAV*rho_half(:,:,2:nlev)*rho_half(:,:,2:nlev)*diff(:,:,2:nlev)/ &
-                    (p_full(:,:,2:nlev)-p_full(:,:,1:nlev-1))
-else
-  nu(:,:,2:nlev) = rho_half(:,:,2:nlev)*diff(:,:,2:nlev) /  &
-                    (z_full(:,:,1:nlev-1)-z_full(:,:,2:nlev))
-endif
+nu(:,:,2:nlev) = rho_half(:,:,2:nlev)*diff(:,:,2:nlev) /  &
+                  (z_full(:,:,1:nlev-1)-z_full(:,:,2:nlev))
 !-----------------------------------------------------------------------
 
 end subroutine compute_nu

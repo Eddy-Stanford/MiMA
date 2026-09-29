@@ -36,19 +36,13 @@ public :: surf_diff_type
 !---- namelist ----
 
 logical :: do_conserve_energy         = .false.
-logical :: do_mcm_no_neg_q            = .false.
 logical :: use_virtual_temp_vert_diff = .true.
-logical :: do_mcm_plev                = .false.
-logical :: do_mcm_vert_diff_tq        = .false.
 
 namelist /vert_diff_driver_nml/ do_conserve_energy,         &
-                                do_mcm_no_neg_q,            &
-                                use_virtual_temp_vert_diff, &
-                                do_mcm_plev, do_mcm_vert_diff_tq
+                                use_virtual_temp_vert_diff
 
 !-----------------------------------------------------------------------
 
-real, allocatable, dimension(:,:,:) :: dt_t_save, dt_q_save
 
 !-------------------- diagnostics fields -------------------------------
 
@@ -121,13 +115,6 @@ integer :: ie, je
   je = js + size(t,2) -1
 
 
-    if(do_mcm_vert_diff_tq) then
-      dt_t_save(is:ie,js:je,:) = dt_t
-      dt_q_save(is:ie,js:je,:) = dt_q
-      dt_t = 0.0
-      dt_q = 0.0
-    endif
-
 !-----------------------------------------------------------------------
 !---- to do diagnostics on dt_t, dt_q, dt_u, and dt_v at this point add 
 !-----in the negative value of the field.  Note that the multiplication
@@ -165,9 +152,6 @@ integer :: ie, je
 !---- tracer diffusion (no surface flux) ----
 
  q_2 = q
- if (do_mcm_no_neg_q) then
-   where (q_2 < 0.0)  q_2 = 0.0
- endif
 
  call gcm_vert_diff_down (is, js, delt, u, v, tt, q_2, trs(:,:,:,1:ntp), &
                           diff_mom, diff_heat, p_half, p_full, z_full,   &
@@ -343,11 +327,6 @@ integer :: ie, je
           used = send_data ( id_evap_vdif, 2.*diag2, Time, is, js )
     endif
 
-    if(do_mcm_vert_diff_tq) then
-      dt_t = dt_t + dt_t_save(is:ie,js:je,:)
-      dt_q = dt_q + dt_q_save(is:ie,js:je,:)
-    endif
-
 !-----------------------------------------------------------------------
 
  end subroutine vert_diff_driver_up
@@ -383,14 +362,9 @@ integer :: ie, je
 !-------- initialize gcm vertical diffusion ------
 
    call vert_diff_init (Surf_diff, idim, jdim, kdim, do_conserve_energy, &
-                        use_virtual_temp_vert_diff, do_mcm_plev)
+                        use_virtual_temp_vert_diff)
 
 !-----------------------------------------------------------------------
-
-   if(do_mcm_vert_diff_tq) then
-     allocate(dt_t_save(idim,jdim,kdim)) ; dt_t_save = 0.0
-     allocate(dt_q_save(idim,jdim,kdim)) ; dt_q_save = 0.0
-   endif
 
 !--------------- initialize diagnostic fields --------------------
 
@@ -458,7 +432,6 @@ integer :: ie, je
  subroutine vert_diff_driver_end
 
    call vert_diff_end
-   if(do_mcm_vert_diff_tq) deallocate(dt_t_save, dt_q_save)
 
 !-----------------------------------------------------------------------
 

@@ -119,10 +119,6 @@ else if(trim(vert_coord_option) == 'hybrid') then
   a = a_sigma*f + a_press*(1.0 - f)
   b = b_sigma*f + b_press*(1.0 - f)
   a = reference_press*a
-else if(trim(vert_coord_option) == 'mcm') then
-  call compute_old_model_sigma(a, b)
-else if(trim(vert_coord_option) == 'v197') then
-  call compute_v197_sigma(a, b)
 else
   call error_mesg('compute_vert_coord','"'//trim(vert_coord_option)//'" is not a valid value for vert_coord_option.', FATAL)
 end if
@@ -241,42 +237,5 @@ if(zero_top) b(1) = 0.0
 return
 end subroutine compute_uneven_sigma
 
-!-------------------------------------------------------------------------
-subroutine compute_v197_sigma(a, b)
-real, intent (out), dimension(:) :: a, b
-
-integer :: k, num_levels
-real :: fk
-
-num_levels = size(b,1)-1
-if(num_levels /= 18) then
-  write(ch_tmp,'(i8)') num_levels
-  call error_mesg('compute_v197_sigma','num_levels='//ch_tmp//' It must be 18', FATAL)
-endif
-
-b = (/0.0, .0089163, .0342936, .0740741, .1262002, .1886145, .2592592, & 
-           .3360768, .4170096, .5000000, .5829904, .6639231, .7407407, & 
-           .8113854, .8737997, .9259259, .9657064, .9910837, 1.0/)
-
-a = 0.
-
-return
-end subroutine compute_v197_sigma
-!-------------------------------------------------------------------------
-subroutine compute_old_model_sigma(a, b)
-real, intent (out), dimension(:) :: a, b
-
-integer :: num_levels
-
-num_levels = size(b,1)-1
-if(num_levels /= 14) then
-  write(ch_tmp,'(i8)') num_levels
-  call error_mesg('compute_old_model_sigma','num_levels='//ch_tmp//' It must be 14', FATAL)
-endif
-b = (/0.0,.03,.0707,.1311,.2102,.3036,.4062,.5138,.6226,.7284,.8255,.9066,.9640,.9933,1.0/)
-a = 0.
-
-return
-end subroutine compute_old_model_sigma
 !-------------------------------------------------------------------------
 end module vert_coordinate_mod
