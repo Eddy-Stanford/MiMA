@@ -1,16 +1,16 @@
-[back to top](https://mjucker.github.io/MiMA)
+[back to contents](README.md)
 
 # Parameter settings
 
 This section shows most of the parameters and their default and/or recommended values. For details about the physical meaning of these parameters, please refer to the main MiMA reference paper and comments in the source code.
 
-Go directly to [default values](#default-values) or an [input file with all recommended values](../input/input.nml).
+Go directly to [default values](#default-values) or an [input file with all recommended values](https://github.com/Eddy-Stanford/MiMA/blob/master/input/input.nml).
 
 ## Recommended values
 
 Some of the default values are "safe choices", designed to have the least impact if the user is not aware of them.
 But these values are not necessarily the best ones, so this section gives some ballpark values which have been working well so far.
-A sample input file with all recommended values resides in the repository [here](../input/input.nml).
+A sample input file with all recommended values resides in the repository [here](https://github.com/Eddy-Stanford/MiMA/blob/master/input/input.nml).
 
 ### General
 
@@ -217,6 +217,11 @@ The dynamical core is set up in `atmos_spectral/model/spectral_dynamics.f90` and
    scale_heights | 4 | parameter 2 to define uneven_sigma levels
    vert_coord_option       | 'even_sigma' | use sigma levels
    exponent | 7.0 | parameter 3 to define vertical level distribution
+   specify_initial_conditions | .false. | read initial conditions from `INPUT/initial_conditions.nc` (see [specified initial conditions](Configurations.md#specified-initial-conditions))
+   add_noise | -1. | if > 0, amplitude [K] of random noise added to the spectral temperature field at start-up (see [noise](Configurations.md#adding-noise-to-the-initial-conditions))
+   add_noise_seed | -1 | random seed for `add_noise`; set >= 0 for reproducible noise
+   noise_spectral_cutoff_minimum | 1 | lowest spectral index that receives noise
+   noise_spectral_cutoff_maximum | 20 | highest spectral index that receives noise
 
 Initial conditions are set in `atmos_spectral/init/spectral_init_cond.f90` and the namelist `spectral_init_nml`.
 
