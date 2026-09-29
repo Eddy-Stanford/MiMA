@@ -13,27 +13,17 @@ target_include_directories( mima PUBLIC src/shared/include src/shared/mpp/includ
 add_library( mima_c ) # The C parts of MiMA, so we can apply different options for them.
 target_compile_definitions( mima PRIVATE use_libMPI use_netCDF gFortran ) # gFortran appears to be unused
 
-option(BUILD_COMBINE "Build mppnccombine?" OFF)
 option(INSTALL_EXEC "Install executables to exec/ directory?" OFF)
 
 #Add cmake directory to the environment module variable
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# # Also generate the postprocessing executable
 find_package (MPI REQUIRED)
 find_package(NetCDF REQUIRED COMPONENTS C Fortran)
-find_package (Python REQUIRED COMPONENTS Development)
 find_package (OpenMP REQUIRED COMPONENTS Fortran)
 
-if(BUILD_COMBINE)
-    message(STATUS "Building mppnccombine executable")
-    add_executable ( mppnccombine postprocessing/mppnccombine.c )
-    target_link_libraries(mppnccombine PRIVATE NetCDF::NetCDF_C)
-endif()
-
-# Find MPI, OpenMP, and python libraries and link
+# Link MPI, OpenMP, and netCDF libraries
 target_link_libraries( mima PRIVATE MPI::MPI_Fortran )
-target_link_libraries( mima PRIVATE Python::Python )
 target_link_libraries( mima PRIVATE OpenMP::OpenMP_Fortran )
 target_link_libraries(mima PRIVATE NetCDF::NetCDF_Fortran NetCDF::NetCDF_C)
 
@@ -98,9 +88,6 @@ if(INSTALL_EXEC)
     message(STATUS "Building exec dir instead of installing conventionally")
     set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/exec" CACHE PATH "..." FORCE)
     install(TARGETS mima RUNTIME DESTINATION .) 
-    if (BUILD_COMBINE)
-        install(TARGETS mppnccombine RUNTIME DESTINATION .)
-    endif()
     install(FILES input/diag_table DESTINATION . )
     install(FILES input/field_table DESTINATION .)
     install(DIRECTORY DESTINATION RESTART)
@@ -108,7 +95,4 @@ if(INSTALL_EXEC)
     install(DIRECTORY input/INPUT/ DESTINATION INPUT) 
 else()
     install(TARGETS mima RUNTIME DESTINATION bin)
-    if (BUILD_COMBINE)
-        install(TARGETS mppnccombine RUNTIME DESTINATION bin)
-    endif()
 endif()

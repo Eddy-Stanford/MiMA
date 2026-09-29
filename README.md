@@ -6,25 +6,30 @@ Full documentation is in the [`docs/`](docs/) folder and online at <https://eddy
 
 ## Quick start
 
-You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries), CMake ≥ 3.16, OpenMP, and Python development headers. See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
+You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries), CMake ≥ 3.16, and OpenMP. To combine the output you also need [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools). See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
 
 Compile, and create a ready-to-run test case in `exec/`:
 
 ```bash
 git clone https://github.com/Eddy-Stanford/MiMA.git
 cd MiMA
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DINSTALL_EXEC=ON -DBUILD_COMBINE=ON
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DINSTALL_EXEC=ON
 cmake --build build -j 8
 cmake --install build
 ```
 
-Run the test case (one 360-day year at T42 resolution with 40 levels), then combine the per-processor output files:
+Run the test case (one 360-day year at T42 resolution with 40 levels):
 
 ```bash
 cd exec
 ulimit -s unlimited   # on macOS use: ulimit -s hard
 mpirun -n 4 ./mima
-for f in atmos_daily atmos_avg atmos_davg atmos_dext; do ./mppnccombine -r $f.nc $f.nc.????; done
+```
+
+MiMA writes one output file per MPI process. Combine them with `mppnccombine` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools), which you install separately ([instructions](docs/GettingStarted.md#installing-fre-nctools)):
+
+```bash
+for f in atmos_daily atmos_avg atmos_davg atmos_dext; do mppnccombine -r $f.nc $f.nc.????; done
 ```
 
 See [Getting started](docs/GettingStarted.md) for details on the build options, the test configuration, output and restarts.
@@ -34,7 +39,6 @@ See [Getting started](docs/GettingStarted.md) for details on the build options, 
 * [Getting started](docs/GettingStarted.md): dependencies, compiling, running the test case
 * [Model configurations](docs/Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
 * [Parameter settings](docs/Parameters.md): default and recommended namelist values
-* [Postprocessing](docs/Postprocessing.md): combining output, interpolating to pressure levels, restarting from output
 * [Version history](docs/Versions.md)
 * [References](docs/README.md#references)
 
