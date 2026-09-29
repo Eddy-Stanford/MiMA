@@ -91,9 +91,10 @@ subroutine vert_diff_init (Tri_surf, idim, jdim, kdim,    &
                       'be present in the field_table at the same time', FATAL)
     endif
 
-    if (mpp_pe() == mpp_root_pe()) &
-    write (stdlog(),'(a,i4)') 'Tracer number for specific humidity =',sphum
-    write (stdlog(),'(a,i4)') 'Tracer number for mixing ratio      =',mix_rat
+    if (mpp_pe() == mpp_root_pe()) then
+      write (stdlog(),'(a,i4)') 'Tracer number for specific humidity =',sphum
+      write (stdlog(),'(a,i4)') 'Tracer number for mixing ratio      =',mix_rat
+    endif
 
     if(present(use_virtual_temp_vert_diff_in)) then
       use_virtual_temp_vert_diff = use_virtual_temp_vert_diff_in

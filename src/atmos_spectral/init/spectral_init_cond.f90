@@ -145,7 +145,7 @@ else if(trim(topography_option) == 'input') then
    if(file_exist('INPUT/topography.data.nc')) then
      call mpp_get_global_domain(grid_domain, xsize=global_num_lon, ysize=global_num_lat) 
      call field_size('INPUT/topography.data.nc', 'zsurf', siz)
-     if ( siz(1) == global_num_lon .or. siz(2) == global_num_lat ) then
+     if ( siz(1) == global_num_lon .and. siz(2) == global_num_lat ) then
        call read_data('INPUT/topography.data.nc', 'zsurf', surf_height, grid_domain)
      else
        write(ctmp1(1: 4),'(i4)') siz(1)
