@@ -20,7 +20,6 @@ donner_deep/donner_deep.f90
 entrain/entrain.f90
 cu_mo_trans/cu_mo_trans.f90
 mg_drag/mg_drag.f90
-cloud_generator/betaDistribution.f90
 cloud_generator/null/cloud_generator.f90
 topo_drag/topo_drag.f90
 diffusivity/diffusivity.f90
@@ -76,12 +75,9 @@ sea_esf_rad/esfsw_parameters.f90
 stable_bl_turb/stable_bl_turb.f90
 dry_adj/dry_adj.f90
 rrtm_radiation/astro.f90
-rrtm_radiation/rrtmg_sw/gcm_model/src/mcica_subcol_gen_sw.f90
-rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_spcvmc.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_cldprop.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_rad.nomcica.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_spcvrt.f90
-rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_cldprmc.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_setcoef.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_init.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_reftra.f90
@@ -107,20 +103,15 @@ rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_con.f90
 rrtm_radiation/rrtmg_sw/gcm_model/modules/parrrsw.f90
 rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_aer.f90
 rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_kg16.f90
-rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_ncpar.f90
 rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_tbl.f90
 rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_kg17.f90
 rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_kg18.f90
 rrtm_radiation/rrtmg_sw/gcm_model/modules/rrsw_kg29.f90
-rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_cldprmc.f90
 rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_setcoef.f90
-rrtm_radiation/rrtmg_lw/gcm_model/src/mcica_subcol_gen_lw.f90
 rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_init.f90
 rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_taumol.f90
-rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_rtrnmc.f90
 # Long Time to Compile so special flags in main CMakeLists
 rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_k_g.f90
-rrtm_radiation/rrtmg_lw/gcm_model/src/mcica_random_numbers.f90
 rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_cldprop.f90
 rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_rtrn.f90
 rrtm_radiation/rrtm_radiation.f90
@@ -132,7 +123,6 @@ rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg14.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg11.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg04.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_wvn.f90
-rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_ncpar.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_vsn.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg15.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/parrrtm.f90
