@@ -153,14 +153,15 @@ contains
 
  subroutine compute_flux     ( dt, Time, Atm, land_frac,            &
                                t_surf_atm, albedo, rough_mom,       &
-                               flux_u_atm, flux_v_atm, dtaudv_atm,  &
-                               u_star, b_star                       )
+                               flux_u_atm, flux_v_atm, dtaudu_atm,  &
+                               dtaudv_atm, u_star, b_star           )
 
  real,                   intent(in)  :: dt
  type       (time_type), intent(in)  :: Time
  type (atmos_data_type), intent(in)  :: Atm
  real, dimension(:,:),   intent(out) :: albedo,    rough_mom,       &
-                                        land_frac, dtaudv_atm,      &
+                                        land_frac, dtaudu_atm,      &
+                                        dtaudv_atm,                 &
                                         flux_u_atm, flux_v_atm,     &
                                         u_star, b_star
 
@@ -169,7 +170,7 @@ real, dimension(:,:),   intent(out) :: t_surf_atm
 real, dimension(size(Atm%t_bot,1), size(Atm%t_bot,2)) :: &
        u_surf, v_surf, rough_heat, rough_moist,          &
        stomatal, snow, water, max_water,                 &
-       q_star, q_surf, cd_q, cd_t, cd_m, wind, dtaudu_atm
+       q_star, q_surf, cd_q, cd_t, cd_m, wind
 
 logical, dimension(size(Atm%t_bot,1), size(Atm%t_bot,2)) :: &
        mask, glacier, seawater
@@ -373,7 +374,7 @@ endif
                       dhdt_surf, dedt_surf,                              &
                       dedq_surf,                                         & ! Required argument, intent(out), but not needed by this model.
                       drdt_surf, dhdt_atm, dedq_atm,                     &
-                      dtaudu_atm,                                        & ! Required argument, intent(out), but not needed by this model.
+                      dtaudu_atm,                                        & ! returned to the coupler for the implicit zonal stress
                       dtaudv_atm, dt,                                    & ! Required argument, intent(in). Looks like it should be .false. everywhere.
                       .not.mask,                                         &
                       seawater,                                          & ! Required argument, intent(in). Looks like fudgefactor for salt water. Use .false.

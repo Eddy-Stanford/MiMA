@@ -417,6 +417,7 @@ program coupler_main
                                Land_ice_atmos_boundary%rough_mom, &
                                Land_ice_atmos_boundary%u_flux,    &
                                Land_ice_atmos_boundary%v_flux,    &
+                               Land_ice_atmos_boundary%dtaudu,    &
                                Land_ice_atmos_boundary%dtaudv,    &
                                Land_ice_atmos_boundary%u_star,    &
                                Land_ice_atmos_boundary%b_star     )
