@@ -14,7 +14,6 @@ shallow_conv/null/shallow_conv.f90
 grey_radiation/grey_radiation.f90
 vert_turb_driver/vert_turb_driver.f90
 qflux/qflux.f90
-donner_deep/donner_deep.f90
 entrain/entrain.f90
 cu_mo_trans/cu_mo_trans.f90
 mg_drag/mg_drag.f90

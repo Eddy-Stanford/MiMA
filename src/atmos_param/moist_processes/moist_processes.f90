@@ -8,7 +8,6 @@
 !             Betts-Miller convective adjustment
 !             moist convective adjustment
 !             relaxed arakawa-schubert
-!             donner deep convection
 !             large-scale condensation
 !             stratiform prognostic cloud scheme
 !
@@ -18,8 +17,6 @@ use    betts_miller_mod, only: betts_miller, betts_miller_init
 use     bm_massflux_mod, only: bm_massflux, bm_massflux_init ! XXX These should be published by betts_miller_mod
 use          bm_omp_mod, only: bm_omp,      bm_omp_init      ! XXX These should be published by betts_miller_mod
 
-use     donner_deep_mod, only: donner_deep_init,               &
-                               donner_deep, donner_deep_end
 use      moist_conv_mod, only: moist_conv, moist_conv_init
 use     lscale_cond_mod, only: lscale_cond, lscale_cond_init
 use  sat_vapor_pres_mod, only: lookup_es
@@ -97,7 +94,7 @@ private
 
    logical :: do_mca=.false., do_lsc=.true., do_ras=.false.,  &
               do_strat=.false., do_dryadj=.false., &
-              do_donner_deep=.false., do_cmt=.false., &
+              do_cmt=.false., &
               use_tau=.false., do_gust_cv = .false., &
               do_bm=.true., do_bmmass=.false., do_bmomp=.false., &
               use_df_stuff=.true.
@@ -120,8 +117,6 @@ private
 !                [logical, default: do_lsc=true ]
 !   do_ras   = switch to turn on/off relaxed arakawa shubert
 !                [logical, default: do_ras=false ]
-! do_donner_deep = switch to turn on/off donner deep convection scheme
-!                [logical, default: do_donner_deep=false ]
 !   do_strat = switch to turn on/off stratiform cloud scheme
 !                [logical, default: do_strat=false ]
 !  do_dryadj = switch to turn on/off dry adjustment scheme
@@ -166,7 +161,7 @@ private
 namelist /moist_processes_nml/ do_mca, do_lsc, do_ras, do_strat,  &
                                do_dryadj, pdepth, tfreeze,        &
                                use_tau, &
-                               do_donner_deep, do_cmt, do_gust_cv, &
+                               do_cmt, do_gust_cv, &
                                gustmax, gustconst, &
                                do_bm, do_bmmass, do_bmomp, use_df_stuff, &
                                do_correct_q, qsrc !mj
@@ -177,10 +172,7 @@ namelist /moist_processes_nml/ do_mca, do_lsc, do_ras, do_strat,  &
 integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
            id_tdt_ls  , id_qdt_ls  , id_prec_ls  , id_snow_ls  , &
            id_precip  , id_WVP, id_LWP, id_IWP, id_AWP, id_gust_conv, &
-           id_tdt_dadj, id_rh, id_mc_donner, id_mc_full, &
-           id_tdt_deep_donner, id_tdt_mca_donner, id_qdt_deep_donner,  &
-           id_qdt_mca_donner, id_prec_deep_donner, id_prec_mca_donner,&
-           id_snow_deep_donner, id_snow_mca_donner, &
+           id_tdt_dadj, id_rh, id_mc_full, &
            id_qldt_ls , id_qidt_ls , id_qldt_conv, id_qidt_conv, &
            id_qadt_ls , id_qadt_conv,id_ql_ls_col, id_qi_ls_col, &
            id_ql_conv_col, id_qi_conv_col, id_qa_ls_col, id_qa_conv_col,&
@@ -192,20 +184,15 @@ integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
 integer, dimension(:), allocatable :: id_tracerdt_conv,  &
                                       id_tracerdt_conv_col, &
                                       id_conv_tracer,  &
-                                      id_conv_tracer_col, &
-                                      id_tracerdt_mcadon, &
-                                      id_tracerdt_mcadon_col
+                                      id_conv_tracer_col
 character(len=5) :: mod_name = 'moist'
 
 real :: missing_value = -999.
 integer :: convection_clock, largescale_clock
 
-logical :: do_tracers_in_donner =.false.
 logical :: do_tracers_in_mca = .false.
 logical :: do_tracers_in_ras = .false.
-logical, dimension(:), allocatable :: tracers_in_donner,   &
-                                      tracers_in_mca, tracers_in_ras
-integer :: num_donner_tracers=0
+logical, dimension(:), allocatable :: tracers_in_mca, tracers_in_ras
 integer :: num_mca_tracers=0
 integer :: num_ras_tracers=0
 integer :: num_tracers=0
@@ -353,9 +340,9 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: qltnd,qitnd,qatnd, &
                                                   qlin, qiin, qain
 real, dimension(size(r,1),size(r,2),size(r,3),size(r,4)) :: tracer, tracertnd
 real, dimension(size(t,1),size(t,2),size(t,3)+1) :: mc,mask3
-real, dimension(size(t,1),size(t,2),size(t,3)) :: mc_full, mc_donner, massflux
+real, dimension(size(t,1),size(t,2),size(t,3)) :: mc_full, massflux
 real, dimension(size(t,1),size(t,2),size(t,3)) :: RH, pmass, wetdeptnd, q_ref, t_ref
-real, dimension(size(t,1),size(t,2))           :: rain, precip, precip_dd, cape, cin
+real, dimension(size(t,1),size(t,2))           :: rain, precip, cape, cin
 real, dimension(size(t,1),size(t,2))           :: wvp,lwp,iwp
 real, dimension(size(t,1),size(t,2))           :: tempdiag, bmflag, &
                                                   klzbs, invtaubmt, invtaubmq, &
@@ -375,15 +362,12 @@ real :: tinsave
 ! tracer code:
 integer :: nn
 real, dimension (size(t,1), size(t,2), &
-                 size(t,3), num_donner_tracers) :: qtrceme, &
-                                                   donner_tracers
-real, dimension (size(t,1), size(t,2), &
                  size(t,3), num_ras_tracers) :: qtrras , &
                                                     ras_tracers
 real, dimension (size(t,1), size(t,2), &
                  size(t,3), num_mca_tracers) :: qtrmca , &
                                                 mca_tracers
-logical :: alpha, alphb, alphc
+logical :: alpha, alphc
 
 ! end tracer code
 
@@ -479,7 +463,6 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
 !----------------   reset mc  ------------------------------------------
 
    mc(:,:,:) = 0.0
-   mc_donner(:,:,:) = 0.0
 
 !   initialize qrat and ahuco
 
@@ -489,7 +472,6 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
 !---compute mass in each layer if needed by any of the diagnostics -----
 
       alpha = any (id_tracerdt_conv_col > 0)
-      if ( do_donner_deep) alphb = any (id_tracerdt_mcadon_col > 0)
       alphc = any (id_conv_tracer_col > 0)
 
       if ( id_q_conv_col  > 0 .or. id_t_conv_col  > 0 .or. &
@@ -499,7 +481,7 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
            id_qi_ls_col   > 0 .or. id_qa_ls_col   > 0 .or. &
            id_WVP         > 0 .or. id_LWP         > 0 .or. &
            id_IWP         > 0 .or. id_AWP         > 0  .or. &
-           alpha .or. (do_donner_deep .and. alphb) .or. alphc) then
+           alpha .or. alphc) then
         do k=1,kx
           pmass(:,:,k) = (phalf(:,:,k+1)-phalf(:,:,k))/GRAV
         end do
@@ -541,378 +523,6 @@ end if
 !    processes.
 !---------------------------------------------------------------------
       tracertnd = 0.0
-
-
-!---------------------------------------------------------------------
-!   activate donner convection scheme
-!---------------------------------------------------------------------
-
-      if (do_donner_deep) then
-!    print *, 'entering do_donner_deep loop', mpp_pe()
-
-!--------------------------------------------------------------------
-! convert specific humidity to mixing ratio for input to donner_deep
-!--------------------------------------------------------------------
-   if (do_strat) then
-
-!  convert specific humidity to mixing ratio
-     rin = qin/(1.0 - qin) ! XXX  rin is not mixing ratio when use_df_stuff=.true.
-     rlin = tracer(:,:,:,nql)/(1.0 - qin)
-     riin = tracer(:,:,:,nqi)/(1.0 - qin)
-!---------------------------------------------------------------------
-!    if any tracers are to be transported by donner convection,
-!    check each active tracer to find those to be transported and fill
-!    the donner_tracers array with these fields.
-!---------------------------------------------------------------------
-       if (num_donner_tracers > 0) then
-         nn = 1
-         do n=1, num_tracers
-           if (tracers_in_donner(n)) then
-             donner_tracers(:,:,:,nn) = tracer(:,:,:,n)
-             nn = nn + 1
-           endif
-         end do
-
-!    print *, 'end donner_tracers definit  ', mpp_pe()
-!    print *, 'calling donner_deep', mpp_pe()
-     call donner_deep (is, ie, js, je, tin, rin, pfull, phalf,   &
-                       omega, dt, land, Time, ttnd, rtnd, precip_dd,   &
-                       ahuco, qrat,  &
-                       kbot=kbot, cf=tracer(:,:,:,nqa),qlin=rlin , qiin=riin, &
-                       delta_qa=tracertnd(:,:,:,nqa), delta_ql=rltnd, &
-                       delta_qi=ritnd, mtot=mc_donner, &
-                        tracers=donner_tracers, qtrceme=qtrceme)
-!    print *, 'return from  donner_deep', mpp_pe()
-!---------------------------------------------------------------------
-!    update the current tracer tendencies with the contributions
-!    just obtained from donner transport.
-!---------------------------------------------------------------------
-      nn = 1
-      do n=1, num_tracers
-        if (tracers_in_donner(n)) then
-          rdt(:,:,:,n) = rdt(:,:,:,n) + qtrceme(:,:,:,nn)
-          tracertnd(:,:,:,n) = tracertnd(:,:,:,n) + qtrceme(:,:,:,nn)
-          nn = nn + 1
-        endif
-      end do
-!    print *, 'complete tracer updates ', mpp_pe()
-   else
-     call donner_deep (is, ie, js, je, tin, rin, pfull, phalf,   &
-                       omega, dt, land, Time, ttnd, rtnd, precip_dd,   &
-                       ahuco, qrat,  &
-                       kbot=kbot, cf=tracer(:,:,:,nqa),qlin=rlin , qiin=riin, &
-                       delta_qa=tracertnd(:,:,:,nqa), delta_ql=rltnd, &
-                       delta_qi=ritnd, mtot=mc_donner)
-!    print *, 'return from  donner_deep', mpp_pe()
-   endif
-     where (coldT)
-       snow = precip_dd
-       rain = 0.0
-     elsewhere
-       snow = 0.0
-       rain = precip_dd
-     end where
-
-!   define updated mixing ratios
-     rnew = rin + rtnd
-     rlnew = rlin + rltnd
-     rinew = riin + ritnd
-!   define updated specific humidities
-     qnew = rnew / (1.0 + rnew)
-     qlnew = rlnew / (1.0 + rnew)
-     qinew = rinew / (1.0 + rnew)
-!   define specific humidity time tendencies
-     qtnd = qnew - qin
-     tracertnd(:,:,:,nql) = qlnew - tracer(:,:,:,nql)
-     tracertnd(:,:,:,nqi) = qinew - tracer(:,:,:,nqi)
-
-!   Update local tracer quantity for input to RAS later.
-     tracer(:,:,:,nql) = tracer(:,:,:,nql) + tracertnd(:,:,:,nql)
-     tracer(:,:,:,nqi) = tracer(:,:,:,nqi) + tracertnd(:,:,:,nqi)
-     tracer(:,:,:,nqa) = tracer(:,:,:,nqa) + tracertnd(:,:,:,nqa)
-
-!    print *, 'complete tracer updates2 ', mpp_pe()
-   else
-!  convert specific humidity to mixing ratio
-     rin = qin/(1.0 - qin)
-
-!---------------------------------------------------------------------
-!    if any tracers are to be transported by donner convection,
-!    check each active tracer to find those to be transported and fill
-!    the donner_tracers array with these fields.
-!---------------------------------------------------------------------
-       if (num_donner_tracers > 0) then
-         nn = 1
-         do n=1, num_tracers
-           if (tracers_in_donner(n)) then
-             donner_tracers(:,:,:,nn) = tracer(:,:,:,n)
-             nn = nn + 1
-           endif
-         end do
-
-!    print *, 'end donner_tracers definit  ', mpp_pe()
-     call donner_deep (is, ie, js, je, tin, rin, pfull, phalf,    &
-                       omega, dt, Land, Time, ttnd, rtnd, precip_dd,   &
-                       ahuco, qrat, tracers=donner_tracers,  &
-                       qtrceme=qtrceme, kbot=kbot)
-!---------------------------------------------------------------------
-!    update the current tracer tendencies with the contributions
-!    just obtained from donner transport.
-!---------------------------------------------------------------------
-      nn = 1
-      do n=1, num_tracers
-        if (tracers_in_donner(n)) then
-          rdt(:,:,:,n) = rdt(:,:,:,n) + qtrceme(:,:,:,nn)
-          tracertnd(:,:,:,n) = tracertnd(:,:,:,n) + qtrceme(:,:,:,nn)
-          nn = nn + 1
-        endif
-      end do
-   else
-     call donner_deep (is, ie, js, je, tin, rin, pfull, phalf,    &
-                       omega, dt, Land, Time, ttnd, rtnd, precip_dd,   &
-                       ahuco, qrat, &
-                       kbot=kbot)
-   endif
-     where (coldT)
-       snow = precip_dd
-       rain = 0.0
-     elsewhere
-       snow = 0.0
-       rain = precip_dd
-     end where
-
-!   define updated mixing ratio
-     rnew = rin + rtnd
-!   define updated specific humidity
-     qnew = rnew / (1.0 + rnew)
-!   define specific humidity time tendency
-     qtnd = qnew - qin
-   endif
-
-!ljd
-!     do k=1,kx
-!        if (qrat(is,js,k) .ne. 1.) then
-!       if (js .eq. 1) then
-!          write(6,*) 'is,js,k,qrat,ahuco= ',is,js,k,qrat(is,js,k), &
-!          ahuco(is,js,k)
-!          stop
-!        end if
-!        end if
-!     end do
-!ljd
-
-!------- update input values and compute tendency -------
-
-      tin=tin+ttnd;    qin=qin+qtnd
-
-      ttnd=ttnd*dtinv; qtnd=qtnd*dtinv
-      rain=rain*dtinv; snow=snow*dtinv
-
-!------- add on tendency ----------
-
-     tdt=tdt+ttnd; qdt=qdt+qtnd
-
-!----------------------------------------------------------------
-!  save tendencies and precip forms due to deep convection as diag-
-!  nosed in donner_deep
-!----------------------------------------------------------------
-     if (id_tdt_deep_donner > 0) then
-       used = send_data ( id_tdt_deep_donner, ttnd, Time, is, js, 1, &
-                        rmask=mask )
-     endif
-
-     if (id_qdt_deep_donner > 0) then
-       used = send_data ( id_qdt_deep_donner, qtnd, Time, is, js, 1, &
-                        rmask=mask )
-     endif
-
-     if (id_prec_deep_donner > 0) then
-       used = send_data ( id_prec_deep_donner, rain+snow, Time, is, js )
-     endif
-
-     if (id_snow_deep_donner > 0) then
-       used = send_data ( id_snow_deep_donner, snow, Time, is, js)
-     endif
-
-     if ( id_mc_donner > 0 ) then
-       used = send_data ( id_mc_donner, mc_donner, Time, is, js, 1,&
-                         rmask=mask )
-     endif
-
-
-!------- update input values , compute and add on tendency -----------
-!-------              in the case of strat                 -----------
-
-      if (do_strat) then
-         qlin=qlin+tracertnd(:,:,:,nql)
-         qiin=qiin+tracertnd(:,:,:,nqi)
-         qain=qain+tracertnd(:,:,:,nqa)
-
-         tracertnd(:,:,:,nql)=tracertnd(:,:,:,nql)*dtinv
-         tracertnd(:,:,:,nqi)=tracertnd(:,:,:,nqi)*dtinv
-         tracertnd(:,:,:,nqa)=tracertnd(:,:,:,nqa)*dtinv
-
-         rdt(:,:,:,nql)=rdt(:,:,:,nql)+tracertnd(:,:,:,nql)
-         rdt(:,:,:,nqi)=rdt(:,:,:,nqi)+tracertnd(:,:,:,nqi)
-         rdt(:,:,:,nqa)=rdt(:,:,:,nqa)+tracertnd(:,:,:,nqa)
-
-      end if
-
-!------- save total precip and snow ---------
-      lprec=lprec+rain
-      fprec=fprec+snow
-      precip=precip+rain+snow
-
-! save deep component of these diagnostics
-      rain_save = rain
-      snow_save = snow
-      ttnd_save = ttnd
-      qtnd_save = qtnd
-      if (do_strat .and. do_ras) then
-        qltnd_save = tracertnd(:,:,:,nql)
-        qitnd_save = tracertnd(:,:,:,nqi)
-        qatnd_save = tracertnd(:,:,:,nqa)
-      endif
-
-!--------------------------------------------------------------------
-!  call moist convective adjustment to handle any shallow convection
-!--------------------------------------------------------------------
-
-!    print *, 'call moist_conv          ', mpp_pe()
-     if  (num_donner_tracers > 0) then
-      call moist_conv (tin,qin,pfull,phalf,coldT,&
-                       ttnd,qtnd,rain,snow,kbot,&
-                       .FALSE., tracer(:,:,:,nql), tracer(:,:,:,nqi), &
-                     tracer(:,:,:,nqa), tracertnd(:,:,:,nql),     &
-                     tracertnd(:,:,:,nqi), tracertnd(:,:,:,nqa), &
-                     dtinv, Time, mask, is, js,  &
-                     tracers =donner_tracers, qtrmca=qtrceme)
-!    print *, 'end  moist_conv          ', mpp_pe()
-
-!---------------------------------------------------------------------
-!    update the current tracer tendencies with the contributions
-!    just obtained from donner transport.
-!---------------------------------------------------------------------
-      nn = 1
-      do n=1, num_tracers
-        if (tracers_in_donner(n)) then
-          rdt(:,:,:,n) = rdt(:,:,:,n) + qtrceme(:,:,:,nn)
-          tracertnd(:,:,:,n) = tracertnd(:,:,:,n) + qtrceme(:,:,:,nn)
-          nn = nn + 1
-        endif
-      end do
-
-     else
-      call moist_conv (tin,qin,pfull,phalf,coldT,&
-                       ttnd,qtnd,rain,snow,kbot,&
-                       .FALSE., tracer(:,:,:,nql), tracer(:,:,:,nqi), &
-                     tracer(:,:,:,nqa), tracertnd(:,:,:,nql),     &
-                     tracertnd(:,:,:,nqi), tracertnd(:,:,:,nqa), &
-                     dtinv, Time, mask, is, js)
-     endif
-!------- add on tendency ----------
-      tdt=tdt+ttnd; qdt=qdt+qtnd
-
-!---------------------------------------------------------------------
-!   save the tendencies and precip from the moist convective
-!   adjustment pass associated with donner_deep
-!---------------------------------------------------------------------
-      if (id_tdt_mca_donner > 0) then
-        used = send_data ( id_tdt_mca_donner, ttnd, Time, is, js, 1, &
-                         rmask=mask )
-      endif
-
-      if (id_qdt_mca_donner > 0) then
-        used = send_data ( id_qdt_mca_donner, qtnd, Time, is, js, 1, &
-                         rmask=mask )
-      endif
-
-      if (id_prec_mca_donner > 0) then
-        used = send_data ( id_prec_mca_donner, rain+snow, Time, is, js )
-      endif
-
-      if (id_snow_mca_donner > 0) then
-        used = send_data ( id_snow_mca_donner, snow, Time, is, js)
-      endif
-
-      !------- diagnostics for tracers from convection -------
-!  allow any tracer to be activated here (allows control cases)
-!     do n=1,num_tracers
-!       if ( id_conv_tracer(n) > 0 ) then
-!         used = send_data ( id_conv_tracer(n), tracer(:,:,:,n), Time, is, js, 1, &
-!                           rmask=mask )
-!        endif
-!------- diagnostics for tracers column integral tendency ------
-!        if ( id_conv_tracer_col(n) > 0 ) then
-!          tempdiag(:,:)=0.
-!          do k=1,kx
-!            tempdiag(:,:) = tempdiag(:,:) + tracer   (:,:,k,n)*pmass(:,:,k)
-!          end do
-!          used = send_data ( id_conv_tracer_col(n), tempdiag, Time, is, js )
-!       end if
-!     enddo
-
-      !------- diagnostics for tracers from convection -------
-      do n = 1, num_donner_tracers
-        if ( id_tracerdt_mcadon(n) > 0 ) then
-          used = send_data ( id_tracerdt_mcadon(n), qtrceme(:,:,:,n), Time, is, js, 1, &
-                            rmask=mask )
-        endif
-
-       !------- diagnostics for tracers column integral tendency ------
-         if ( id_tracerdt_mcadon_col(n) > 0 ) then
-           tempdiag(:,:)=0.
-           do k=1,kx
-             tempdiag(:,:) = tempdiag(:,:) + qtrceme  (:,:,k,n)*pmass(:,:,k)
-           end do
-           used = send_data ( id_tracerdt_mcadon_col(n), tempdiag, Time, is, js )
-         end if
-      enddo
-
-
-!------- update input values , compute and add on tendency -----------
-!-------              in the case of strat                 -----------
-
-      if (do_strat) then
-
-!         qlin=qlin+tracertnd(:,:,:,nql)
-!         qiin=qiin+tracertnd(:,:,:,nqi)
-!         qain=qain+tracertnd(:,:,:,nqa)
-
-!         tracertnd(:,:,:,nql)=tracertnd(:,:,:,nql)*dtinv
-!         tracertnd(:,:,:,nqi)=tracertnd(:,:,:,nqi)*dtinv
-!         tracertnd(:,:,:,nqa)=tracertnd(:,:,:,nqa)*dtinv
-
-!         rdt(:,:,:,nql)=rdt(:,:,:,nql)+tracertnd(:,:,:,nql)
-!         rdt(:,:,:,nqi)=rdt(:,:,:,nqi)+tracertnd(:,:,:,nqi)
-!         rdt(:,:,:,nqa)=rdt(:,:,:,nqa)+tracertnd(:,:,:,nqa)
-
-      end if
-
-!------- save total precip and snow ---------
-      lprec=lprec+rain
-      fprec=fprec+snow
-      precip=precip+rain+snow
-
-!--------------------------------------------------------------------
-!  define sum of contributions from the deep pass and the moist conv
-!  pass. store in temporary variables ..._save if ras will also be
-!  activated.
-!--------------------------------------------------------------------
-   if (.not. do_ras) then
-      rain = rain_save + rain
-      snow = snow_save + snow
-      ttnd = ttnd_save + ttnd
-      qtnd = qtnd_save + qtnd
-    else
-      rain_save = rain_save + rain
-      snow_save = snow_save + snow
-      ttnd_save = ttnd_save + ttnd
-      qtnd_save = qtnd_save + qtnd
-    endif
-
-endif  ! do_donner_deep
-!    print *, 'end do_donner_deep loop  ', mpp_pe()
 
 
       !------- diagnostics for tracers from convection -------
@@ -1098,19 +708,6 @@ endif  ! do_donner_deep
       fprec=fprec+snow
       precip=precip+rain+snow
 
-! update convection diagnostics if  donner_deep was also active
-      if (do_donner_deep) then
-        ttnd = ttnd + ttnd_save
-        qtnd = qtnd + qtnd_save
-        rain = rain + rain_save
-        snow = snow + snow_save
-        if (do_strat) then
-          tracertnd(:,:,:,nql) = tracertnd(:,:,:,nql) + qltnd_save
-          tracertnd(:,:,:,nqi) = tracertnd(:,:,:,nqi) + qitnd_save
-          tracertnd(:,:,:,nqa) = tracertnd(:,:,:,nqa) + qatnd_save
-        endif
-      endif
-
 !    print *, ' end ras plus donner             ', mpp_pe()
 ! do diffusive cumulus momentum transport
       if ( do_cmt ) then
@@ -1284,9 +881,7 @@ endif  ! do_donner_deep
 
       !------- diagnostics for tracers from convection -------
       do n = 1, size(tracertnd,4)
-        if (tracers_in_donner(n) .or. &
-            tracers_in_ras(n)      .or.  &
-            tracers_in_mca(n))    then
+        if (tracers_in_ras(n) .or. tracers_in_mca(n)) then
         if ( id_tracerdt_conv(n) > 0 ) then
           used = send_data ( id_tracerdt_conv(n), tracertnd(:,:,:,n), Time, is, js, 1, &
                              rmask=mask )
@@ -1344,8 +939,7 @@ endif  ! do_donner_deep
 
 !-----------------------------------------------------------------------
          do k=1,kx
-           mc_full(:,:,k) = 0.5*(mc(:,:,k) + mc(:,:,k+1)) +   &
-                                 mc_donner(:,:,k)
+           mc_full(:,:,k) = 0.5*(mc(:,:,k) + mc(:,:,k+1))
          end do
          call strat_driv (Time,is,ie,js,je,dt,pfull,phalf,      &
                           radturbten,                      &
@@ -1745,9 +1339,6 @@ character(len=80)  :: scheme
                  ('moist_processes_init',  &
                   'both do_lsc and do_strat cannot be specified', FATAL)
 
-         if (do_mca .and. do_donner_deep) call error_mesg &
-                 ('moist_processes_init',  &
-            'both do_donner_deep and do_mca cannot be specified', FATAL)
 
       endif
 
@@ -1804,10 +1395,8 @@ character(len=80)  :: scheme
 !    transported by the various available convective schemes.
 !    initialize these arrays to .false..
 !---------------------------------------------------------------------
-      allocate (tracers_in_donner(num_tracers))
       allocate (tracers_in_mca(num_tracers))
       allocate (tracers_in_ras(num_tracers))
-      tracers_in_donner = .false.
       tracers_in_mca = .false.
       tracers_in_ras = .false.
 
@@ -1822,9 +1411,6 @@ character(len=80)  :: scheme
         if (query_method ('convection', MODEL_ATMOS, n, scheme)) then
           select case (scheme)
             case ("none")
-            case ("donner")
-               num_donner_tracers = num_donner_tracers + 1
-               tracers_in_donner(n) = .true.
             case ("mca")
                num_mca_tracers = num_mca_tracers + 1
                tracers_in_mca(n) = .true.
@@ -1832,13 +1418,9 @@ character(len=80)  :: scheme
                num_ras_tracers = num_ras_tracers + 1
                tracers_in_ras(n) = .true.
             case ("donner_and_ras")
-               num_donner_tracers = num_donner_tracers + 1
-               tracers_in_donner(n) = .true.
                num_ras_tracers = num_ras_tracers + 1
                tracers_in_ras(n) = .true.
             case ("donner_and_mca")
-               num_donner_tracers = num_donner_tracers + 1
-               tracers_in_donner(n) = .true.
                num_mca_tracers = num_mca_tracers + 1
                tracers_in_mca(n) = .true.
             case ("mca_and_ras")
@@ -1847,8 +1429,6 @@ character(len=80)  :: scheme
                num_ras_tracers = num_ras_tracers + 1
                tracers_in_ras(n) = .true.
             case ("all")
-               num_donner_tracers = num_donner_tracers + 1
-               tracers_in_donner(n) = .true.
                num_mca_tracers = num_mca_tracers + 1
                tracers_in_mca(n) = .true.
                num_ras_tracers = num_ras_tracers + 1
@@ -1862,11 +1442,6 @@ character(len=80)  :: scheme
 !    set a logical indicating if any tracers are to be transported by
 !    each of the available convection parameterizations.
 !--------------------------------------------------------------------
-      if (num_donner_tracers > 0) then
-        do_tracers_in_donner = .true.
-      else
-        do_tracers_in_donner = .false.
-      endif
       if (num_mca_tracers > 0) then
         do_tracers_in_mca = .true.
       else
@@ -1881,16 +1456,11 @@ character(len=80)  :: scheme
 !--------------------------------------------------------------------
 !    initialize the convection scheme modules.
 !--------------------------------------------------------------------
-      if (do_donner_deep) then
-        call donner_deep_init (lonb, latb, pref, axes, Time,  &
-                               tracers_in_donner)
-      endif ! (do_donner_deep)
-
       if (do_ras)  then
         call ras_init (do_strat, axes,Time, tracers_in_ras)
       endif
 
-      if (do_mca .or. do_donner_deep)  then
+      if (do_mca)  then
         call  moist_conv_init (axes,Time, tracers_in_mca)
       endif
 
@@ -1914,7 +1484,6 @@ subroutine moist_processes_end
 !----------------close various schemes-----------------
 
       if (do_strat)       call strat_cloud_end
-      if (do_donner_deep) call donner_deep_end
       if (do_cmt        ) call cu_mo_trans_end
       if (do_ras        ) call         ras_end
       module_is_initialized = .false.
@@ -2433,36 +2002,6 @@ end if  ! if ( do_bmmass )
      'gust_conv', axes(1:2), Time, &
     'Gustiness from deep convection ',       'm/s' )
 
-if ( do_donner_deep .and. do_strat ) then
-
-   id_qldt_conv = register_diag_field ( mod_name, &
-     'qldt_conv', axes(1:3), Time, &
-     'Liquid water tendency from donner_deep',      'kg/kg/s',  &
-                        missing_value=missing_value               )
-
-   id_qidt_conv = register_diag_field ( mod_name, &
-     'qidt_conv', axes(1:3), Time, &
-     'Ice water tendency from donner_deep',         'kg/kg/s',  &
-                        missing_value=missing_value               )
-
-   id_qadt_conv = register_diag_field ( mod_name, &
-     'qadt_conv', axes(1:3), Time, &
-     'Cloud fraction tendency from donner_deep',    '1/sec',    &
-                        missing_value=missing_value               )
-
-   id_ql_conv_col = register_diag_field ( mod_name, &
-     'ql_conv_col', axes(1:2), Time, &
-    'Liquid water path tendency from donner_deep',  'kg/m2/s' )
-
-   id_qi_conv_col = register_diag_field ( mod_name, &
-     'qi_conv_col', axes(1:2), Time, &
-    'Ice water path tendency from donner_deep',     'kg/m2/s' )
-
-   id_qa_conv_col = register_diag_field ( mod_name, &
-     'qa_conv_col', axes(1:2), Time, &
-    'Cloud mass tendency from donner_deep',         'kg/m2/s' )
-
-endif
 
 if ( do_lsc ) then
 
@@ -2503,7 +2042,7 @@ if ( do_strat ) then
 
    id_mc_full = register_diag_field ( mod_name, &
      'mc_full', axes(1:3), Time, &
-     'Net Mass Flux from donner deep plus RAS',   'kg/m2/s', &
+     'Net Mass Flux from RAS',   'kg/m2/s', &
                        missing_value=missing_value               )
 
    id_tdt_ls = register_diag_field ( mod_name, &
@@ -2608,60 +2147,6 @@ endif
          'Surface relative humidity',                     'percent',  &
                         missing_value=missing_value               )
 
-if (do_donner_deep) then
-
-   id_tdt_deep_donner= register_diag_field ( mod_name, &
-           'tdt_deep_donner', axes(1:3), Time, &
-           ' heating rate - deep portion', 'deg K/s', &
-                        missing_value=missing_value               )
-
-   id_tdt_mca_donner = register_diag_field ( mod_name, &
-           'tdt_mca_donner', axes(1:3), Time, &
-           ' heating rate - mca  portion', 'deg K/s', &
-                        missing_value=missing_value               )
-
-   id_qdt_deep_donner = register_diag_field ( mod_name, &
-           'qdt_deep_donner', axes(1:3), Time, &
-           ' moistening rate - deep portion', 'kg/kg/s', &
-                        missing_value=missing_value               )
-
-   id_qdt_mca_donner = register_diag_field ( mod_name, &
-           'qdt_mca_donner', axes(1:3), Time, &
-           ' moistening rate - mca  portion', 'kg/kg/s', &
-                        missing_value=missing_value               )
-
-   id_prec_deep_donner = register_diag_field ( mod_name, &
-           'prc_deep_donner', axes(1:2), Time, &
-           ' total precip rate - deep portion', 'kg/m2/s', &
-                        missing_value=missing_value               )
-
-   id_prec_mca_donner = register_diag_field ( mod_name, &
-           'prc_mca_donner', axes(1:2), Time, &
-           ' total precip rate - mca  portion', 'kg/m2/s', &
-                        missing_value=missing_value               )
-
-   id_snow_deep_donner = register_diag_field ( mod_name, &
-           'snow_deep_donner', axes(1:2), Time, &
-           ' frozen precip rate - deep portion', 'kg/m2/s', &
-                        missing_value=missing_value               )
-
-   id_snow_mca_donner = register_diag_field ( mod_name, &
-           'snow_mca_donner', axes(1:2), Time, &
-           ' frozen precip rate -  mca portion', 'kg/m2/s', &
-                        missing_value=missing_value               )
-
-   id_mc_donner = register_diag_field ( mod_name, &
-           'mc_donner', axes(1:3), Time, &
-           'Net Mass Flux from donner',   'kg/m2/s', &
-                        missing_value=missing_value               )
-
-! start chemistry
-   if (get_tracer_index(MODEL_ATMOS,'no') > 0) &
-     id_prod_no = register_diag_field ( 'tracers', &
-             'hook_no', axes(1:3), Time, &
-             'hook_no',   '1/cm3/s')
-!end chemistry
-endif
 !-----------------------------------------------------------------------
 !---------------------------------------------------------------------
 !    register the diagnostics associated with convective tracer
@@ -2675,9 +2160,7 @@ endif
       do n = 1,num_tracers
         call get_tracer_names (MODEL_ATMOS, n, name = tracer_name,  &
                                units = tracer_units)
-        if (tracers_in_donner(n) .or. &
-            tracers_in_ras(n)      .or.  &
-            tracers_in_mca(n))    then
+        if (tracers_in_ras(n) .or. tracers_in_mca(n)) then
           diaglname = trim(tracer_name)//  &
                         ' total tendency from moist convection'
           id_tracerdt_conv(n) =    &
@@ -2713,42 +2196,6 @@ endif
                         missing_value=missing_value)
       end do
 
-!------------------------------------------------------------------
-!    register the variables associated with the mca component of
-!    donner_deep transport.
-!------------------------------------------------------------------
-     if (do_donner_deep) then
-       allocate (id_tracerdt_mcadon  (num_donner_tracers))
-       allocate (id_tracerdt_mcadon_col(num_donner_tracers))
-
-       nn = 1
-       do n = 1,num_tracers
-         call get_tracer_names (MODEL_ATMOS, n, name = tracer_name,  &
-                                units = tracer_units)
-         if (tracers_in_donner(n) ) then
-           diaglname = trim(tracer_name)//  &
-                       ' tendency from donner-mca'
-           id_tracerdt_mcadon(nn) =    &
-                         register_diag_field ( mod_name, &
-                         TRIM(tracer_name)//'_donmca',  &
-                         axes(1:3), Time, trim(diaglname), &
-                         TRIM(tracer_units)//'/s',  &
-                        missing_value=missing_value)
-
-           diaglname = trim(tracer_name)//  &
-                       ' total path tendency from donner-mca'
-           id_tracerdt_mcadon_col(nn) =  &
-                        register_diag_field ( mod_name, &
-                        TRIM(tracer_name)//'_donmca_col', &
-                        axes(1:2), Time, trim(diaglname), &
-                        TRIM(tracer_units)//'/s',   &
-                        missing_value=missing_value)
-           nn = nn + 1
-         endif
-       end do
-
-
-     endif
 
 end subroutine diag_field_init
 
