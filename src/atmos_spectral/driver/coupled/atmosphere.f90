@@ -56,7 +56,7 @@ real,    allocatable, dimension(:,:,:,:,:) :: grid_tracers
 real,    allocatable, dimension(:,:,:    ) :: psg
 real,    allocatable, dimension(:,:,:,:  ) :: ug, vg, tg
 
-real, allocatable, dimension(:,:    ) :: dt_psg, z_bot
+real, allocatable, dimension(:,:    ) :: dt_psg
 real, allocatable, dimension(:,:,:  ) :: dt_ug, dt_vg, dt_tg
 real, allocatable, dimension(:,:,:,:) :: dt_tracers
 
@@ -125,7 +125,6 @@ allocate (dt_ug        (is:ie, js:je, num_levels))
 allocate (dt_vg        (is:ie, js:je, num_levels))
 allocate (dt_tg        (is:ie, js:je, num_levels))
 allocate (dt_tracers   (is:ie, js:je, num_levels, num_tracers ))
-allocate (z_bot        (is:ie, js:je))
 
 p_half=0.; z_half=0.; p_full=0.; z_full=0.; wg_full=0.
 psg=0.; ug=0.; vg=0.; tg=0.; grid_tracers=0.
@@ -174,7 +173,6 @@ else
        tg(:,:,:,current), psg(:,:,current), z_full, z_half, p_full, p_half, grid_tracers(:,:,:,current,nhum))
 endif
 
-call compute_z_bot(psg(:,:,current), tg(:,:,num_levels,current), z_bot, grid_tracers(:,:,num_levels,current,nhum))
 
 module_is_initialized = .true.
 
@@ -271,7 +269,6 @@ current  = future
 
 call compute_pressures_and_heights( &
             tg(:,:,:,current), psg(:,:,current), z_full, z_half, p_full, p_half, grid_tracers(:,:,:,current,nhum))
-call compute_z_bot(psg(:,:,current), tg(:,:,num_levels,current), z_bot, grid_tracers(:,:,num_levels,current,nhum))
 
 return
 end subroutine atmosphere_up
@@ -281,15 +278,31 @@ subroutine get_bottom_mass (t_bot, q_bot, p_bot, z_bot_out, p_surf)
 
 real, intent(out), dimension(:,:) :: t_bot, q_bot, p_bot, z_bot_out, p_surf
 
+real, dimension(size(t_bot,1), size(t_bot,2), num_levels  ) :: p_full_prev, z_full_prev
+real, dimension(size(t_bot,1), size(t_bot,2), num_levels+1) :: p_half_prev, z_half_prev
+
 if(.not.module_is_initialized) then
   call error_mesg('get_bottom_mass','atmosphere module has not been initialized.', FATAL)
 endif
 
+! All bottom-level fields are taken at the previous time level, which is
+! the level the implicit vertical diffusion steps from. The pressure and
+! height of the lowest level are recomputed for that level here (p_full
+! holds the values for the current level).
 t_bot     = tg(:,:,num_levels, previous)
 q_bot     = grid_tracers(:,:,num_levels, previous, nhum)
-p_bot     = p_full(:,:,num_levels)
 p_surf    = psg(:,:,previous)
-z_bot_out = z_bot
+if(dry_model) then
+  call compute_pressures_and_heights(tg(:,:,:,previous), psg(:,:,previous), &
+                                     z_full_prev, z_half_prev, p_full_prev, p_half_prev)
+else
+  call compute_pressures_and_heights(tg(:,:,:,previous), psg(:,:,previous), &
+                                     z_full_prev, z_half_prev, p_full_prev, p_half_prev, &
+                                     grid_tracers(:,:,:,previous,nhum))
+endif
+p_bot     = p_full_prev(:,:,num_levels)
+call compute_z_bot(psg(:,:,previous), tg(:,:,num_levels,previous), z_bot_out, &
+                   grid_tracers(:,:,num_levels,previous,nhum))
 
 return
 end subroutine get_bottom_mass
