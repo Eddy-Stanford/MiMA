@@ -549,7 +549,7 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !                                u_star,    b_star, q_star,            &
 !                                dtau_du,  dtau_dv,  tau_x,  tau_y,    &
 !                                udt, vdt, tdt, qdt, rdt,              &
-!                                flux_sw,  flux_lw,  coszen,  gust,    &
+!                                flux_sw,  flux_lw,  gust,            &
 !                                Surf_diff,                            &
 !                                mask, kbot
 !  </TEMPLATE>
@@ -670,9 +670,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !  <OUT NAME="flux_lw" TYPE="real">
 !   Longwave flux from radiation package
 !  </OUT>
-!  <OUT NAME="coszen" TYPE="real">
-!   cosine of zenith angle
-!  </OUT>
 !  <OUT NAME="gust" TYPE="real">
 !  </OUT>
 !  <INOUT NAME="Surf_diff" TYPE="surface_diffusion_type">
@@ -695,23 +692,11 @@ subroutine physics_driver_down (is, ie, js, je,                       &
                                 p_half, p_full, z_half, z_full,       &
                                 u, v, t, q, r, um, vm, tm, qm, rm,    &
                                 frac_land, rough_mom,                 &
-                                albedo, albedo_vis_dir, albedo_nir_dir,&
-                                albedo_vis_dif, albedo_nir_dif,       &
-                                t_surf_rad,                           &
+                                albedo, t_surf_rad,                   &
                                 u_star,    b_star, q_star,            &
                                 dtau_du, dtau_dv,  tau_x,  tau_y,     &
                                 udt, vdt, tdt, qdt, rdt,              &
-                                flux_sw,                              &
-                                flux_sw_dir,                          &
-                                flux_sw_dif,                          &
-                                flux_sw_down_vis_dir,                 &
-                                flux_sw_down_vis_dif,                 &
-                                flux_sw_down_total_dir,               &
-                                flux_sw_down_total_dif,               &
-                                flux_sw_vis,                          &
-                                flux_sw_vis_dir,                      &
-                                flux_sw_vis_dif,                      &
-                                flux_lw,  coszen,  gust,              &
+                                flux_sw, flux_lw, gust,               &
                                 Surf_diff,                            &
                                 mask, kbot,                           &
                                 diffm, difft  )
@@ -736,24 +721,12 @@ real,dimension(:,:,:,:), intent(inout)          :: rm
 real,dimension(:,:),     intent(in)             :: frac_land,   &
                                                    rough_mom, &
                                                    albedo, t_surf_rad, &
-                                                   albedo_vis_dir, albedo_nir_dir, &
-                                                   albedo_vis_dif, albedo_nir_dif, &
                                                    u_star, b_star,    &
                                                    q_star, dtau_du, dtau_dv
 real,dimension(:,:),     intent(inout)          :: tau_x,  tau_y
 real,dimension(:,:,:),   intent(inout)          :: udt,vdt,tdt,qdt
 real,dimension(:,:,:,:), intent(inout)          :: rdt
-real,dimension(:,:),     intent(out)            :: flux_sw,  &
-                                                   flux_sw_dir, &
-                                                   flux_sw_dif, flux_lw,  &
-                                                   coszen,  gust, &
-                                                   flux_sw_down_vis_dir, &
-                                                   flux_sw_down_vis_dif, &
-                                                   flux_sw_down_total_dir, &
-                                                   flux_sw_down_total_dif, &
-                                                   flux_sw_vis, &
-                                                   flux_sw_vis_dir, & 
-                                                   flux_sw_vis_dif 
+real,dimension(:,:),     intent(out)            :: flux_sw, flux_lw, gust
 type(surf_diff_type),    intent(inout)          :: Surf_diff
 real,dimension(:,:,:),   intent(in)   ,optional :: mask
 integer, dimension(:,:), intent(in)   ,optional :: kbot
@@ -788,10 +761,6 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !      frac_land
 !      rough_mom
 !      albedo
-!      albedo_vis_dir surface visible direct albedo [ dimensionless ]
-!      albedo_nir_dir surface nir direct albedo [ dimensionless ]
-!      albedo_vis_dif surface visible diffuse albedo [ dimensionless ]
-!      albedo_nir_dif surface nir diffuse albedo [ dimensionless ]
 !      t_surf_rad
 !      u_star
 !      b_star
@@ -816,17 +785,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !   intent(out) variables:
 !
 !      flux_sw
-!      flux_sw_dir            net shortwave surface flux (down-up) [ w / m^2 ]
-!      flux_sw_dif            net shortwave surface flux (down-up) [ w / m^2 ]
-!      flux_sw_down_vis_dir   downward shortwave surface flux in visible spectrum [ w / m^2 ]
-!      flux_sw_down_vis_dif   downward shortwave surface flux in visible spectrum [ w / m^2 ]
-!      flux_sw_down_total_dir total downward shortwave surface flux [ w / m^2 ]
-!      flux_sw_down_total_dif total downward shortwave surface flux [ w / m^2 ]
-!      flux_sw_vis            net downward shortwave surface flux in visible spectrum [ w / m^2 ]
-!      flux_sw_vis_dir        net downward shortwave surface flux in visible spectrum [ w / m^2 ]
-!      flux_sw_vis_dif        net downward shortwave surface flux in visible spectrum [ w / m^2 ]
 !      flux_lw
-!      coszen
 !      gust
 !
 !   intent(in), optional variables:
@@ -887,21 +846,11 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
       dt = real(sec + day*86400)
 
       flux_sw = 0.0
-      flux_sw_dir = 0.0
-      flux_sw_dif = 0.0
-      flux_sw_down_vis_dir = 0.0
-      flux_sw_down_vis_dif = 0.0
-      flux_sw_down_total_dir = 0.0
-      flux_sw_down_total_dif = 0.0
-      flux_sw_vis = 0.0
-      flux_sw_vis_dir = 0.0
-      flux_sw_vis_dif = 0.0
       flux_lw = 0.0
-      coszen  = 0.0
 
       call mpp_clock_begin ( radiation_clock )
       call radiation_down(is, js, Time, Time_next, lat, lon, p_full, p_half, z_full, z_half, &
-                          t, q, t_surf_rad, albedo, tdt, coszen, flux_sw, flux_lw)
+                          t, q, t_surf_rad, albedo, tdt, flux_sw, flux_lw)
       call mpp_clock_end ( radiation_clock )
 !----------------------------------------------------------------------
 !    artificial local heating if required
@@ -946,7 +895,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
       call atmos_tracer_driver (is, ie, js, je, Time, lon, lat,  &
                                 frac_land, p_half, p_full, r, u, v, t, &
                                 q, u_star, rdt, rm, dt, z_half,   &
-                                z_full, t_surf_rad, albedo, coszen,  &
+                                z_full, t_surf_rad, albedo,          &
                                 Time_next, kbot)
       call mpp_clock_end ( tracer_clock )
 

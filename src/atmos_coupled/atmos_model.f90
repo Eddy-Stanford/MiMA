@@ -75,17 +75,7 @@ public ice_atmos_boundary_type
      real, pointer, dimension(:,:) :: v_bot    => NULL() ! meridional wind component at lowest model level
      real, pointer, dimension(:,:) :: p_surf   => NULL() ! surface pressure 
      real, pointer, dimension(:,:) :: gust     => NULL() ! gustiness factor
-     real, pointer, dimension(:,:) :: coszen   => NULL() ! cosine of the zenith angle
      real, pointer, dimension(:,:) :: flux_sw  => NULL() ! net shortwave flux (W/m2) at the surface
-     real, pointer, dimension(:,:) :: flux_sw_dir            =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_dif            =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_vis_dir   =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_vis_dif   =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_total_dir =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_down_total_dif =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_vis            =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_vis_dir        =>NULL()
-     real, pointer, dimension(:,:) :: flux_sw_vis_dif        =>NULL()
      real, pointer, dimension(:,:) :: flux_lw  => NULL() ! net longwave flux (W/m2) at the surface
      real, pointer, dimension(:,:) :: lprec    => NULL() ! mass of liquid precipitation since last time step (Kg/m2)
      real, pointer, dimension(:,:) :: fprec    => NULL() ! ass of frozen precipitation since last time step (Kg/m2)
@@ -104,10 +94,6 @@ type land_ice_atmos_boundary_type
 !quantities going from land+ice to atmos
    real, dimension(:,:),   pointer :: t              =>NULL() ! surface temperature for radiation calculations
    real, dimension(:,:),   pointer :: albedo         =>NULL() ! surface albedo for radiation calculations
-   real, dimension(:,:),   pointer :: albedo_vis_dir =>NULL()
-   real, dimension(:,:),   pointer :: albedo_nir_dir =>NULL()
-   real, dimension(:,:),   pointer :: albedo_vis_dif =>NULL()
-   real, dimension(:,:),   pointer :: albedo_nir_dif =>NULL()
    real, dimension(:,:),   pointer :: land_frac      =>NULL() ! fraction amount of land in a grid box 
    real, dimension(:,:),   pointer :: dt_t           =>NULL() ! temperature tendency at the lowest level
    real, dimension(:,:),   pointer :: dt_q           =>NULL() ! specific humidity tendency at the lowest level
@@ -195,10 +181,6 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 
     call atmosphere_down (Atmos%Time, Surface_boundary%land_frac,        &
                           Surface_boundary%t,  Surface_boundary%albedo,  &
-                          Surface_boundary%albedo_vis_dir,   &
-                          Surface_boundary%albedo_nir_dir,   &
-                          Surface_boundary%albedo_vis_dif,   &
-                          Surface_boundary%albedo_nir_dif,   &
                           Surface_boundary%rough_mom,   &
                           Surface_boundary%u_star,      &
                           Surface_boundary%b_star,      &
@@ -208,17 +190,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
                           Surface_boundary%u_flux,      &
                           Surface_boundary%v_flux,      &
                           Atmos%gust,                   &
-                          Atmos%coszen,                 &
                           Atmos%flux_sw,                &
-                          Atmos%flux_sw_dir,            &
-                          Atmos%flux_sw_dif,            &
-                          Atmos%flux_sw_down_vis_dir,   &
-                          Atmos%flux_sw_down_vis_dif,   &
-                          Atmos%flux_sw_down_total_dir, &
-                          Atmos%flux_sw_down_total_dif, &
-                          Atmos%flux_sw_vis,            &
-                          Atmos%flux_sw_vis_dir,        &
-                          Atmos%flux_sw_vis_dif,        &
                           Atmos%flux_lw,                &
                           Atmos%Surf_diff               )
 
@@ -392,17 +364,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
                Atmos % p_surf   (nlon,nlat), &
                Atmos % gust     (nlon,nlat), &
                Atmos % flux_sw  (nlon,nlat), &
-               Atmos % flux_sw_dir (nlon,nlat), &
-               Atmos % flux_sw_dif (nlon,nlat), &
-               Atmos % flux_sw_down_vis_dir (nlon,nlat), &
-               Atmos % flux_sw_down_vis_dif (nlon,nlat), &
-               Atmos % flux_sw_down_total_dir (nlon,nlat), &
-               Atmos % flux_sw_down_total_dif (nlon,nlat), &
-               Atmos % flux_sw_vis (nlon,nlat), &
-               Atmos % flux_sw_vis_dir (nlon,nlat), &
-               Atmos % flux_sw_vis_dif(nlon,nlat), &
                Atmos % flux_lw  (nlon,nlat), &
-               Atmos % coszen   (nlon,nlat), &
                Atmos % lprec    (nlon,nlat), &
                Atmos % fprec    (nlon,nlat)  )
 
@@ -410,16 +372,6 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
        do i = 1, nlon    
           Atmos % flux_sw(i,j)                 = 0.0
           Atmos % flux_lw(i,j)                 = 0.0    
-          Atmos % flux_sw_dir (i,j)            = 0.0
-          Atmos % flux_sw_dif (i,j)            = 0.0 
-          Atmos % flux_sw_down_vis_dir (i,j)   = 0.0 
-          Atmos % flux_sw_down_vis_dif (i,j)   = 0.0 
-          Atmos % flux_sw_down_total_dir (i,j) = 0.0 
-          Atmos % flux_sw_down_total_dif (i,j) = 0.0 
-          Atmos % flux_sw_vis (i,j)            = 0.0 
-          Atmos % flux_sw_vis_dir (i,j)        = 0.0 
-          Atmos % flux_sw_vis_dif(i,j)         = 0.0 
-          Atmos % coszen(i,j)                  = 0.0 
        enddo
     enddo
 !-----------------------------------------------------------------------
@@ -621,17 +573,7 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
                Atmos % p_surf   , &
                Atmos % gust     , &
                Atmos % flux_sw  , &
-               Atmos % flux_sw_dir  , &
-               Atmos % flux_sw_dif  , &
-               Atmos % flux_sw_down_vis_dir  , &
-               Atmos % flux_sw_down_vis_dif  , &
-               Atmos % flux_sw_down_total_dir  , &
-               Atmos % flux_sw_down_total_dif  , &
-               Atmos % flux_sw_vis  , &
-               Atmos % flux_sw_vis_dir  , &
-               Atmos % flux_sw_vis_dif  , &
                Atmos % flux_lw  , &
-               Atmos % coszen   , &
                Atmos % lprec    , &
                Atmos % fprec      )
 

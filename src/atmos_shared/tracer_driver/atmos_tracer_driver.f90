@@ -250,7 +250,7 @@ contains
 !   </IN>
  subroutine atmos_tracer_driver (is, ie, js, je, Time, lon, lat, land, phalf, pfull, r,  &
                            u, v, t, q, u_star, rdt, rm,        &
-                           dt, z_half, z_full, t_surf_rad, albedo, coszen, &
+                           dt, z_half, z_full, t_surf_rad, albedo, &
                            Time_next, &
                            kbot)
 
@@ -267,7 +267,6 @@ real, intent(in)                              :: dt !timestep(used in chem_inter
 real, intent(in),    dimension(:,:,:)         :: z_half !height in meters at half levels
 real, intent(in),    dimension(:,:,:)         :: z_full !height in meters at full levels
 real, intent(in),    dimension(:,:)           :: t_surf_rad !surface temperature
-real, intent(in),    dimension(:,:)           :: coszen
 real, intent(in),    dimension(:,:)           :: albedo
 type(time_type), intent(in)                    :: Time_next
 integer, intent(in), dimension(:,:), optional :: kbot

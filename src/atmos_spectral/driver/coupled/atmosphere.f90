@@ -181,20 +181,14 @@ end subroutine atmosphere_init
 !#################################################################################################################################
 
 subroutine atmosphere_down(Time, frac_land, t_surf, albedo,                                              &
-                      albedo_vis_dir, albedo_nir_dir, albedo_vis_dif, albedo_nir_dif,                    &
                       rough_mom, u_star, b_star, q_star, dtau_du, dtau_dv, tau_x, tau_y,                 &
-                      gust, coszen, flux_sw, flux_sw_dir, flux_sw_dif, flux_sw_down_vis_dir,             &
-                      flux_sw_down_vis_dif, flux_sw_down_total_dir, flux_sw_down_total_dif, flux_sw_vis, &
-                      flux_sw_vis_dir, flux_sw_vis_dif, flux_lw, Surf_diff )
+                      gust, flux_sw, flux_lw, Surf_diff )
 
 type(time_type),      intent(in) :: Time
 real,                 intent(in),    dimension(:,:) :: frac_land, t_surf, albedo
-real,                 intent(in),    dimension(:,:) :: albedo_vis_dir, albedo_nir_dir, albedo_vis_dif, albedo_nir_dif 
 real,                 intent(in),    dimension(:,:) :: rough_mom, u_star, b_star, q_star, dtau_du, dtau_dv
 real,                 intent(inout), dimension(:,:) :: tau_x, tau_y
-real,                 intent(out),   dimension(:,:) :: flux_sw, flux_sw_dir, flux_sw_dif, flux_sw_down_vis_dir
-real,                 intent(out),   dimension(:,:) :: flux_sw_down_vis_dif, flux_sw_down_total_dir, flux_sw_down_total_dif
-real,                 intent(out),   dimension(:,:) :: flux_sw_vis, flux_sw_vis_dir, flux_sw_vis_dif, flux_lw, coszen, gust
+real,                 intent(out),   dimension(:,:) :: flux_sw, flux_lw, gust
 type(surf_diff_type), intent(inout)                 :: Surf_diff
 
 integer :: days,seconds
@@ -221,10 +215,8 @@ Time_next = Time + Time_step
 call mpp_clock_begin(phyclock)
 call spectral_physics_down(Time_prev, Time, Time_next, previous, current, p_half, p_full, z_half, z_full, psg,      &
                         ug, vg, tg, grid_tracers, frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star,     &
-                        dtau_du, dtau_dv, tau_x, tau_y, albedo_vis_dir, albedo_nir_dir, albedo_vis_dif, albedo_nir_dif, &
-                        dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_sw_dir, flux_sw_dif,                         &
-                        flux_sw_down_vis_dir, flux_sw_down_vis_dif, flux_sw_down_total_dir, flux_sw_down_total_dif, &
-                        flux_sw_vis, flux_sw_vis_dir, flux_sw_vis_dif, flux_lw, coszen,gust, Surf_diff)
+                        dtau_du, dtau_dv, tau_x, tau_y,                                                             &
+                        dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_lw, gust, Surf_diff)
 call mpp_clock_end(phyclock)
 
 return

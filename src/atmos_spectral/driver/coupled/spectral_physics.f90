@@ -150,10 +150,7 @@ end subroutine spectral_physics_init
 subroutine spectral_physics_down(Time_prev, Time, Time_next, previous, current,                                   &
                         p_half, p_full, z_half, z_full, psg, ug, vg, tg, grid_tracers,                            &
                         frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, dtau_du, dtau_dv, tau_x, tau_y, &
-                        albedo_vis_dir, albedo_nir_dir, albedo_vis_dif, albedo_nir_dif,                           &
-                        dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_sw_dir, flux_sw_dif, flux_sw_down_vis_dir, &
-                        flux_sw_down_vis_dif, flux_sw_down_total_dir, flux_sw_down_total_dif, flux_sw_vis,        &
-                        flux_sw_vis_dir, flux_sw_vis_dif, flux_lw, coszen, gust, Surf_diff)
+                        dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_lw, gust, Surf_diff)
 
 type(time_type), intent(in) :: Time_prev, Time, Time_next
 integer, intent(in)         :: previous, current
@@ -164,12 +161,9 @@ real,    intent(in),    dimension(:,:,:,:  ) :: ug, vg, tg
 real,    intent(inout), dimension(:,:,:,:,:) :: grid_tracers
 real,    intent(in),    dimension(:,:      ) :: frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, dtau_du, dtau_dv
 real,    intent(inout), dimension(:,:      ) :: tau_x, tau_y
-real,    intent(in),    dimension(:,:      ) :: albedo_vis_dir, albedo_nir_dir, albedo_vis_dif, albedo_nir_dif
 real,    intent(inout), dimension(:,:,:    ) :: dt_ug, dt_vg, dt_tg
 real,    intent(inout), dimension(:,:,:,:  ) :: dt_tracers
-real,    intent(out),   dimension(:,:      ) :: flux_sw, flux_sw_dir, flux_sw_dif, flux_sw_down_vis_dir
-real,    intent(out),   dimension(:,:      ) :: flux_sw_down_vis_dif, flux_sw_down_total_dir, flux_sw_down_total_dif
-real,    intent(out),   dimension(:,:      ) :: flux_sw_vis, flux_sw_vis_dir, flux_sw_vis_dif, flux_lw, coszen, gust
+real,    intent(out),   dimension(:,:      ) :: flux_sw, flux_lw, gust
 type(surf_diff_type), intent(inout) :: Surf_diff
 
 !**************************************************************************************
@@ -187,16 +181,11 @@ end if
                     tg(:,:,:,previous), grid_tracers(:,:,:,previous,nhum),       &
           grid_tracers(:,:,:,previous,:),                                        &
              frac_land, rough_mom,      albedo,                                  &
-               albedo_vis_dir, albedo_nir_dir, albedo_vis_dif, albedo_nir_dif,   &
                 t_surf,    u_star,      b_star, q_star,                          &
                dtau_du, dtau_dv,     tau_x,       tau_y,                         &
                dt_ug,       dt_vg,         dt_tg,                                &
                dt_tracers(:,:,:,nhum), dt_tracers, flux_sw(:,:),                 &
-               flux_sw_dir, flux_sw_dif, flux_sw_down_vis_dir,                   &
-               flux_sw_down_vis_dif, flux_sw_down_total_dir,                     &
-               flux_sw_down_total_dif, flux_sw_vis,                              &
-               flux_sw_vis_dir, flux_sw_vis_dif,                                 &
-               flux_lw, coszen, gust, Surf_diff)
+               flux_lw, gust, Surf_diff)
 
 return
 end subroutine spectral_physics_down

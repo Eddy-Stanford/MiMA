@@ -87,12 +87,12 @@ end subroutine radiation_init
 !#######################################################################
 
 subroutine radiation_down(is, js, Time, Time_next, lat, lon, p_full, p_half, z_full, z_half, &
-                          t, q, t_surf_rad, albedo, tdt, coszen, flux_sw, flux_lw)
+                          t, q, t_surf_rad, albedo, tdt, flux_sw, flux_lw)
 
 !-----------------------------------------------------------------------
 !   Adds the radiative heating to tdt and returns the net shortwave and
-!   downward longwave fluxes at the surface. flux_sw, flux_lw and coszen
-!   must be set by the caller beforehand; they are left unchanged by
+!   downward longwave fluxes at the surface. flux_sw and flux_lw must be
+!   set by the caller beforehand; they are left unchanged by
 !   radiation_scheme = 'none'.
 !-----------------------------------------------------------------------
 
@@ -101,12 +101,13 @@ type(time_type), intent(in)                     :: Time, Time_next
 real,            intent(in),    dimension(:,:)  :: lat, lon, t_surf_rad, albedo
 real,            intent(in),    dimension(:,:,:):: p_full, p_half, z_full, z_half, t, q
 real,            intent(inout), dimension(:,:,:):: tdt
-real,            intent(inout), dimension(:,:)  :: coszen, flux_sw, flux_lw
+real,            intent(inout), dimension(:,:)  :: flux_sw, flux_lw
+
+real, dimension(size(albedo,1), size(albedo,2)) :: coszen
 
 select case (trim(radiation_scheme))
 case ('gray')
    call gray_radiation(is, js, Time_next, lat, lon, p_half, albedo, t_surf_rad, t, tdt, flux_sw, flux_lw)
-   coszen = 1.0
 case ('rrtm')
    ! RRTM needs the temperature at half levels
    call interp_temp(z_full, z_half, t_surf_rad, t)
