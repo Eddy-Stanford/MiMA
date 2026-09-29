@@ -46,14 +46,14 @@ logical            :: module_is_initialized = .false.
 !-----------------------------------------------------------------------
 !-------------------- namelist -----------------------------------------
 
- logical :: do_diffusivity         = .false.
+ logical :: do_diffusivity         = .true.
  logical :: do_molecular_diffusion = .false.
- logical :: use_tau          = .true.
+ logical :: use_tau          = .false.
 
  character(len=24) :: gust_scheme  = 'constant' ! valid schemes are:
                                                 !   => 'constant'
                                                 !   => 'beljaars'
- real              :: constant_gust = 1.0
+ real              :: constant_gust = 0.
  real              :: gust_factor   = 1.0
 
  namelist /vert_turb_driver_nml/ gust_scheme, constant_gust, use_tau, &

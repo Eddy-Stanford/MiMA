@@ -246,9 +246,9 @@ real            :: d608   = d378/d622
 ! </NAMELIST>
 
 logical :: no_neg_q         = .false.  ! for backwards compatibility
-logical :: use_virtual_temp = .true. 
+logical :: use_virtual_temp = .false. 
 logical :: alt_gustiness    = .false.
-logical :: old_dtaudv       = .false.
+logical :: old_dtaudv       = .true.
 logical :: use_mixing_ratio = .false.
 real    :: gust_const       =  1.0
 logical :: ncar_ocean_flux  = .false.

@@ -271,7 +271,7 @@ character(len=128) :: tagname = '$Name:  $'
 !  DEFAULT VALUES OF NAMELIST PARAMETERS:
 
 real    :: rich_crit  = 2.0
-real    :: drag_min   = 1.e-05
+real    :: drag_min   = 4.e-05
 real    :: relax_time = 0.            
 logical :: neutral    = .false.
 integer :: stable_option  = 1

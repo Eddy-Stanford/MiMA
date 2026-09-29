@@ -72,40 +72,40 @@ logical :: do_surface_heating = .false.
 
 real ::   z_ref_heat      = 2.,       &
           z_ref_mom       = 10.,      &
-          heat_capacity   = 4.e08,    &
-          land_capacity   = -1.,      & !mj
-          trop_capacity   = -1.,      & !mj
-          trop_cap_limit  = 15.,      & !mj
+          heat_capacity   = 3.e08,    &
+          land_capacity   = 1.e07,      & !mj
+          trop_capacity   = 1.e08,      & !mj
+          trop_cap_limit  = 20.,      & !mj
           heat_cap_limit  = 60.,      & !mj
           zsurf_cap_limit = 10.,      & !mj
           np_cap_factor   =  1.,      & !mj
           const_roughness = 3.21e-05, &
-          const_albedo    = 0.30,     &
+          const_albedo    = 0.23,     &
           albedo_exp      = 2.,       & !mj
-          albedo_cntrSH     = 45.,    & !mj
-          albedo_cntrNH     = 65.,    & !cig
+          albedo_cntrSH     = 64.,    & !mj
+          albedo_cntrNH     = 68.,    & !cig
           albedo_desert     = 0.20,   & !cig
-          albedo_wdth     = 10.,      & !mj
-	  higher_albedo    = 0.38,    &
-	  lat_glacier      = 45.,     &
-	  Tm               = 305.,    &
+          albedo_wdth     = 5.,      & !mj
+	  higher_albedo    = 0.80,    &
+	  lat_glacier      = -70.,     &
+	  Tm               = 285.,    &
 	  deltaT           = 40.,     &
           qflux_amp        = 30.,     & !mj
           qflux_width      = 16.        !mj
 !cig
-real ::   mom_roughness_land  = 1., &
-	  q_roughness_land  = 1.       
+real ::   mom_roughness_land  = 5.e3, &
+	  q_roughness_land  = 1.e-12       
 
 
 integer :: surface_choice   = 1
-integer :: roughness_choice = 1
-integer :: albedo_choice    = 1 ! 1->constant, 2->NH or SH step, 3->N-S symmetric step, 4->profile with albedo_exp,5->tanh with albedo_cntrNH,albedo_cntrSH,albedo_wdth,  6->sin2 increase from equator to pole, 7->as in 5 but with higher albedo for deserts
-logical :: do_qflux         = .false. !mj
-logical :: do_warmpool      = .false. !mj
+integer :: roughness_choice = 4
+integer :: albedo_choice    = 7 ! 1->constant, 2->NH or SH step, 3->N-S symmetric step, 4->profile with albedo_exp,5->tanh with albedo_cntrNH,albedo_cntrSH,albedo_wdth,  6->sin2 increase from equator to pole, 7->as in 5 but with higher albedo for deserts
+logical :: do_qflux         = .true. !mj
+logical :: do_warmpool      = .true. !mj
 logical :: do_read_sst      = .false. !mj
 logical :: do_sc_sst        = .false. !mj
 character(len=256) :: sst_file
-character(len=256) :: land_option = 'none'
+character(len=256) :: land_option = 'interpolated'
 character(len=256) :: land_sea_mask_file = 'lmask'
 real,dimension(10) :: slandlon=0,slandlat=0,elandlon=-1,elandlat=-1
 

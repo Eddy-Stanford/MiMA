@@ -4,7 +4,7 @@
 !mj add module to have time step available without any tricks throughout
 !   the code
 module coupler_mod
-  integer :: dt_atmos=0
+  integer :: dt_atmos=500
 end module coupler_mod
 !jm
 
@@ -334,7 +334,7 @@ program coupler_main
   integer, dimension(6) :: current_date = (/ 1, 1, 1, 0, 0, 0 /)
   character(len=17) :: calendar = 'thirty_day       '
   logical :: force_date_from_namelist = .false.  ! override restart values for date
-  integer :: months=0, days=0, hours=0, minutes=0, seconds=0
+  integer :: months=0, days=360, hours=0, minutes=0, seconds=0
 !mj exported dt_atmos into coupler_mod
 !  integer :: dt_atmos = 0  ! fluxes passed between atmosphere & ice/land
 ! integer :: dt_ocean = 0  ! ocean tracer timestep

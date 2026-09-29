@@ -73,7 +73,7 @@ private   gwfc
 !--------------------------------------------------------------------
 !---- namelist -----
 
-integer     :: cg_drag_freq=0     ! calculation frequency [ s ]
+integer     :: cg_drag_freq=21600     ! calculation frequency [ s ]
 integer     :: cg_drag_offset=0   ! offset of calculation from 00Z [ s ]
                                   ! only has use if restarts are written
                                   ! at 00Z and calculations are not done
@@ -86,7 +86,7 @@ real        :: source_level_pressure= 315.e+02
                                   ! by 1013.25 hPa) will be the gravity
                                   ! wave source level at the equator 
                                   ! [ Pa ]
-real       ::  damp_level_pressure=0.8e+02
+real       ::  damp_level_pressure=0.85e+02
 				  ! added by cig, feb 27, 2017. any waves reaching the top level will  be deposited down to this level
 integer     :: nk=1               ! number of wavelengths contained in 
                                   ! the gravity wave spectrum
@@ -95,13 +95,13 @@ real        :: cmax=99.6          ! maximum phase speed in gravity wave
 real        :: dc=1.2             ! gravity wave spectral resolution 
                                   ! [ m/s ]
                                   ! previous values: 0.6
-real        :: Bt_0=.004          ! sum across the wave spectrum of 
+real        :: Bt_0=0.0043          ! sum across the wave spectrum of 
                                   ! the magnitude of total GW stress [Pa]
 
 
-real        :: Bt_nh=.001         ! additional momentum stress for NH [Pa]
+real        :: Bt_nh=0.00         ! additional momentum stress for NH [Pa]
 
-real        :: Bt_sh=-.001        ! additional momentum stress for SH [Pa]
+real        :: Bt_sh=0.00        ! additional momentum stress for SH [Pa]
 
 ! epg - 30.6.16 - I shifted these spectral parameters to the name list
 !---------------------------------------------------------------------
@@ -109,23 +109,23 @@ real        :: Bt_sh=-.001        ! additional momentum stress for SH [Pa]
 !   wave spectrum parameters.
 !---------------------------------------------------------------------
 
-integer    :: flag = 1  ! flag = 1  for peak flux at  c    = 0
+integer    :: flag = 0  ! flag = 1  for peak flux at  c    = 0
                         ! flag = 0  for peak flux at (c-u) = 0
 real       :: Bw = 0.4  ! amplitude for the wide spectrum [ m^2/s^2 ]  
                         ! ~ u'w'
 real       :: Bn = 0.0  ! amplitude for the narrow spectrum [ m^2/s^2 ] 
                         ! ~ u'w';  previous values: 5.4
-real       :: cw = 40.0 ! half-width for the wide c spectrum [ m/s ]
+real       :: cw = 35.0 ! half-width for the wide c spectrum [ m/s ]
                         ! previous values: 50.0, 25.0 
-real       :: cwtropics = 40.0 ! half-width for the wide c spectrum [ m/s ]
+real       :: cwtropics = 35.0 ! half-width for the wide c spectrum [ m/s ]
                         ! previous values: 50.0, 25.0 
 real       :: cn =  2.0 ! half-width for the narrow c spectrum  [ m/s ]
 
-real        :: Bt_eq=.000         ! momentum stress at the equator; the source
+real        :: Bt_eq=0.0043         ! momentum stress at the equator; the source
                                   ! amplitude varies linearly from Bt_eq at
                                   ! the equator to Bt_0 poleward of phi0n/phi0s
 
-real        :: phi0n = 30., phi0s = -30., dphin = 5., dphis = -5.
+real        :: phi0n = 15., phi0s = -15., dphin = 10., dphis = -10.
 
 real        :: kelvin_kludge=1.
 

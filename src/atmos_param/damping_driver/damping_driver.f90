@@ -38,7 +38,7 @@ module damping_driver_mod
 !-----------------------------------------------------------------------
 !---------------------- namelist ---------------------------------------
 
-   real     :: trayfric = 0.
+   real     :: trayfric = -0.5
 ! mj pk02-like sponge   integer  :: nlev_rayfric = 1
    integer  :: nlev_rayfric
    real :: sponge_pbottom = 50. ! [Pa]
@@ -47,11 +47,11 @@ module damping_driver_mod
 !     Non-orographic gravity wave parameterization, updated as for Cohen et al. 2013
 ! mj actively choose rayleigh friction
    logical  :: do_rayleigh = .false.
-   logical  :: do_cg_drag = .false.
+   logical  :: do_cg_drag = .true.
    logical  :: do_const_drag = .false.
    real     :: const_drag_amp = 3.e-04
    real     :: const_drag_off = 0.
-   logical  :: do_conserve_energy = .false.
+   logical  :: do_conserve_energy = .true.
 
    namelist /damping_driver_nml/  trayfric,  &
                                   do_rayleigh, sponge_pbottom,  & ! mj

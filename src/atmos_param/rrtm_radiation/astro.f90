@@ -23,7 +23,7 @@ module rrtm_astro
         real(kind=rb)      :: obliq      = 23.439             ! Earth's obliquity
         logical            :: use_dyofyr = .false.            ! use day of the year to compute Earth-Sun distance?
                                                               !  this is done within RRTM, and assumes 365days/year!
-        real(kind=rb)      :: solr_cnst= 1368.22              ! solar constant [W/m2]
+        real(kind=rb)      :: solr_cnst= 1370.              ! solar constant [W/m2]
         real(kind=rb)      :: solrad=1.0                      ! distance Earth-Sun [AU] if use_dyofyr=.false.
         integer(kind=im)   :: solday=0                        ! if >0, do perpetual run corresponding to 
                                                               !  day of the year = solday \in [0,days per year]

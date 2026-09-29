@@ -127,7 +127,7 @@ module spectral_dynamics_mod
       use_implicit           = .true.,  &
       triang_trunc           = .true.
 
-   integer :: damping_order       = 2, &
+   integer :: damping_order       = 4, &
       damping_order_vor   =-1, &
       damping_order_div   =-1, &
       lon_max             = 128, & ! T42
@@ -135,7 +135,7 @@ module spectral_dynamics_mod
       num_fourier         = 42,  & ! T42
       num_spherical       = 43,  & ! T42
       fourier_inc         = 1,   &
-      num_levels          = 18,  &
+      num_levels          = 40,  &
       num_steps           = 1
 
 
@@ -143,7 +143,7 @@ module spectral_dynamics_mod
    integer, dimension(2) ::  print_interval=(/1,0/)
 
    character(len=64) :: topography_option      = 'interpolated', & ! realistic topography computed from high resolution raw data
-      vert_coord_option      = 'even_sigma',   &
+      vert_coord_option      = 'uneven_sigma',   &
       damping_option         = 'resolution_dependent', &
       vert_advect_uv         = default_advect_vert,   &
       vert_advect_t          = default_advect_vert,   &
@@ -158,15 +158,15 @@ module spectral_dynamics_mod
       robert_coeff        = .03, &
       alpha_implicit      = .5,  &
       longitude_origin    =  0., &
-      scale_heights       =  4., &
+      scale_heights       =  7.9, &
       surf_res            = .1,  &
       p_press             = .1,  &
       p_sigma             = .3,  &
-      exponent            = 2.5, &
-      ocean_topog_smoothing = .93, &
-      initial_sphum       = 0.0, &
-      reference_sea_level_press =  101325. , &
-      water_correction_limit = 0.e2 !mj
+      exponent            = 1.4, &
+      ocean_topog_smoothing = 0.995, &
+      initial_sphum       = 2.e-06, &
+      reference_sea_level_press =  1.e5 , &
+      water_correction_limit = 200.e2 !mj
 
 
 

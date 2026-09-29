@@ -121,9 +121,9 @@
         character(len=256) :: sw_flux_file='sw_flux'          !  file name to read fluxes
         logical            :: do_read_lw_flux=.false.         ! read LW surface fluxes from external file?
         character(len=256) :: lw_flux_file='lw_flux'          !  file name to read fluxes
-        logical            :: do_read_ozone=.false.           ! read ozone from an external file?
+        logical            :: do_read_ozone=.true.           ! read ozone from an external file?
                                                               !  this is the only way to get ozone into the model
-        character(len=256) :: ozone_file='ozone'              !  file name of ozone file to read
+        character(len=256) :: ozone_file='ozone_1990'              !  file name of ozone file to read
         real(kind=rb)      :: scale_ozone = 1.0               ! scale the ozone values in the file by this factor
         real(kind=rb)      :: o3_val = 0.0                    ! if do_read_ozone = .false., give ozone this constant value
         logical            :: do_read_h2o=.false.             ! read water vapor from an external file?
@@ -142,7 +142,7 @@
         real(kind=rb)      :: temp_lower_limit = 100.         ! never go below this in radiative scheme
         real(kind=rb)      :: temp_upper_limit = 370.         ! never go above this in radiative scheme
 ! primary gases: CO2 and H2O
-        real(kind=rb)      :: co2ppmv=300.                    ! CO2 ppmv concentration
+        real(kind=rb)      :: co2ppmv=390.                    ! CO2 ppmv concentration
         logical            :: do_fixed_water = .false.        ! feed fixed value for water vapor to RRTM?
         real(kind=rb)      :: fixed_water = 2.e-06            ! if so, what value? [kg/kg]
         real(kind=rb)      :: fixed_water_pres = 100.e02      ! if so, above which pressure level? [hPa]
@@ -150,17 +150,17 @@
         logical            :: do_zm_tracers=.false.           ! Feed only the zonal mean of tracers to radiation
 
 ! radiation time stepping and spatial sampling
-        integer(kind=im)   :: dt_rad=0                        ! Radiation time step - every step if dt_rad<dt_atmos
+        integer(kind=im)   :: dt_rad=4500                        ! Radiation time step - every step if dt_rad<dt_atmos
         logical            :: store_intermediate_rad =.true.  ! Keep rad constant over entire dt_rad?
                                                               ! Else only heat radiatively at every dt_rad
         logical            :: do_rad_time_avg =.true.         ! Average coszen for SW radiation over dt_rad?
-        integer(kind=im)   :: dt_rad_avg = 86400.             ! If averaging, over what time?
+        integer(kind=im)   :: dt_rad_avg = 4500             ! If averaging, over what time?
                                                               !  no averaging if dt_rad_avg = 0. (equivalent to do_rad_time_avg=.false.)
                                                               !  dt_rad_avg=dt_rad if dt_rad_avg < 0
                                                               !  Default is to average over the whole day, i.e. remove diurnal  cycle.
                                                               !  This seems safest as the diurnal cycle has been observed
                                                               !  to create strong atmospheric tides with topography.
-        integer(kind=im)   :: lonstep=1                       ! Subsample fields along longitude
+        integer(kind=im)   :: lonstep=4                       ! Subsample fields along longitude
                                                               !  for faster radiation calculation
 ! some fancy radiation tweaks
         real(kind=rb)      :: slowdown_rad = 1.0              ! factor do simulate slower seasonal cycle: >1 means faster, <1 slower

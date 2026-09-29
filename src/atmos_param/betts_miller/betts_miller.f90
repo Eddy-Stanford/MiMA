@@ -38,8 +38,8 @@ private
 !   --- namelist ----
 
 real    :: tau_bm=7200.
-real    :: rhbm = .8
-logical :: do_simp = .true.
+real    :: rhbm = .7
+logical :: do_simp = .false.
 
 !logical :: do_enadjusttemp = .false.
 logical :: do_shallower = .true.

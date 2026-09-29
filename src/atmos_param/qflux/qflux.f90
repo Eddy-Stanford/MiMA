@@ -7,29 +7,29 @@ module qflux_mod
 
 implicit none
 
-real ::    qflux_amp      = 30.,  & ! amplitude of meridional Q-flux [W/m2]
+real ::    qflux_amp      = 26.,  & ! amplitude of meridional Q-flux [W/m2]
            qflux_width    = 16.,  & ! half-width of Q-flux [deg lat]
-           warmpool_amp   =  5.,  & ! amplitude of warmpool [W/m2]
-           warmpool_width = 20.,  & ! width of warmpool (square profile) [deg lat]
+           warmpool_amp   =  18.,  & ! amplitude of warmpool [W/m2]
+           warmpool_width = 35.,  & ! width of warmpool (square profile) [deg lat]
            warmpool_centr =  0.,  & ! center of warmpool [deg lat]
-           warmpool_phase = 0.0     ! phase of warmpool [deg lon]
+           warmpool_phase = 140.     ! phase of warmpool [deg lon]
 
 integer :: gulf_k         = 4       ! wave number of gulfstream perturbation []
 
-real :: warmpool_k     = 1,    & ! wave number of warmpool []
-	   	gulf_phase     = 140., & ! phase of warmpool [deg lon]
-		gulf_amp       = 0.  , & ! amplitude of gulf stream perturbation [W/m2]
-	   	kuroshio_amp   = 0. , &  ! amplitude of kuroshio perturbation [W/m2]
-	   	trop_atlantic_amp  = 0. , &  ! amplitude of tropical atlantic perturbation [W/m2]
+real :: warmpool_k     = 1.66666,    & ! wave number of warmpool []
+	   	gulf_phase     = 310., & ! phase of warmpool [deg lon]
+		gulf_amp       = 70.  , & ! amplitude of gulf stream perturbation [W/m2]
+	   	kuroshio_amp   = 40. , &  ! amplitude of kuroshio perturbation [W/m2]
+	   	trop_atlantic_amp  = 50. , &  ! amplitude of tropical atlantic perturbation [W/m2]
 		north_sea_heat = 0., & !add extra perturbation to move heat from Canada to North Sea
 	   	Pac_ITCZextra = 0., & !extra q flux in tropical South Pacific to strengthen local ITCZ	 
 	   	Pac_SPCZextra = 0., & !extra q flux in subtropical pacific to modulate SPCZ
 	   	Africaextra  = 0.,   &  !extra q flux by Agulhaus	
 	   	Sampeextra   = 0.,   &
-	   	Hawaiiextra  = 0.
+	   	Hawaiiextra  = 30.0
     
 
-integer :: warmpool_localization_choice    = 1 ! 1->cos, 2->cos but restricted to Indo-Pacific
+integer :: warmpool_localization_choice    = 3 ! 1->cos, 2->cos but restricted to Indo-Pacific
 logical :: qflux_initialized = .false.
 
 

@@ -35,8 +35,8 @@ public :: surf_diff_type
 !-----------------------------------------------------------------------
 !---- namelist ----
 
-logical :: do_conserve_energy         = .false.
-logical :: use_virtual_temp_vert_diff = .true.
+logical :: do_conserve_energy         = .true.
+logical :: use_virtual_temp_vert_diff = .false.
 
 namelist /vert_diff_driver_nml/ do_conserve_energy,         &
                                 use_virtual_temp_vert_diff
