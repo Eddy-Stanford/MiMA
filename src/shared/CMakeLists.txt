@@ -1,5 +1,4 @@
 set (SHARED_SOURCES
-# sat_vapor_pres/sat_vapor_pres.f90.am2rad
 sat_vapor_pres/sat_vapor_pres.f90
 tracer_manager/tracer_manager.F90
 random_numbers/MersenneTwister.f90

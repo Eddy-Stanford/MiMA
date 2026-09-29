@@ -1,5 +1,4 @@
 set ( ATMOS_SPECTRAL_SOURCES
-# driver/solo/atmosphere.f90
 driver/coupled/mcm_mca_lsc.f90
 driver/coupled/mcm_moist_processes.f90
 driver/coupled/spectral_physics.f90
@@ -15,10 +14,8 @@ model/implicit.f90
 model/spectral_dynamics.f90
 model/spectral_damping.f90
 model/matrix_invert.f90
-# init/spectral_init_cond.f90.axi
 init/vert_coordinate.f90
 init/spectral_initialize_fields.f90
-# init/spectral_init_cond.f90.nonaxi
 init/spectral_init_cond.f90
 init/topog_regularization.f90
 tools/spec_mpp.f90
