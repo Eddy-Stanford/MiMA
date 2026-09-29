@@ -326,16 +326,8 @@ RRTM directly. Those parameters are given in the first table and can be found in
 
  Variable | Default Value | Meaning
  :--- | :---: | :---
-  do_read_radiation     |    .false.     |  Read SW and LW radiation in the atmosphere from file?
-  radiation_file        |    ’radiation’ |  If so, filename without ’.nc’ extension
-  do_read_sw_flux       |    .false.     |  Read SW surface flux from file?
-  sw_flux_file          |    ’sw_flux’  |  If so, filename without ’.nc’ extension
-  do_read_lw_flux       |    .false.     |  Read LW surface flux from file?
-  lw_flux_file          |    ’lw_flux’  |  If so, filename without ’.nc’ extension
   do_read_ozone         |    .false.     |  Read ozone from file (only way to have non-zero ozone)?
   ozone_file            |    ’ozone’     | If so, filename without ’.nc’ extension
-  do_read_h2o           |    .false.     |  Use external water vapor distribution instead of active tracer?
-  h2o_file              |    ’h2o’       |  If so, filename without ’.nc’ extension
   include_secondary_gases|   .false.     |  Set CH<sub>4</sub>, N<sub>2</sub>O, O<sub>2</sub>, CFC-11, CFC-12, CFC-22, CCl<sub>4</sub> to non-zero?
   ch4_val               |    0           |  If so, set value for CH<sub>4</sub>
   n2o_val               |    0           |  If so, set value for N<sub>2</sub>O
@@ -343,10 +335,6 @@ RRTM directly. Those parameters are given in the first table and can be found in
   cfc{1112,22}_val      |    0           |  If so, set value for CFC-{11,12,22}
   ccl4_val              |    0            | If so, set value for CCl<sub>4</sub>
   h2o_lower_limit       |    0.2ppm      |  Never use specific humidity values smaller than this in radiative transfer
-  do_fixed_water        |    .false.     |  Use fixed value for specific humidity in radiative transfer?
-  fixed_water           |    2ppm        |  If so, set value
-  fixed_water_pres      |    100e2Pa     |  If so, above which pressure level?
-  fixed_water_lat       |    90          |  If so, equatorward of which latitude?
   do_zm_tracers         |    .false.     |  Feed only the zonal mean of all absorbers to the radiative transfer
   do_zm_rad             |    .false.     |  Only pass zonal mean radiative forcing to dynamics
   dt_rad                |    0           |  Radiation time step [s]. Every time step if < `dt_atmos`
