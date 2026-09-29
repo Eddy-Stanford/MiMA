@@ -339,21 +339,20 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 !! Reduce tdel in the top layer
                          tdel(i,j,ktop) = ptopfrac*tdel(i,j,ktop)
                          deltak = 0.
-                         if (ktop.lt.kx) then
-! Integrate temperature tendency up to 1 level below top.
-                            do k=ktop,kx
-                               deltak = deltak + tdel(i,j,k)* &
-                                   (phalf(i,j,k) - phalf(i,j,k+1))
-                            end do
+! Integrate the temperature tendency over the convecting layers (this
+! includes the case where only the lowest layer convects, ktop = kx).
+                         do k=ktop,kx
+                            deltak = deltak + tdel(i,j,k)* &
+                                (phalf(i,j,k) - phalf(i,j,k+1))
+                         end do
 ! Normalize by the pressure difference.
-                            deltak = deltak/(phalf(i,j,kx+1) - phalf(i,j,ktop))
+                         deltak = deltak/(phalf(i,j,kx+1) - phalf(i,j,ktop))
 ! Subtract this value uniformly from tdel, and make the according change to
 ! t_ref.
-                            do k=ktop,kx
-                               tdel(i,j,k) = tdel(i,j,k) + deltak
-                               t_ref(i,j,k) = t_ref(i,j,k) + deltak*tau_bm/dt
-                            end do
-                         end if
+                         do k=ktop,kx
+                            tdel(i,j,k) = tdel(i,j,k) + deltak
+                            t_ref(i,j,k) = t_ref(i,j,k) + deltak*tau_bm/dt
+                         end do
                       else
                          precip(i,j) = 0.
                          qdel(i,j,kx) = 0.
