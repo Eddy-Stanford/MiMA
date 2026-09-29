@@ -60,7 +60,7 @@ module spectral_dynamics_mod
 
    public :: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels
    public :: get_use_virtual_temperature, get_reference_sea_level_press, get_surf_geopotential
-   public :: complete_robert_filter, complete_update_of_future
+   public :: complete_robert_filter
    public :: get_axis_id, spectral_diagnostics, get_initial_fields
 
 !===============================================================================================
@@ -1368,46 +1368,6 @@ contains
 
       return
    end subroutine get_num_levels
-!================================================================================
-   subroutine complete_update_of_future(psg_in, ug_in, vg_in, tg_in, tracer_attributes, grid_tracers_in)
-
-      real,              intent(in), dimension(:,:    ) :: psg_in
-      real,              intent(in), dimension(:,:,:  ) :: ug_in, vg_in, tg_in
-      type(tracer_type), intent(in), dimension(:      ) :: tracer_attributes
-      real,              intent(in), dimension(:,:,:,:) :: grid_tracers_in
-      real, dimension(size(psg,1), size(psg,2)) :: ln_psg
-      integer :: ntr
-
-! The time level pointers may be confusing here.
-! The future level of the fields are passed to this routine in atmosphere_up,
-! and they are loaded into the current level here.
-! The reason for this is that the time level pointers in atmosphere_mod have
-! not yet been updated, but they have been updated for spectral_dyanmics_mod
-! (in Subroutine spectral_dynamics.) The result is that future in
-! atmosphere_up points to the same time level as current in this routine.
-
-!----------------------------------------------------------------------------
-
-      psg(:,:,  current) = psg_in
-      ug (:,:,:,current) = ug_in
-      vg (:,:,:,current) = vg_in
-      tg (:,:,:,current) = tg_in
-      grid_tracers(:,:,:,current,:) = grid_tracers_in
-
-      call vor_div_from_uv_grid(ug(:,:,:,current), vg(:,:,:,current), vors(:,:,:,current), divs(:,:,:,current), triang=triang_trunc)
-      call trans_spherical_to_grid(vors(:,:,:,current), vorg)
-      call trans_spherical_to_grid(divs(:,:,:,current), divg)
-      ln_psg = alog(psg(:,:,current))
-      call trans_grid_to_spherical(ln_psg, ln_ps(:,:,current))
-      call trans_grid_to_spherical(tg_in,  ts(:,:,:,current))
-      do ntr=1,num_tracers
-         if(uppercase(trim(tracer_attributes(ntr)%numerical_representation)) == 'SPECTRAL') then
-            call trans_grid_to_spherical(grid_tracers(:,:,:,current,ntr), spec_tracers(:,:,:,current,ntr))
-         endif
-      enddo
-
-      return
-   end subroutine complete_update_of_future
 !================================================================================
    subroutine complete_robert_filter(tracer_attributes)
       type(tracer_type), intent(inout), dimension(:) :: tracer_attributes

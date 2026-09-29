@@ -1,7 +1,6 @@
 module spectral_physics_mod
 
-use fms_mod,               only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, set_domain, file_exist, &
-                                 field_size, read_data, write_data, fms_init
+use fms_mod,               only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, set_domain, fms_init
 
 use constants_mod,         only: grav, pi
 
@@ -17,9 +16,7 @@ use           spec_mpp_mod,only: grid_domain
 use spectral_dynamics_mod, only: get_reference_sea_level_press, get_num_levels
 
 use physics_driver_mod,    only: physics_driver_init, physics_driver_down, physics_driver_up, physics_driver_end, &
-                                 surf_diff_type, do_moist_in_phys_up, get_diff_t, get_radturbten, zero_radturbten
-
-use moist_processes_mod,   only: moist_processes_init, moist_processes, moist_processes_end
+                                 surf_diff_type
 
 use tracer_type_mod,       only: tracer_type
 
@@ -31,7 +28,7 @@ implicit none
 private
 
 public :: spectral_physics_init, spectral_physics_down, spectral_physics_up, &
-          spectral_physics_end, surf_diff_type, spectral_physics_moist
+          spectral_physics_end, surf_diff_type
 
 character(len=128), parameter :: version = &
 '$Id: spectral_physics.f90,v 12.0 2005/04/14 15:53:05 fms Exp $'
@@ -42,7 +39,6 @@ character(len=128), parameter :: tagname = &
 integer, parameter :: num_time_levels=2
 
 real, allocatable, dimension(:,:      ) :: rad_lon_2d, rad_lat_2d, area_2d
-logical, allocatable, dimension(:,:   ) :: convect
 real, allocatable, dimension(:,:,:,:  ) :: diag_tracers
 integer :: num_levels, num_tracers, nhum
 integer :: is, ie, js, je
@@ -64,15 +60,12 @@ real, allocatable, dimension(:,:,:,:) :: grid_tracers
 real, allocatable, dimension(:) :: rad_lon, rad_lat, wts_lat, lon_boundaries, lat_boundaries
 real, dimension(2) :: radiation_ref_press_surf = (/ 101325., 81060. /)
 
-real, allocatable, dimension(:,:) :: radiation_ref_press, rconvect
+real, allocatable, dimension(:,:) :: radiation_ref_press
 real, allocatable, dimension(:)   :: p_half_1d, ln_p_half_1d, shalf
 real, allocatable, dimension(:)   :: p_full_1d, ln_p_full_1d, sfull
 
 real :: reference_sea_level_press
 integer :: i, j, tracer_number, unit, num_diag, ntr, nmix_rat, nsphum, lon_max, lat_max
-character(len=4) :: ch1, ch2, ch3, ch4, ch5, ch6
-character(len=64) :: file
-integer, dimension(4) :: siz
 
 if(module_is_initialized) return
 
@@ -134,9 +127,6 @@ call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
 
 call set_domain(grid_domain)
 
-call moist_processes_init(ie-is+1, je-js+1, num_levels, lon_boundaries, lat_boundaries, &
-                          radiation_ref_press(:,1), axes, Time)
-
 allocate(grid_tracers(is:ie, js:je, num_levels, num_tracers))
 grid_tracers = 0.
 
@@ -150,30 +140,6 @@ endif
 deallocate(rad_lon, rad_lat, wts_lat, lon_boundaries, lat_boundaries, grid_tracers)
 deallocate(radiation_ref_press, p_half_1d, ln_p_half_1d, shalf, p_full_1d, ln_p_full_1d, sfull)
 
-allocate ( convect(is:ie,js:je))
-file = 'INPUT/spectral_physics.res.nc'
-if(file_exist(trim(file))) then
-  call field_size(trim(file), 'convect', siz)
-  if(siz(1) /= lon_max .or. siz(2) /= lat_max) then
-    write(ch1,'(i4)') siz(1)
-    write(ch2,'(i4)') siz(2)
-    write(ch4,'(i4)') lon_max
-    write(ch5,'(i4)') lat_max
-    call error_mesg('spectral_physics_init','Resolution of restart data is incorrect.'// &
-    ' Restart data: lon_max='//ch1//', lat_max='//ch2// &
-    '    Should be: lon_max='//ch4//', lat_max='//ch5, FATAL)
-  endif
-  allocate (rconvect(is:ie,js:je))
-  call read_data(trim(file), 'convect',    rconvect,   grid_domain) ! No interface for reading/writing netcdf logicals
-  where(rconvect == 1.)
-    convect = .true.
-  elsewhere
-    convect = .false.
-  endwhere
-  deallocate (rconvect)
-else
-  convect = .false.
-endif
 
 module_is_initialized = .true.
 
@@ -212,7 +178,6 @@ if(.not.module_is_initialized) then
   call error_mesg('spectral_physics_down','spectral_physics module is not initialized', FATAL)
 end if
 
-if(do_moist_in_phys_up()) then
   call physics_driver_down(1, ie-is+1, 1, je-js+1, Time_prev, Time, Time_next,   &
             rad_lat_2d,    rad_lon_2d,  area_2d,                                 &
                 p_half,      p_full, z_half, z_full,                             &
@@ -232,28 +197,6 @@ if(do_moist_in_phys_up()) then
                flux_sw_down_total_dif, flux_sw_vis,                              &
                flux_sw_vis_dir, flux_sw_vis_dif,                                 &
                flux_lw, coszen, gust, Surf_diff)
-else
-  call physics_driver_down(1, ie-is+1, 1, je-js+1, Time_prev, Time, Time_next,   &
-            rad_lat_2d,    rad_lon_2d,  area_2d,                                 &
-                p_half,      p_full, z_half, z_full,                             &
-                    ug(:,:,:,current), vg(:,:,:,current),                        &
-                    tg(:,:,:,current), grid_tracers(:,:,:,current,nhum),         &
-          grid_tracers(:,:,:,current,:), ug(:,:,:,previous), vg(:,:,:,previous), &
-                    tg(:,:,:,previous), grid_tracers(:,:,:,previous,nhum),       &
-          grid_tracers(:,:,:,previous,:),                                        &
-             frac_land, rough_mom,      albedo,                                  &
-               albedo_vis_dir, albedo_nir_dir, albedo_vis_dif, albedo_nir_dif,   &
-                t_surf,    u_star,      b_star, q_star,                          &
-               dtau_du, dtau_dv,     tau_x,       tau_y,                         &
-                 dt_ug,       dt_vg,         dt_tg,                              &
-                 dt_tracers(:,:,:,nhum), dt_tracers, flux_sw,                    &
-               flux_sw_dir, flux_sw_dif, flux_sw_down_vis_dir,                   &
-               flux_sw_down_vis_dif, flux_sw_down_total_dir,                     &
-               flux_sw_down_total_dif, flux_sw_vis,                              &
-               flux_sw_vis_dir, flux_sw_vis_dif,                                 &
-               flux_lw, coszen, gust, Surf_diff,                                &
-               moist_convect=convect)
-endif
 
 return
 end subroutine spectral_physics_down
@@ -295,59 +238,14 @@ call physics_driver_up(1, ie-is+1, 1, je-js+1, Time_prev, Time, Time_next,    &
 return
 end subroutine spectral_physics_up
 !------------------------------------------------------------------------------------------------
-subroutine spectral_physics_moist(Time_next, delta_t, frac_land, p_half, p_full, z_half, z_full, wg_full, &
-                                  tg, qg, ug, vg, tracers, lprec, fprec, gust)
-
-type(time_type), intent(in) :: Time_next
-real, intent(in)                        :: delta_t
-real, intent(in),    dimension(:,:)     :: frac_land
-real, intent(in),    dimension(:,:,:)   :: p_half, p_full, z_half, z_full, wg_full
-real, intent(inout), dimension(:,:,:)   :: tg, qg, ug, vg
-real, intent(inout), dimension(:,:,:,:) :: tracers
-real, intent(inout), dimension(:,:)     :: lprec, fprec, gust
-real, dimension(size(tg,1), size(tg,2), size(tg,3)) :: dt_tg, dt_qg, dt_ug, dt_vg
-real, dimension(size(tracers,1), size(tracers,2), size(tracers,3), size(tracers,4)) :: dt_tracers
-real, dimension(size(gust,1), size(gust,2)) :: gust_cv
-
-dt_tg=0.; dt_qg=0.; dt_ug=0.; dt_vg=0.; dt_tracers=0.
-
-if(.not.do_moist_in_phys_up()) then
-    call moist_processes(1, ie-is+1, 1, je-js+1, Time_next, delta_t, frac_land, p_half, p_full, z_half, z_full, wg_full, &
-                         get_diff_t(), get_radturbten(),                                                                 &
-                         tg, qg, tracers, ug, vg, tg, qg, tracers, ug, vg, dt_tg, dt_qg, dt_tracers, dt_ug, dt_vg,       &
-                         convect, lprec, fprec, gust_cv, area_2d, rad_lat_2d)
-    gust = sqrt( gust*gust + gust_cv*gust_cv)
-    call zero_radturbten()
-    tg = tg + dt_tg*delta_t
-    qg = qg + dt_qg*delta_t
-    ug = ug + dt_ug*delta_t
-    vg = vg + dt_vg*delta_t
-    tracers = tracers + dt_tracers*delta_t
-endif
-
-return
-end subroutine spectral_physics_moist
-!------------------------------------------------------------------------------------------------
 
 subroutine spectral_physics_end(Time)
-character(len=64) :: file
-
 type(time_type), intent(in) :: Time
-real, dimension(is:ie,js:je)  :: rconvect
 
 if(.not.module_is_initialized) return
 
-file = 'RESTART/spectral_physics.res.nc'
-where(convect)
-  rconvect = 1.
-elsewhere
-  rconvect = 0.
-endwhere
-call write_data(trim(file), 'convect', rconvect, grid_domain) ! pjp: No interface for reading/writing netcdf logicals
-
-deallocate(rad_lon_2d, rad_lat_2d, area_2d, convect)
+deallocate(rad_lon_2d, rad_lat_2d, area_2d)
 call physics_driver_end(Time)
-call moist_processes_end
 module_is_initialized = .false.
 
 return

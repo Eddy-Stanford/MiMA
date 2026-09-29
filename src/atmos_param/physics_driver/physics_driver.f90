@@ -127,8 +127,6 @@ character(len=128) :: tagname = '$Name:  $'
 
 public  physics_driver_init, physics_driver_down,   &
         physics_driver_up, physics_driver_end, &
-        do_moist_in_phys_up, get_diff_t, &
-        get_radturbten, zero_radturbten, &
         do_local_heating
 
 private          &
@@ -150,8 +148,6 @@ end interface
 !---------------------------------------------------------------------
 !------- namelist ------
 
-logical :: do_moist_processes = .true.
-                               ! call moist_processes routines
 real    :: tau_diff = 3600.    ! time scale for smoothing diffusion 
                                ! coefficients
 
@@ -170,9 +166,6 @@ logical :: diffusion_smooth = .true.
                                ! diffusion coefficients should be 
                                ! smoothed in time?
 ! <NAMELIST NAME="physics_driver_nml">
-!  <DATA NAME="do_moist_processes" UNITS="" TYPE="logical" DIM="" DEFAULT=".true.">
-!call moist_processes routines
-!  </DATA>
 !  <DATA NAME="tau_diff" UNITS="" TYPE="real" DIM="" DEFAULT="3600.">
 !time scale for smoothing diffusion 
 ! coefficients
@@ -188,7 +181,7 @@ logical :: diffusion_smooth = .true.
 !  </DATA>
 ! </NAMELIST>
 !
-namelist / physics_driver_nml / do_moist_processes, tau_diff,      &
+namelist / physics_driver_nml / tau_diff,      &
                                 diff_min, diffusion_smooth, &
                                 do_grey_radiation, do_rrtm_radiation, &
                                 do_damping, do_local_heating
@@ -734,11 +727,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !                        mask to remove points below ground
 !  </IN>
 !
-!  <IN NAME="moist_convect" TYPE="real">
-!   OPTIONAL: present when do_moist_processes=.false.
-!    Should not be present when do_moist_processes=.true., since these
-!    values are passed out from moist_processes.
-!  </IN>
 ! </SUBROUTINE>
 !
 subroutine physics_driver_down (is, ie, js, je,                       &
@@ -766,7 +754,7 @@ subroutine physics_driver_down (is, ie, js, je,                       &
                                 flux_lw,  coszen,  gust,              &
                                 Surf_diff,                            &
                                 mask, kbot,                           &
-                                moist_convect, diffm, difft  )
+                                diffm, difft  )
 
 !---------------------------------------------------------------------
 !    physics_driver_down calculates "first pass" physics tendencies,
@@ -809,7 +797,6 @@ real,dimension(:,:),     intent(out)            :: flux_sw,  &
 type(surf_diff_type),    intent(inout)          :: Surf_diff
 real,dimension(:,:,:),   intent(in)   ,optional :: mask
 integer, dimension(:,:), intent(in)   ,optional :: kbot
-logical, dimension(:,:), intent(in)   ,optional :: moist_convect
 real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft 
 
 !-----------------------------------------------------------------------
@@ -986,18 +973,6 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
        call mpp_clock_end ( damping_clock )
      endif
 
-!---------------------------------------------------------------------
-!    If moist_processes is not called in physics_driver_down then values
-!    of convect must be passed in via the optional argument "moist_convect".
-!---------------------------------------------------------------------
-      if(.not.do_moist_processes) then
-        if(present(moist_convect)) then
-          convect(is:ie,js:je) = moist_convect
-        else
-          call error_mesg('physics_driver_down', &
-          'moist_convect be present when do_moist_processes=.false.',FATAL) 
-        endif
-      endif
 
 !---------------------------------------------------------------------
 !    call vert_turb_driver to calculate diffusion coefficients. save
@@ -1370,25 +1345,23 @@ integer,dimension(:,:), intent(in),   optional :: kbot
 !    to compute moist physics, including convection and processes 
 !    involving condenstion.
 !-----------------------------------------------------------------------
-      if (do_moist_processes) then
-        call mpp_clock_begin ( moist_processes_clock )
-        call moist_processes (is, ie, js, je, Time_next, dt, frac_land, &
-                              p_half, p_full, z_half, z_full, omega,    &
-                              diff_t(is:ie,js:je,:),                    &
-                              radturbten(is:ie,js:je,:),                &
-                              t, q, r, u, v, tm, qm, rm, um, vm,        &
-                              tdt, qdt, rdt, udt, vdt,                  &
-                              convect(is:ie,js:je), lprec, fprec,       &
-                              gust_cv, area, lat, mask=mask, kbot=kbot)
-        call mpp_clock_end ( moist_processes_clock )
-        radturbten(is:ie,js:je,:) = 0.0
+      call mpp_clock_begin ( moist_processes_clock )
+      call moist_processes (is, ie, js, je, Time_next, dt, frac_land, &
+                            p_half, p_full, z_half, z_full, omega,    &
+                            diff_t(is:ie,js:je,:),                    &
+                            radturbten(is:ie,js:je,:),                &
+                            t, q, r, u, v, tm, qm, rm, um, vm,        &
+                            tdt, qdt, rdt, udt, vdt,                  &
+                            convect(is:ie,js:je), lprec, fprec,       &
+                            gust_cv, area, lat, mask=mask, kbot=kbot)
+      call mpp_clock_end ( moist_processes_clock )
+      radturbten(is:ie,js:je,:) = 0.0
 
 !---------------------------------------------------------------------
 !    add the convective gustiness effect to that previously obtained 
 !    from non-convective parameterizations.
 !---------------------------------------------------------------------
-        gust = sqrt( gust*gust + gust_cv*gust_cv)
-      endif ! do_moist_processes
+      gust = sqrt( gust*gust + gust_cv*gust_cv)
 
 !-----------------------------------------------------------------------
 
@@ -1506,115 +1479,6 @@ type(time_type), intent(in) :: Time
 
 
 
-!#######################################################################
-! <FUNCTION NAME="do_moist_in_phys_up">
-!  <OVERVIEW>
-!    do_moist_in_phys_up returns the value of do_moist_processes
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    do_moist_in_phys_up returns the value of do_moist_processes
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   logical = do_moist_in_phys_up()
-!  </TEMPLATE>
-! </FUNCTION>
-!
-function do_moist_in_phys_up()
-
-!--------------------------------------------------------------------
-!    do_moist_in_phys_up returns the value of do_moist_processes
-!----------------------------------------------------------------------
-
-logical :: do_moist_in_phys_up
-
-!---------------------------------------------------------------------
-!    verify that the module is initialized.
-!---------------------------------------------------------------------
-      if ( .not. module_is_initialized) then
-        call error_mesg ('do_moist_in_phys_up',  &
-              'module has not been initialized', FATAL)
-      endif
- 
-!-------------------------------------------------------------------
-!    define output variable.
-!-------------------------------------------------------------------
-      do_moist_in_phys_up = do_moist_processes
-
- 
-end function do_moist_in_phys_up
-
-!#####################################################################
-! <FUNCTION NAME="get_diff_t">
-!  <OVERVIEW>
-!    returns the values of array diff_t
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    returns the values of array diff_t
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   diff_t(:,:,:) = get_diff_t()
-!  </TEMPLATE>
-! </FUNCTION>
-!
-!#####################################################################
-function get_diff_t() result(diff_t_out)
-real, dimension(size(diff_t,1),size(diff_t,2),size(diff_t,3)) :: diff_t_out
-
-  if ( .not. module_is_initialized) then
-    call error_mesg ('get_diff_t','module has not been initialized', FATAL)
-  endif
-
-  diff_t_out = diff_t
-
-end function get_diff_t
-
-!#####################################################################
-! <FUNCTION NAME="get_radturbten">
-!  <OVERVIEW>
-!    returns the values of array radturbten
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    returns the values of array radturbten
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   radturbten(:,:,:) = get_radturbten()
-!  </TEMPLATE>
-! </FUNCTION>
-!
-!#####################################################################
-function get_radturbten() result(radturbten_out)
-real, dimension(size(radturbten,1),size(radturbten,2),size(radturbten,3)) :: radturbten_out
-
-  if ( .not. module_is_initialized) then
-    call error_mesg ('get_radturbten','module has not been initialized', FATAL)
-  endif
-
-  radturbten_out = radturbten
-
-end function get_radturbten
-!#####################################################################
-! <SUBROUTINE NAME="zero_radturbten">
-!  <OVERVIEW>
-!    sets all values of array radturbten to zero
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    sets all values of array radturbten to zero
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call zero_radturbten()
-!  </TEMPLATE>
-! </SUBROUTINE>
-!
-!#####################################################################
-subroutine zero_radturbten()
-
-  if ( .not. module_is_initialized) then
-    call error_mesg ('zero_radturbten','module has not been initialized', FATAL)
-  endif
-
-  radturbten = 0.0
-
-end subroutine zero_radturbten
 !#####################################################################
 
 

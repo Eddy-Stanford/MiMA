@@ -5,14 +5,12 @@ use               mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, M
 use               fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, WARNING, write_version_number, set_domain, &
                                  file_exist, field_size, read_data, write_data
 
-use    physics_driver_mod, only: do_moist_in_phys_up
-
 use     field_manager_mod, only: MODEL_ATMOS
 
 use    tracer_manager_mod, only: get_number_tracers, get_tracer_index
 
 use  spectral_physics_mod, only: spectral_physics_init, spectral_physics_down, spectral_physics_up, &
-                                 spectral_physics_end, surf_diff_type, spectral_physics_moist
+                                 spectral_physics_end, surf_diff_type
 
 use         constants_mod, only: grav
 
@@ -22,12 +20,12 @@ use        transforms_mod, only: trans_grid_to_spherical, trans_spherical_to_gri
 
 use           spec_mpp_mod,only: grid_domain
 
-use  press_and_geopot_mod, only: pressure_variables, compute_pressures_and_heights, compute_z_bot
+use  press_and_geopot_mod, only: compute_pressures_and_heights, compute_z_bot
 
 use      time_manager_mod, only: time_type, set_time, get_time, operator(+), operator(<), operator(-)
 
 use spectral_dynamics_mod, only: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels, &
-                                 complete_robert_filter, complete_update_of_future, &
+                                 complete_robert_filter, &
                                  get_axis_id, spectral_diagnostics, get_initial_fields
 
 use       mpp_domains_mod, only: domain2d
@@ -242,9 +240,6 @@ real,                 intent(in),  dimension(is:ie,js:je) :: frac_land
 type(surf_diff_type), intent(inout)                       :: Surf_diff
 real,                 intent(out), dimension(is:ie,js:je) :: lprec, fprec, gust
 
-real, dimension(is:ie,js:je,1:num_levels+1) :: ln_p_half
-real, dimension(is:ie,js:je,1:num_levels  ) :: ln_p_full
-
 if(.not.module_is_initialized) then
   call error_mesg('atmosphere_up','atmosphere module has not been initialized.', FATAL)
 endif
@@ -266,14 +261,6 @@ call spectral_dynamics(Time, psg(:,:,future), ug(:,:,:,future), vg(:,:,:,future)
                        dt_psg, dt_ug, dt_vg, dt_tg, dt_tracers, wg_full, p_full, p_half, z_full)
 call mpp_clock_end(dynclock)
 
-if(.not.do_moist_in_phys_up()) then
-  call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, psg(:,:,future))
-  call spectral_physics_moist(Time_next, delta_t, frac_land, p_half, p_full, z_half, z_full, wg_full, &
-                              tg(:,:,:,future), grid_tracers(:,:,:,future,nhum), ug(:,:,:,future), vg(:,:,:,future), &
-                              grid_tracers(:,:,:,future,:), lprec, fprec, gust)
-  call complete_update_of_future(psg(:,:,future), ug(:,:,:,future), vg(:,:,:,future), tg(:,:,:,future), &
-                              tracer_attributes, grid_tracers(:,:,:,future,:))
-endif
 call complete_robert_filter(tracer_attributes)
 
 call spectral_diagnostics(Time_next, psg(:,:,future), ug(:,:,:,future), vg(:,:,:,future), &
