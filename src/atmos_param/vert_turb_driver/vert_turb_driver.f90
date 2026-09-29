@@ -3,42 +3,26 @@ module vert_turb_driver_mod
 
 !-----------------------------------------------------------------------
 !
-!       driver for compuing vertical diffusion coefficients
+!       driver for computing vertical diffusion coefficients
 !
-!         choose either:
-!              1) mellor-yamada 2.5 (with tke)
-!              2) non-local K scheme
-!              3) entrainment and diagnostic turbulence (edt) from
-!                 Bretherton and Grenier
+!         - non-local K scheme (diffusivity_mod), optionally with
+!           molecular diffusion
+!         - surface-layer gustiness
 !
 !-----------------------------------------------------------------------
 !---------------- modules ---------------------
 
 
-use      my25_turb_mod, only: my25_turb_init, my25_turb_end,  &
-                              my25_turb, tke_surf, get_tke
-
 use    diffusivity_mod, only: diffusivity, molecular_diff
-
-use            edt_mod, only: edt_init, edt, edt_end
-
-use   shallow_conv_mod, only: shallow_conv_init, shallow_conv
-
-use stable_bl_turb_mod, only: stable_bl_turb_init, stable_bl_turb
-
-use        entrain_mod, only: entrain_init, entrain, entrain_end
 
 use   diag_manager_mod, only: register_diag_field, send_data
 
-use   time_manager_mod, only: time_type, get_time, operator(-)
+use   time_manager_mod, only: time_type
 
-use      constants_mod, only: rdgas, rvgas, kappa
- 
 use       fms_mod,      only: mpp_pe, mpp_root_pe, stdlog, &
                               error_mesg, open_namelist_file, file_exist, &
                               check_nml_error, close_file, FATAL, &
                               write_version_number
- 
 
 implicit none
 private
@@ -55,13 +39,6 @@ character(len=128) :: version = '$Id: vert_turb_driver.f90,v 11.0.8.1 2005/05/13
 character(len=128) :: tagname = '$Name:  $'
 logical            :: module_is_initialized = .false.
 
-!-----------------------------------------------------------------------
- real, parameter :: p00    = 1000.0E2
- real, parameter :: p00inv = 1./p00
- real, parameter :: d622   = rdgas/rvgas
- real, parameter :: d378   = 1.-d622
- real, parameter :: d608   = d378/d622
-
 !---------------- private data -------------------
 
  real :: gust_zi = 1000.   ! constant for computed gustiness (meters)
@@ -69,34 +46,24 @@ logical            :: module_is_initialized = .false.
 !-----------------------------------------------------------------------
 !-------------------- namelist -----------------------------------------
 
- logical :: do_shallow_conv  = .false.
- logical :: do_mellor_yamada = .true.
  logical :: do_diffusivity         = .false.
  logical :: do_molecular_diffusion = .false.
- logical :: do_edt                 = .false.
- logical :: do_stable_bl     = .false.
  logical :: use_tau          = .true.
- logical :: do_entrain    = .false.
- 
+
  character(len=24) :: gust_scheme  = 'constant' ! valid schemes are:
                                                 !   => 'constant'
                                                 !   => 'beljaars'
  real              :: constant_gust = 1.0
  real              :: gust_factor   = 1.0
- logical           :: use_df_stuff=.false.
- 
- namelist /vert_turb_driver_nml/ do_shallow_conv, do_mellor_yamada, &
-                                 gust_scheme, constant_gust, use_tau, &
-                                 do_molecular_diffusion, do_stable_bl, &
-                                 do_diffusivity, do_edt, do_entrain, &
-                                 gust_factor, use_df_stuff
+
+ namelist /vert_turb_driver_nml/ gust_scheme, constant_gust, use_tau, &
+                                 do_molecular_diffusion, &
+                                 do_diffusivity, gust_factor
 
 !-------------------- diagnostics fields -------------------------------
 
-integer :: id_tke,    id_lscale, id_lscale_0, id_z_pbl, id_gust,  &
-           id_diff_t, id_diff_m, id_diff_sc, id_z_full, id_z_half,&
-           id_uwnd,   id_vwnd,   id_diff_t_stab, id_diff_m_stab,  &
-           id_diff_t_entr, id_diff_m_entr    
+integer :: id_z_pbl, id_gust, id_diff_t, id_diff_m, id_z_full, id_z_half, &
+           id_uwnd, id_vwnd
 
 real :: missing_value = -999.
 
@@ -108,48 +75,30 @@ contains
 
 !#######################################################################
 
-subroutine vert_turb_driver (is, js, Time, Time_next, dt, tdtlw,     &
-                             frac_land,   &
+subroutine vert_turb_driver (is, js, Time_next, dt,                    &
                              p_half, p_full, z_half, z_full, u_star,   &
-                             b_star, q_star, rough, lat, convect,      &
-                             u, v, t, q, r, um, vm, tm, qm, rm,        &
-                             udt, vdt, tdt, qdt, rdt, diff_t, diff_m,  &
+                             b_star, u, v, t, q, um, vm, tm, qm,       &
+                             udt, vdt, tdt, qdt, diff_t, diff_m,       &
                              gust, z_pbl, mask, kbot                   )
 
 !-----------------------------------------------------------------------
 integer,         intent(in)         :: is, js
-type(time_type), intent(in)         :: Time, Time_next
+type(time_type), intent(in)         :: Time_next
    real,         intent(in)         :: dt
-   real, intent(in), dimension(:,:) :: frac_land, u_star, b_star,  &
-                                       q_star, rough, lat
-logical, intent(in), dimension(:,:) :: convect       
-   real, intent(in), dimension(:,:,:) :: tdtlw, p_half, p_full, &
+   real, intent(in), dimension(:,:) :: u_star, b_star
+   real, intent(in), dimension(:,:,:) :: p_half, p_full, &
                                          z_half, z_full, &
                                          u, v, t, q, um, vm, tm, qm, &
                                          udt, vdt, tdt, qdt
-   real, intent(in) ,   dimension(:,:,:,:) :: r, rm, rdt
    real, intent(out),   dimension(:,:,:) :: diff_t, diff_m
-   real, intent(out),   dimension(:,:)   :: gust, z_pbl 
+   real, intent(out),   dimension(:,:)   :: gust, z_pbl
    real, intent(in),optional, dimension(:,:,:) :: mask
 integer, intent(in),optional, dimension(:,:) :: kbot
 !-----------------------------------------------------------------------
-real   , dimension(size(t,1),size(t,2),size(t,3))   :: ape, thv
 logical, dimension(size(t,1),size(t,2),size(t,3)+1) :: lmask
-real   , dimension(size(t,1),size(t,2),size(t,3)+1) :: el, diag3
-real   , dimension(size(t,1),size(t,2),size(t,3)+1) :: tke
-real   , dimension(size(t,1),size(t,2))             :: stbltop
-real   , dimension(size(t,1),size(t,2))             :: el0, vspblcap
-real   , dimension(size(diff_t,1),size(diff_t,2), &
-                                  size(diff_t,3))   :: diff_sc,     &
-                                                       diff_t_stab, &
-                                                       diff_m_stab, &
-       diff_t_entr, &
-       diff_m_entr, &
-       use_entr
+real   , dimension(size(t,1),size(t,2),size(t,3)+1) :: diag3
 real   , dimension(size(t,1),size(t,2),size(t,3))   :: tt, qq, uu, vv
-real   , dimension(size(t,1),size(t,2),size(t,3))   :: qlin, qiin, qain
-real    :: dt_tke
-integer :: ie, je, nlev, sec, day, nt
+integer :: nlev
 logical :: used
 !-----------------------------------------------------------------------
 !----------------------- vertical turbulence ---------------------------
@@ -160,8 +109,6 @@ logical :: used
                       'initialization has not been called', FATAL)
 
      nlev = size(p_full,3)
-     ie = is + size(p_full,1) - 1
-     je = js + size(p_full,2) - 1
 
 !-----------------------------------------------------------------------
 !---- set up state variable used by this module ----
@@ -180,71 +127,15 @@ logical :: used
           qq = qm + dt*qdt
       endif
 
-      !------ no cloud condensate: ql, qi and qa are zero -----
-      qlin = 0.0
-      qiin = 0.0
-      qain = 0.0
-
-!--------------------------------------------------------------------
-
 !--------------------------------------------------------------------
 ! initialize output
 
    diff_t = 0.0
    diff_m = 0.0
    z_pbl = -999.0
-   
-!-------------------------------------------------------------------
-! initiallize variables   
-   vspblcap = 0.0   
-   
+
 !-----------------------------------------------------------------------
-if (do_mellor_yamada) then
-
-!    ----- virtual temp ----------
-     ape(:,:,:)=(p_full(:,:,:)*p00inv)**(-kappa)
-     if(use_df_stuff) then
-       thv(:,:,:)=tt(:,:,:)*ape(:,:,:)
-     else
-       thv(:,:,:)=tt(:,:,:)*(qq(:,:,:)*d608+1.0)*ape(:,:,:)
-     endif
-     if (present(mask)) where (mask < 0.5) thv = 200.
-
- endif
-
-!---------------------------
- if (do_mellor_yamada) then
-!---------------------------
-
-!    ----- time step for prognostic tke calculation -----
-     call get_time (Time_next-Time, sec, day)
-     dt_tke = real(sec+day*86400)
-
-!    --------------------- update tke-----------------------------------
-!    ---- compute surface tke --------
-!    ---- compute tke, master length scale (el0),  -------------
-!    ---- length scale (el), and vert mix coeffs (diff_t,diff_m) ----
-
-     call tke_surf  (is, js, u_star, kbot=kbot)
-
-
-
-     if ( id_z_pbl > 0 ) then
-     !------ compute pbl depth from k_profile if diagnostic needed -----
-     call my25_turb (is, js, dt_tke, frac_land, p_half, p_full, thv, uu, vv, &
-                     z_half, z_full, rough,   &
-                     el0, el, diff_m, diff_t, &
-                     mask=mask, kbot=kbot, &
-                     ustar=u_star,bstar=b_star,h=z_pbl)
-     else
-     call my25_turb (is, js, dt_tke, frac_land, p_half, p_full, thv, uu, vv, &
-                     z_half, z_full, rough,   &
-                     el0, el, diff_m, diff_t, &
-                     mask=mask, kbot=kbot)
-     end if
-
-!---------------------------
- else if (do_diffusivity) then
+ if (do_diffusivity) then
 !--------------------------------------------------------------------
 !----------- compute molecular diffusion, if desired  ---------------
 
@@ -263,82 +154,7 @@ if (do_mellor_yamada) then
                        u_star, b_star, z_pbl, diff_m, diff_t, &
                        kbot = kbot)
 
-!---------------------------
-else if (do_edt) then
-!----------------------------
-
-!    ----- time step for prognostic tke calculation -----
-      call get_time (Time_next-Time, sec, day)
-      dt_tke = real(sec+day*86400)
- 
-
-      tke = 0.0
-
-    call edt(is,ie,js,je,dt_tke,Time_next,tdtlw, u_star,b_star,q_star, &
-             tt,qq,  &
-             qlin,qiin,qain,uu,vv,z_full,p_full,z_half,p_half,stbltop, &
-             diff_m,diff_t,z_pbl,kbot=kbot,tke=tke)
-
-
  endif
- 
-
-
- 
-!------------------------------------------------------------------
-! --- boundary layer entrainment parameterization
-
-   if( do_entrain ) then
-
-       call entrain(is,ie,js,je,Time_next,tdtlw, convect,u_star,b_star,&
-                    tt,qq, &
-            qlin,qiin,qain,uu,vv,z_full,p_full,z_half,p_half,diff_m,   &
-    diff_t,diff_m_entr,diff_t_entr,use_entr,z_pbl,vspblcap,    &
-    kbot=kbot)
-   
-   endif
-
-!-----------------------------------------------------------------------
-! --- stable boundary layer parameterization
-
-   if( do_stable_bl ) then
-
-        if (do_entrain) then
-
-CALL STABLE_BL_TURB( is, js, Time_next, tt, qq, qlin, qiin, uu,&
-                     vv, z_half, z_full, u_star, b_star, lat,  &
-     diff_m_stab, diff_t_stab,                 &
-     vspblcap = vspblcap, kbot=kbot)
-     
-            diff_m = use_entr*diff_m_entr + (1-use_entr)*diff_m_stab
-            diff_t = use_entr*diff_t_entr + (1-use_entr)*diff_t_stab
-    
-            !for diagnostic purposes only, save the stable_bl_turb
-            !coefficient only where it was used
-    
-            diff_m_stab = (1-use_entr)*diff_m_stab
-            diff_t_stab = (1-use_entr)*diff_t_stab    
-         
-else
-
-CALL STABLE_BL_TURB( is, js, Time_next, tt, qq, qlin, qiin, uu,&
-                     vv, z_half, z_full, u_star, b_star, lat,  &
-     diff_m_stab, diff_t_stab,kbot=kbot)
-     
-            diff_m = diff_m +  MAX( diff_m_stab - diff_m, 0.0 )
-            diff_t = diff_t +  MAX( diff_t_stab - diff_t, 0.0 )
-    
-end if
-        
-    endif
-   
-!-----------------------------------------------------------------------
-!------------------ shallow convection ???? ----------------------------
-
-   if (do_shallow_conv) then
-        call shallow_conv (tt, qq, p_full, p_half, diff_sc, kbot)
-        diff_t = diff_t + diff_sc
-   endif
 
 !-----------------------------------------------------------------------
 !------------- define gustiness ------------
@@ -357,54 +173,6 @@ end if
 !-----------------------------------------------------------------------
 !------------------------ diagnostics section --------------------------
 
-if (do_mellor_yamada) then
-
-!     --- set up local mask for fields with surface data ---
-      if ( present(mask) ) then
-         lmask(:,:,1)        = .true.
-         lmask(:,:,2:nlev+1) = mask(:,:,1:nlev) > 0.5
-      else
-         lmask = .true.
-      endif
-
-!------- tke --------------------------------
-      if ( id_tke > 0 ) then
-         call get_tke(is,ie,js,je,tke)
-         used = send_data ( id_tke, tke, Time_next, is, js, 1, &
-                            mask=lmask )
-      endif
-
-!------- length scale (at half levels) ------
-      if ( id_lscale > 0 ) then
-         used = send_data ( id_lscale, el, Time_next, is, js, 1,  &
-                            mask=lmask )
-      endif
-
-!------- master length scale -------
-      if ( id_lscale_0 > 0 ) then
-         used = send_data ( id_lscale_0, el0, Time_next, is, js )
-      endif
-
-end if
-
-if (do_edt) then 
-    
-!     --- set up local mask for fields with surface data ---
-    if ( present(mask) ) then
-          lmask(:,:,1)        = .true.
-          lmask(:,:,2:nlev+1) = mask(:,:,1:nlev) > 0.5
-     else   
-        lmask = .true.
-       endif
-
-!------- tke --------------------------------
-      if ( id_tke > 0 ) then
-        used = send_data ( id_tke, tke, Time_next, is, js, 1,     &
-                          mask=lmask )
-      endif
- 
-end if
-
 !------- boundary layer depth -------
       if ( id_z_pbl > 0 ) then
          used = send_data ( id_z_pbl, z_pbl, Time_next, is, js )
@@ -418,9 +186,7 @@ end if
 
 !------- output diffusion coefficients ---------
 
-  if ( id_diff_t > 0 .or. id_diff_m > 0 .or. id_diff_sc > 0 .or. &
-       id_diff_t_stab > 0 .or. id_diff_m_stab > 0 .or.           &
-       id_diff_t_entr > 0 .or. id_diff_m_entr > 0  ) then
+  if ( id_diff_t > 0 .or. id_diff_m > 0 ) then
 !       --- set up local mask for fields without surface data ---
         if (present(mask)) then
             lmask(:,:,1:nlev) = mask(:,:,1:nlev) > 0.5
@@ -445,40 +211,6 @@ end if
       used = send_data ( id_diff_m, diag3, Time_next, is, js, 1, mask=lmask )
    endif
 
-!------- diffusion coefficient for shallow conv -------
- if (do_shallow_conv) then
-   if ( id_diff_sc > 0 ) then
-      diag3(:,:,1:nlev) = diff_sc(:,:,1:nlev)
-      used = send_data ( id_diff_sc, diag3, Time_next, is, js, 1, mask=lmask)
-   endif
- endif
-
-!------- diffusion coefficients for stable boudary layer -------
-   if (do_stable_bl) then
-!------- for heat/moisture -------
-    if ( id_diff_t_stab > 0 ) then
-       diag3(:,:,1:nlev) = diff_t_stab(:,:,1:nlev)
-      used = send_data ( id_diff_t_stab, diag3, Time_next, is, js, 1, mask=lmask )
-  endif
-!------- for momentum -------
-    if ( id_diff_m_stab > 0 ) then
-       diag3(:,:,1:nlev) = diff_m_stab(:,:,1:nlev)
-     used = send_data ( id_diff_m_stab, diag3, Time_next, is, js, 1, mask=lmask )
-    endif
- endif
-
-!------- diffusion coefficients for entrainment module -------
- if (do_entrain) then
-      if ( id_diff_t_entr > 0 ) then
-       diag3(:,:,1:nlev) = diff_t_entr(:,:,1:nlev)
-      used = send_data ( id_diff_t_entr, diag3, Time_next, is, js, 1, mask=lmask )
-      endif
-      if ( id_diff_m_entr > 0 ) then
-       diag3(:,:,1:nlev) = diff_m_entr(:,:,1:nlev)
-      used = send_data ( id_diff_m_entr, diag3, Time_next, is, js, 1, mask=lmask )
-      endif
- endif
-
 !--- geopotential height relative to the surface on full and half levels ----
 
    if ( id_z_half > 0 ) then
@@ -491,37 +223,32 @@ end if
       endif
       used = send_data ( id_z_half, z_half, Time_next, is, js, 1, mask=lmask )
    endif
-   
+
    if ( id_z_full > 0 ) then
       used = send_data ( id_z_full, z_full, Time_next, is, js, 1, rmask=mask)
    endif
-   
+
 !--- zonal and meridional wind on mass grid -------
 
    if ( id_uwnd > 0 ) then
       used = send_data ( id_uwnd, uu, Time_next, is, js, 1, rmask=mask)
    endif
-  
+
    if ( id_vwnd > 0 ) then
       used = send_data ( id_vwnd, vv, Time_next, is, js, 1, rmask=mask)
    endif
-  
- 
-   
+
 !-----------------------------------------------------------------------
 
 end subroutine vert_turb_driver
 
 !#######################################################################
 
-subroutine vert_turb_driver_init (lonb, latb, id, jd, kd, axes, Time, &
-                                  doing_edt, doing_entrain)
+subroutine vert_turb_driver_init (axes, Time)
 
 !-----------------------------------------------------------------------
-   real, dimension(:), intent(in) :: lonb, latb
-   integer,         intent(in) :: id, jd, kd, axes(4)
+   integer,         intent(in) :: axes(4)
    type(time_type), intent(in) :: Time
-   logical,         intent(out) :: doing_edt, doing_entrain
 !-----------------------------------------------------------------------
    integer, dimension(3) :: full = (/1,2,3/), half = (/1,2,4/)
    integer :: ierr, unit, io
@@ -556,29 +283,6 @@ subroutine vert_turb_driver_init (lonb, latb, id, jd, kd, axes, Time, &
          ('vert_turb_driver_mod', 'invalid value for namelist '//&
           'variable GUST_SCHEME', FATAL)
 
-      if (do_molecular_diffusion .and. do_mellor_yamada)  &
-         call error_mesg ( 'vert_turb_driver_mod', 'cannot activate '//&
-              'molecular diffusion with mellor_yamada', FATAL)
- 
-       if (do_molecular_diffusion .and. do_edt)  &
-         call error_mesg ( 'vert_turb_driver_mod', 'cannot activate '//&
-           'molecular diffusion with EDT', FATAL)
-
-!-----------------------------------------------------------------------
-        
-
-!----------------------------------------------------------------------
-
-      if (do_mellor_yamada) call my25_turb_init (id, jd, kd)
-
-      if (do_shallow_conv)  call shallow_conv_init (kd)
-
-      if (do_stable_bl)     call stable_bl_turb_init ( axes, Time )
-
-      if (do_edt)           call edt_init (lonb, latb, axes,Time,id,jd,kd)
-
-      if (do_entrain)       call entrain_init (lonb, latb, axes,Time,id,jd,kd)
-      
 !-----------------------------------------------------------------------
 !----- initialize diagnostic fields -----
 
@@ -600,32 +304,6 @@ subroutine vert_turb_driver_init (lonb, latb, id, jd, kd, axes, Time, &
         'geopotential height relative to surface at half levels', &
         'meters' , missing_value=missing_value    )
 
-if (do_mellor_yamada) then
-
-   id_tke = &
-   register_diag_field ( mod_name, 'tke', axes(half), Time,      &
-                        'turbulent kinetic energy',  'm2/s2'   , &
-                        missing_value=missing_value               )
-
-   id_lscale = &
-   register_diag_field ( mod_name, 'lscale', axes(half), Time,    &
-                        'turbulent length scale',  'm'   ,        &
-                        missing_value=missing_value               )
-
-   id_lscale_0 = &
-   register_diag_field ( mod_name, 'lscale_0', axes(1:2), Time,   &
-                        'master length scale',  'm'               )
-endif
-
- if (do_edt) then
- 
-   id_tke = &
-   register_diag_field ( mod_name, 'tke', axes(half), Time,      &
-                         'turbulent kinetic energy',  'm2/s2'   , &
-                         missing_value=missing_value               )
- 
-  end if
-
    id_z_pbl = &
    register_diag_field ( mod_name, 'z_pbl', axes(1:2), Time,       &
                         'depth of planetary boundary layer',  'm'  )
@@ -644,45 +322,8 @@ endif
                         'vert diff coeff for momentum',  'm2/s'   , &
                         missing_value=missing_value               )
 
-if (do_shallow_conv) then
-
-   id_diff_sc = &
-   register_diag_field ( mod_name, 'diff_sc', axes(half), Time,      &
-                        'vert diff coeff for shallow conv', 'm2/s' , &
-                        missing_value=missing_value               )
-endif
-
-if (do_stable_bl) then
-  id_diff_t_stab = &
-    register_diag_field ( mod_name, 'diff_t_stab', axes(half), Time,       &
-                       'vert diff coeff for temp',  'm2/s',                &
-                        missing_value=missing_value               )
-
-  id_diff_m_stab = &
-    register_diag_field ( mod_name, 'diff_m_stab', axes(half), Time,       &
-                       'vert diff coeff for momentum',  'm2/s',            &
-                       missing_value=missing_value               )
- endif
-
-
-if (do_entrain) then
-  id_diff_m_entr = &
-    register_diag_field ( mod_name, 'diff_m_entr', axes(half), Time,        &
-            'momentum vert diff coeff from entrainment module',  'm2/s',    &
-                        missing_value=missing_value               )
-
-  id_diff_t_entr = &
-    register_diag_field ( mod_name, 'diff_t_entr', axes(half), Time,        &
-            'heat vert diff coeff from entrainment module',  'm2/s',        &
-                        missing_value=missing_value               )
-
- endif
-
-
 !-----------------------------------------------------------------------
 
-   doing_edt = do_edt
-   doing_entrain = do_entrain
    module_is_initialized =.true.
 
 !-----------------------------------------------------------------------
@@ -695,9 +336,6 @@ end subroutine vert_turb_driver_init
 subroutine vert_turb_driver_end
 
 !-----------------------------------------------------------------------
-      if (do_mellor_yamada) call my25_turb_end
-      if (do_edt) call edt_end
-      if (do_entrain) call entrain_end
       module_is_initialized =.false.
 
 !-----------------------------------------------------------------------

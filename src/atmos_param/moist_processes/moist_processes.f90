@@ -169,7 +169,7 @@ subroutine moist_processes (is, ie, js, je, Time, dt, land,            &
                             phalf, pfull, zhalf, zfull, omega, diff_t, &
                             t, q, r, u, v, tm, qm, rm, um, vm,         &
                             tdt, qdt, rdt, udt, vdt,                   &
-                            convect, lprec, fprec, gust_cv, area,      &
+                            lprec, fprec, gust_cv, area,               &
                             lat, mask, kbot)
 
 !-----------------------------------------------------------------------
@@ -241,10 +241,7 @@ subroutine moist_processes (is, ie, js, je, Time, dt, land,            &
 !
 !         udt, vdt   zonal and meridional wind tendencies [m/s/s]
 !
-!   out:  convect    is moist convection occurring in this grid box?
-!                   [logical, dimension(nlon,nlat)]
-!
-!         lprec      liquid precipitiaton rate (rain) in kg/m2/s
+!   out:  lprec      liquid precipitiaton rate (rain) in kg/m2/s
 !                      [real, dimension(nlon,nlat)]
 !
 !         fprec      frozen precipitation rate (snow) in kg/m2/s
@@ -274,7 +271,6 @@ type(time_type), intent(in)              :: Time
    real, intent(in) , dimension(:,:,:,:) :: r, rm
    real, intent(inout),dimension(:,:,:)  :: tdt, qdt, udt, vdt
    real, intent(inout),dimension(:,:,:,:):: rdt
-logical, intent(out), dimension(:,:)     :: convect
    real, intent(out), dimension(:,:)     :: lprec, fprec, gust_cv
    real, intent(in) , dimension(:,:)     :: area
    real, intent(in) , dimension(:,:)     :: lat
@@ -529,12 +525,6 @@ call mpp_clock_begin( convection_clock )
         gust_cv = gustmax * sqrt( (rain+snow)/(gustconst+(rain+snow)) )
      endwhere
   end if
-
-!-----------------------------------------------------------------------
-! save diagnostic of convection
-
-  convect = .false.
-  where ( (rain+snow) .gt. 0. ) convect = .true.
 
 !-----------------------------------------------------------------------
 !***********************************************************************

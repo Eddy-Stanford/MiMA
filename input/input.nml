@@ -182,9 +182,6 @@
     use_tau          = .false.,
     gust_scheme      = 'constant',
     constant_gust    = 0.,
-    do_mellor_yamada = .false.,
-    do_shallow_conv  = .false.,
-    use_df_stuff = .true., 
     do_diffusivity = .true./
 
  &ocean_rough_nml

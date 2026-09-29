@@ -250,9 +250,7 @@ integer, dimension(5) :: restart_versions = (/ 1, 2, 3, 4, 5 /)
 !                   physics_driver_down on the next step.
 !----------------------------------------------------------------------
 real,    dimension(:,:,:), allocatable :: diff_t, diff_m
-real,    dimension(:,:,:), allocatable :: lw_tendency
 real,    dimension(:,:)  , allocatable :: pbltop     
-logical, dimension(:,:)  , allocatable :: convect
    
 !---------------------------------------------------------------------
 !    internal timing clock variables:
@@ -268,8 +266,6 @@ logical   :: do_check_args = .true.   ! argument dimensions should
                                       ! be checked ?
 logical   :: module_is_initialized = .false.
                                       ! module has been initialized ?
-logical   :: doing_edt                ! edt_mod has been activated ?
-logical   :: doing_entrain            ! entrain_mod has been activated ?
 integer   :: nt                       ! total no. of tracers
 integer   :: ntp                      ! total no. of prognostic tracers
 !---------------------------------------------------------------------
@@ -460,8 +456,7 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !-----------------------------------------------------------------------
 !    initialize vert_turb_driver_mod.
 !-----------------------------------------------------------------------
-      call vert_turb_driver_init (lonb, latb, id, jd, kd, axes, Time, &
-                                  doing_edt, doing_entrain)
+      call vert_turb_driver_init (axes, Time)
 
 !-----------------------------------------------------------------------
 !    initialize vert_diff_driver_mod.
@@ -518,8 +513,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
       allocate ( diff_t     (id, jd, kd) )
       allocate ( diff_m     (id, jd, kd) )
       allocate ( pbltop     (id, jd) )
-      allocate ( convect    (id, jd) )
-      allocate ( lw_tendency(id, jd, kd))
        
 !--------------------------------------------------------------------
 !    obtain initial values for the module variables from the restart
@@ -531,8 +524,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
          diff_t      = 0.0
          diff_m      = 0.0
          pbltop      = -999.0
-         convect     = .false.
-         lw_tendency = 0.0
       endif
 
 !---------------------------------------------------------------------
@@ -931,7 +922,6 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
       flux_sw_vis_dif = 0.0
       flux_lw = 0.0
       coszen  = 0.0
-      lw_tendency(is:ie,js:je,:) = 0.0
 
       call mpp_clock_begin ( radiation_clock )
       if(do_grey_radiation) then
@@ -972,14 +962,10 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !    the planetary boundary layer height on return.
 !---------------------------------------------------------------------
       call mpp_clock_begin ( turb_clock )
-      call vert_turb_driver (is, js, Time, Time_next, dt,            &
-                             lw_tendency(is:ie,js:je,:), frac_land,  &
+      call vert_turb_driver (is, js, Time_next, dt,                  &
                              p_half, p_full, z_half, z_full, u_star, &
-                             b_star, q_star, rough_mom, lat,         &
-                             convect(is:ie,js:je),                   &
-                             u, v, t, q, r(:,:,:,1:ntp), um, vm,     &
-                             tm, qm, rm(:,:,:,1:ntp),                &
-                             udt, vdt, tdt, qdt, rdt,                &
+                             b_star, u, v, t, q, um, vm, tm, qm,     &
+                             udt, vdt, tdt, qdt,                     &
                              diff_t_vert, diff_m_vert, gust, z_pbl,  &
                              mask=mask, kbot=kbot             )
      call mpp_clock_end ( turb_clock )
@@ -1342,7 +1328,7 @@ integer,dimension(:,:), intent(in),   optional :: kbot
                             diff_t(is:ie,js:je,:),                    &
                             t, q, r, u, v, tm, qm, rm, um, vm,        &
                             tdt, qdt, rdt, udt, vdt,                  &
-                            convect(is:ie,js:je), lprec, fprec,       &
+                            lprec, fprec,                             &
                             gust_cv, area, lat, mask=mask, kbot=kbot)
       call mpp_clock_end ( moist_processes_clock )
 
@@ -1393,7 +1379,6 @@ type(time_type), intent(in) :: Time
 !   local variable:
 
      character(len=64)  :: fname='RESTART/physics_driver.res.nc'
-     real,dimension(size(convect, 1), size(convect, 2))    :: r_convect
 !---------------------------------------------------------------------
 !    verify that the module is initialized.
 !---------------------------------------------------------------------
@@ -1406,30 +1391,12 @@ type(time_type), intent(in) :: Time
          call error_mesg('physics_driver_mod', 'Writing netCDF formatted restart file: RESTART/physics_driver.res.nc', NOTE)
       endif
       call write_data(fname, 'vers', real(restart_versions(size(restart_versions(:)))), no_domain =.true. )
-      if(doing_edt) then 
-         call write_data(fname, 'doing_edt', 1.0, no_domain=.true.)
-      else
-         call write_data(fname, 'doing_edt', 0.0, no_domain=.true.)
-      endif
-      if(doing_entrain) then 
-         call write_data(fname, 'doing_entrain', 1.0, no_domain=.true.)
-      else
-         call write_data(fname, 'doing_entrain', 0.0, no_domain=.true.)
-      endif
       !--------------------------------------------------------------------
       !    write out the data fields that are relevant for this experiment.
       !--------------------------------------------------------------------
       call write_data (fname, 'pbltop', pbltop)
       call write_data (fname, 'diff_t', diff_t)
       call write_data (fname, 'diff_m', diff_m)
-      r_convect = 0.
-      where(convect)
-         r_convect = 1.0
-      end where
-      call write_data (fname, 'convect', r_convect)
-      if (doing_edt .or. doing_entrain) then
-         call write_data (fname, 'lw_tendency', lw_tendency)
-      endif
 !--------------------------------------------------------------------
 !    call the destructor routines for those modules who were initial-
 !    ized from this module.
@@ -1445,8 +1412,7 @@ type(time_type), intent(in) :: Time
 !---------------------------------------------------------------------
 !    deallocate the module variables.
 !---------------------------------------------------------------------
-      deallocate (diff_t, diff_m, pbltop, convect,   &
-                  lw_tendency)
+      deallocate (diff_t, diff_m, pbltop)
  
 !---------------------------------------------------------------------
 !    mark the module as uninitialized.
@@ -1502,10 +1468,8 @@ subroutine read_restart_nc
 
       real  :: vers, vers2
       character(len=8) :: chvers
-      real  :: was_doing_edt=0., was_doing_entrain=0.
       logical  :: success = .false.
       character(len=64) :: fname = 'INPUT/physics_driver.res.nc'
-      real, dimension(size(convect,1), size(convect,2)) :: r_convect
 !--------------------------------------------------------------------
 !   local variables:
 !
@@ -1513,10 +1477,6 @@ subroutine read_restart_nc
 !                        file; otherwise the first word of first data 
 !                        record of file
 !      vers2             second word of first data record of file
-!      was_doing_edt     logical indicating if edt_mod was active
-!                        in job which wrote restart file
-!      was_doing_entrain logical indicating if entrain_mod was active
-!                        in job which wrote restart file
 !      success           logical indicating that restart data has been
 !                        processed
 !
@@ -1526,8 +1486,6 @@ subroutine read_restart_nc
          if(mpp_pe() == mpp_root_pe()) call mpp_error ('physics_driver_mod', &
             'Reading NetCDF formatted restart file: INPUT/physics_driver.res.nc', NOTE)
          call read_data(fname, 'vers', vers, no_domain=.true.)
-         call read_data(fname, 'doing_edt', was_doing_edt, no_domain=.true.)
-         call read_data(fname, 'doing_entrain', was_doing_entrain, no_domain=.true.)
 !---------------------------------------------------------------------
 !    pbl top is present in file versions 2 and up. if not present,
 !    set a flag.
@@ -1541,37 +1499,6 @@ subroutine read_restart_nc
          call read_data (fname, 'diff_t', diff_t)
          call read_data (fname, 'diff_m', diff_m)
 
-!---------------------------------------------------------------------
-!    a flag indicating columns in which convection is occurring is
-!    present beginning with v4. if not present, set it to .false.
-!---------------------------------------------------------------------
-         convect = .false.
-         r_convect = 0.
-         call read_data (fname, 'convect', r_convect)
-         where(r_convect .GT. 0.) 
-            convect = .true.
-         end where
-         
-
-!--------------------------------------------------------------------
-!    if lw_tendency was written, read it.
-!--------------------------------------------------------------------
-          if (was_doing_edt .GT. 0. .or. was_doing_entrain .GT. 0.) then
-            call read_data (fname, 'lw_tendency', lw_tendency)
-
-!---------------------------------------------------------------------
-!    if edt_mod or entrain_mod was not active in the job which wrote the
-!    restart file but it is active in the current job, initialize
-!    lw_tendency to 0.0 and put a message in the output file.  
-!---------------------------------------------------------------------
-          else
-            if (doing_edt .or. doing_entrain ) then
-              lw_tendency = 0.0
-              call error_mesg ('physics_driver_mod', &
-             ' initializing lw_tendency to 0.0, since it not present'//&
-                  ' in physics_driver.res.nc file', NOTE)
-            endif
-          endif
        endif
 !----------------------------------------------------------------------
      

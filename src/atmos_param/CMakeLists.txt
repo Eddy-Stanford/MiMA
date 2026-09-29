@@ -5,14 +5,10 @@ moist_processes/moist_processes.f90
 damping_driver/damping_driver.f90
 cg_drag/cg_drag.f90
 diag_integral/diag_integral.f90
-edt/edt.f90
-my25_turb/my25_turb.f90
 vert_diff/vert_diff.f90
-shallow_conv/null/shallow_conv.f90
 grey_radiation/grey_radiation.f90
 vert_turb_driver/vert_turb_driver.f90
 qflux/qflux.f90
-entrain/entrain.f90
 mg_drag/mg_drag.f90
 topo_drag/topo_drag.f90
 diffusivity/diffusivity.f90
@@ -21,7 +17,6 @@ betts_miller/betts_miller.f90
 monin_obukhov/monin_obukhov.f90
 lscale_cond/lscale_cond.f90
 local_heating/local_heating.f90
-stable_bl_turb/stable_bl_turb.f90
 rrtm_radiation/astro.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_cldprop.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_rad.nomcica.f90

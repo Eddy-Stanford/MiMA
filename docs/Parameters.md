@@ -171,8 +171,6 @@ Variable | Recommended Value
  :--- | :---: 
 use_tau          | .false.
 constant_gust | 0.0
-do_mellor_yamada | .false.
-use_df_stuff  | .true.
 do_diffusivity         | .true.
 
 Namelist `vert_diff_driver_nml`
@@ -533,18 +531,12 @@ File `atmos_param/vert_turb_driver/vert_turb_driver.f90` and namelist `vert_turb
 
 Variable | Default Value
  :--- | :---: 
-do_shallow_conv  | .false.
-do_mellor_yamada | .true.
 do_diffusivity         | .false.
 do_molecular_diffusion | .false.
-do_edt                 | .false.
-do_stable_bl     | .false.
 use_tau          | .true.
-do_entrain    | .false.
 gust_scheme  | 'constant' 
 constant_gust | 1.0
 gust_factor   | 1.0
-use_df_stuff  | .false.
 
 
 File `atmos_param/vert_diff_driver/vert_diff_driver.f90` and namelist `vert_diff_driver_nml`. Make sure to check the [recommended values](#recommended-values).
