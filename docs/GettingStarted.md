@@ -50,7 +50,7 @@ CMake finds netCDF using `nc-config`/`nf-config` on your `PATH`. If netCDF is in
 
 MiMA writes one output file per MPI process (see [Output](#output)). You join them with `mppnccombine`, which is part of NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) and is not included with MiMA. FRE-NCtools also provides `plevel.sh` for interpolating output to pressure levels.
 
-FRE-NCtools needs the same compilers and netCDF libraries as MiMA, plus `autoconf` and `automake` (`brew install autoconf automake` on macOS, `sudo apt install autoconf automake` on Ubuntu/Debian). Build it from source and install it into, for example, `~/fre-nctools`:
+FRE-NCtools isn't available from Homebrew, apt or conda-forge, so we recommend building it from source. It needs the same compilers and netCDF libraries as MiMA, plus `autoconf` and `automake` (`brew install autoconf automake` on macOS, `sudo apt install autoconf automake` on Ubuntu/Debian). To build it and install it into, for example, `~/fre-nctools`:
 
 ```bash
 git clone --branch 2026.01.01 https://github.com/NOAA-GFDL/FRE-NCtools.git
@@ -68,7 +68,7 @@ make install
 export PATH=$HOME/fre-nctools/bin:$PATH
 ```
 
-Check that it worked with `which mppnccombine`. On HPC systems, check whether FRE-NCtools is already provided as a module (e.g. `module avail fre-nctools`). See the [FRE-NCtools README](https://github.com/NOAA-GFDL/FRE-NCtools#readme) for more build options.
+Check that it worked with `which mppnccombine`. The same steps work on HPC systems once the compiler and netCDF modules are loaded. See the [FRE-NCtools README](https://github.com/NOAA-GFDL/FRE-NCtools#readme) for more build options.
 
 ### Using the container
 
