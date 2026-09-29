@@ -101,7 +101,7 @@ contains
    subroutine betts_miller (dt, tin, qin, pfull, phalf, coldT, &
                            rain, snow, tdel, qdel, q_ref, bmflag, &
                            klzbs, cape, cin, t_ref,invtau_bm_t,invtau_bm_q, &
-                           capeflag, mask, conv)
+                           mask, conv)
 
 !-----------------------------------------------------------------------
 !
@@ -134,7 +134,6 @@ contains
 !                    adjustment)
 !           invtau_bm_t temperature relaxation timescale
 !           invtau_bm_q humidity relaxation timescale
-!           capeflag a flag that says why cape=0
 !
 !-----------------------------------------------------------------------
 !--------------------- interface arguments -----------------------------
@@ -143,7 +142,7 @@ contains
    real   , intent(in)                    :: dt
    logical   , intent(in) , dimension(:,:):: coldT
    real   , intent(out), dimension(:,:)   :: rain,snow, bmflag, klzbs, cape, &
-       cin, invtau_bm_t, invtau_bm_q, capeflag
+       cin, invtau_bm_t, invtau_bm_q
    real   , intent(out), dimension(:,:,:) :: tdel, qdel, q_ref, t_ref
    real   , intent(in) , dimension(:,:,:), optional :: mask
    logical, intent(in) , dimension(:,:,:), optional :: conv
@@ -161,7 +160,7 @@ logical :: avgbl
 
    real                                                ::  &
        cape1, cin1, tot, deltak, deltaq, qrefint, deltaqfrac, deltaqfrac2, &
-       ptopfrac, es, capeflag1, plzb, plcl, cape2, small
+       ptopfrac, es, plzb, plcl, cape2, small
 integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 !-----------------------------------------------------------------------
 !     computation of precipitation by betts-miller scheme
@@ -199,7 +198,6 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
                             rpc, klzb)
 
 ! set values for storage
-             capeflag(i,j) = capeflag1
              cape(i,j) = cape1
              cin(i,j) = cin1
              klzbs(i,j) = klzb
@@ -294,6 +292,8 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
                          t_ref(i,j,klzb:kx) = t_ref(i,j,klzb:kx)+ &
                               deltak*tau_bm/dt
                          tdel(i,j,klzb:kx) = tdel(i,j,klzb:kx) + deltak
+                         invtau_bm_t(i,j) = 1./tau_bm
+                         invtau_bm_q(i,j) = 1./tau_bm
                       endif
                    endif
                 else if(precip_t(i,j).gt.0.) then
@@ -334,6 +334,8 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
                          qdel(i,j,ktop) = ptopfrac*qdel(i,j,ktop)
 ! Set precip to zero
                          precip(i,j) = 0.
+                         invtau_bm_t(i,j) = 1./tau_bm
+                         invtau_bm_q(i,j) = 1./tau_bm
 ! Now change the reference temperature in such a way to make the net
 ! heating zero.
 !! Reduce tdel in the top layer
@@ -395,6 +397,8 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 ! multiplying factor for qdel adds dt/tau_bm
                       deltaqfrac2 = - deltaq/qrefint*dt/tau_bm
                       precip(i,j) = 0.0
+                      invtau_bm_t(i,j) = 1./tau_bm
+                      invtau_bm_q(i,j) = 1./tau_bm
                       do k=klzb,kx
                          qdel(i,j,k) = qdel(i,j,k) + deltaqfrac2*q_ref(i,j,k)
                          q_ref(i,j,k) = deltaqfrac*q_ref(i,j,k)
@@ -545,7 +549,6 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
             if (plcl.lt.p(1)) then
                plcl = p(1)
                tlcl = theta0*(plcl/pstar)**kappa
-               write (*,*) 'hi lcl'
             end if
             k = kx
          else

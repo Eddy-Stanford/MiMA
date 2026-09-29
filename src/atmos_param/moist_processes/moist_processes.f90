@@ -139,7 +139,7 @@ integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
            id_q_conv_col, id_q_ls_col, id_t_conv_col, id_t_ls_col, &
            id_cape, id_cin, id_tref, id_qref, id_rhsurf, &
            id_bmflag, id_klzbs, id_invtaubmt, id_invtaubmq, &
-           id_capeflag, id_entrop_ls
+           id_entrop_ls
 
 integer, dimension(:), allocatable :: id_tracerdt_conv,  &
                                       id_tracerdt_conv_col, &
@@ -294,8 +294,7 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: RH, pmass, wetdeptnd, q_ref, t
 real, dimension(size(t,1),size(t,2))           :: rain, precip, cape, cin
 real, dimension(size(t,1),size(t,2))           :: wvp
 real, dimension(size(t,1),size(t,2))           :: tempdiag, bmflag, &
-                                                  klzbs, invtaubmt, invtaubmq, &
-                                                  capeflag
+                                                  klzbs, invtaubmt, invtaubmq
 real, dimension(size(t,1),size(t,2),size(t,3)) :: tempdiag1
 integer n
 
@@ -480,7 +479,7 @@ call mpp_clock_begin( convection_clock )
 
     call betts_miller (dt,tin,qin,pfull,phalf,coldT,rain,snow,ttnd,qtnd,&
                       q_ref,bmflag,klzbs,cape,cin,t_ref,invtaubmt,&
-                      invtaubmq, capeflag, mask=mask)
+                      invtaubmq, mask=mask)
 
 !------- (update input values and) compute tendency -----
     tin=tin+ttnd;    qin=qin+qtnd
@@ -550,9 +549,6 @@ call mpp_clock_begin( convection_clock )
      end if
      if (id_invtaubmq > 0) then
        used = send_data (id_invtaubmq, invtaubmq, Time, is, js)
-     end if
-     if (id_capeflag > 0) then
-       used = send_data (id_capeflag, capeflag, Time, is, js)
      end if
  end if
 
@@ -1402,10 +1398,6 @@ if ( do_bm ) then
       'invtaubmq', axes(1:2), Time, &
       'Inverse humidity relaxation time', &
       '1/s', missing_value=missing_value            )
-   id_capeflag = register_diag_field  (mod_name, &
-      'capeflag', axes(1:2), Time, &
-      'Flag: why CAPE is zero', &
-      'no units', missing_value=missing_value            )
 end if  ! if ( do_bm )
 
    id_tdt_conv = register_diag_field ( mod_name, &
