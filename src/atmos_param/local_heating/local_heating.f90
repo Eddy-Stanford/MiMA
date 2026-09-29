@@ -20,7 +20,6 @@ module local_heating_mod
 
   use constants_mod, only   : RADIAN,PI
   
-  use rrtm_astro,only : equinox_day
 
   implicit none
   
@@ -64,11 +63,11 @@ module local_heating_mod
                                                     ! if < 0, period is in fraction of year
                                                     ! if > 0, period is in days
   
-  namelist /local_heating_nml/ hamp \
-                               ,lonwidth,loncenter,lonmove \
-                               ,latwidth,latcenter,latmove \
-                               ,pwidth,pcenter,pmove       \
-                               ,is_periodic                \
+  namelist /local_heating_nml/ hamp &
+                               ,lonwidth,loncenter,lonmove &
+                               ,latwidth,latcenter,latmove &
+                               ,pwidth,pcenter,pmove &
+                               ,is_periodic &
                                ,twidth,tphase,tperiod
   
   
@@ -260,9 +259,9 @@ contains
                 if ( loncenter(n) .ge. 0.0 ) then
                    lon_factor(i,j) = exp( -(lon(i,j)-tcent(1))**2/(2*(lonwidth(n))**2) )
                    ! there is a problem when the heating is close to 360/0
-                   lon_factor(i,j) = max(lon_factor(i,j), \
+                   lon_factor(i,j) = max(lon_factor(i,j), &
                                      exp( -(lon(i,j)+2*PI-tcent(1))**2/(2*(lonwidth(n))**2) ) )
-                   lon_factor(i,j) = max(lon_factor(i,j), \
+                   lon_factor(i,j) = max(lon_factor(i,j), &
                                      exp( -(lon(i,j)-2*PI-tcent(1))**2/(2*(lonwidth(n))**2) ) )
                 else
                    lon_factor(i,j) = 1.0
