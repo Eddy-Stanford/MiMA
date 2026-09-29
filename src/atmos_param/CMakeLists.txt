@@ -1,5 +1,4 @@
 set ( ATMOS_PARAM_SOURCES
-cloud_zonal/null/cloud_zonal.f90
 vert_diff_driver/vert_diff_driver.f90
 moist_conv/moist_conv.f90
 moist_processes/moist_processes.f90
@@ -10,7 +9,6 @@ ras/ras.f90
 diag_integral/diag_integral.f90
 edt/edt.f90
 my25_turb/my25_turb.f90
-diag_cloud/null/diag_cloud.f90
 vert_diff/vert_diff.f90
 shallow_conv/null/shallow_conv.f90
 grey_radiation/grey_radiation.f90
@@ -24,7 +22,6 @@ cloud_generator/null/cloud_generator.f90
 topo_drag/topo_drag.f90
 diffusivity/diffusivity.f90
 physics_driver/physics_driver.f90
-rh_clouds/null/rh_clouds.f90
 betts_miller/bm_omp.f90
 betts_miller/betts_miller.f90
 betts_miller/bm_massflux.f90
@@ -100,7 +97,6 @@ rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg13.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_tbl.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg02.f90
 rrtm_radiation/rrtmg_lw/gcm_model/modules/rrlw_kg07.f90
-diag_cloud_rad/null/diag_cloud_rad.f90
 strat_cloud/strat_cloud.f90
 )
 

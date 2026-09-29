@@ -296,7 +296,6 @@ The moist processes parameters are set in `atmos_param/moist_processes/moist_pro
  do_strat | .false. | Do stratiform clouds?
  do_dryadj | .false. | Do dry adjustment?
  do_rh_clodus | .false. | Do relative humidity cloud scheme?
- do_diag_clouds | .false. | Do Gordon's diagnostic cloud scheme?
  do_donner_deep | .false. | Do Donner deep convection scheme?
  use_tau | .false. | Use current time values? (future time if .false.)
  do_gust_cv | .false. | Do convective gustiness?

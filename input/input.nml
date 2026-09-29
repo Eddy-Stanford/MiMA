@@ -138,8 +138,6 @@
      do_lsc          =.true.,
      do_strat        =.false., 
      do_ras          =.false.,
-     do_diag_clouds  =.false.,
-     do_rh_clouds    =.false.,
      use_df_stuff = .true. /
 
  &betts_miller_nml

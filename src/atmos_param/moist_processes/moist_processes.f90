@@ -11,8 +11,6 @@
 !             donner deep convection
 !             large-scale condensation
 !             stratiform prognostic cloud scheme
-!             rel humidity cloud scheme
-!             Diagnostic cloud scheme
 !
 !-----------------------------------------------------------------------
 
@@ -42,12 +40,6 @@ use         dry_adj_mod, only: dry_adj, dry_adj_init
 
 use     strat_cloud_mod, only: strat_cloud_init, strat_driv, strat_cloud_end, &
                                strat_cloud_sum
-
-use       rh_clouds_mod, only: rh_clouds_init, rh_clouds_end, &
-                               rh_clouds_sum
-
-use      diag_cloud_mod, only: diag_cloud_init, diag_cloud_end, &
-                               diag_cloud_sum
 
 use diag_integral_mod, only:     diag_integral_field_init, &
                              sum_diag_integral_field
@@ -105,7 +97,6 @@ private
 
    logical :: do_mca=.false., do_lsc=.true., do_ras=.false.,  &
               do_strat=.false., do_dryadj=.false., &
-              do_rh_clouds=.false., do_diag_clouds=.false., &
               do_donner_deep=.false., do_cmt=.false., &
               use_tau=.false., do_gust_cv = .false., &
               do_bm=.true., do_bmmass=.false., do_bmomp=.false., &
@@ -133,10 +124,6 @@ private
 !                [logical, default: do_donner_deep=false ]
 !   do_strat = switch to turn on/off stratiform cloud scheme
 !                [logical, default: do_strat=false ]
-! do_rh_clouds = switch to turn on/off simple relative humidity cloud scheme
-!                [logical, default: do_rh_clouds=false ]
-! do_diag_clouds = switch to turn on/off (Gordon's) diagnostic cloud scheme
-!                [logical, default: do_diag_clouds=false ]
 !  do_dryadj = switch to turn on/off dry adjustment scheme
 !                [logical, default: do_dryadj=false ]
 !   use_tau  = switch to determine whether current time level (tau)
@@ -173,14 +160,12 @@ private
 !             stratiform scheme determines it's own precipitation type.
 !          3) if do_strat=true then stratiform cloud tracers: liq_wat,
 !             ice_wat, cld_amt must be present
-!          4) do_donner_deep and do_rh_clouds cannot both be true
-!             (pending revision of code flow)
 !
 !-----------------------------------------------------------------------
 
 namelist /moist_processes_nml/ do_mca, do_lsc, do_ras, do_strat,  &
                                do_dryadj, pdepth, tfreeze,        &
-                               use_tau, do_rh_clouds, do_diag_clouds, &
+                               use_tau, &
                                do_donner_deep, do_cmt, do_gust_cv, &
                                gustmax, gustconst, &
                                do_bm, do_bmmass, do_bmomp, use_df_stuff, &
@@ -423,8 +408,6 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
 !               full model levels (mm/day )
 !               (dimensioned IX x JX)
 
-real, dimension(size(t,1),size(t,2),size(t,3)) :: lgscldelq,cnvcntq
-real, dimension(size(t,1),size(t,2)) :: convprc
 
 
 !    print *, 'entering moist_processes    ', mpp_pe()
@@ -1033,17 +1016,6 @@ endif  ! do_donner_deep
 
 !-------- add on tendency ----------
     tdt=tdt+ttnd; qdt=qdt+qtnd
-
-!------- compute rh clouds if desired ------
-    if (do_rh_clouds) then
-
-!calculate relative humidity
-      call rh_calc(pfull,tin,qin,RH,mask)
-
-!pass RH to rh_clouds_sum
-      call rh_clouds_sum (is, js, RH) ! XXX  RH is not relative humidity when use_df_stuff=.true.
-
-    end if
 !------- save total precip and snow ---------
     lprec=lprec+rain
     fprec=fprec+snow
@@ -1339,17 +1311,6 @@ endif  ! do_donner_deep
 !-----------------------------------------------------------------------
   call mpp_clock_begin ( largescale_clock )
 
-                      if (do_diag_clouds) then
-!  capture convective precip and convective spec hum changes (and calculate,
-!  convective spec hum counter) which are needed as predictors
-!  for Gordon's diagnostic clouds
-      where (qtnd(:,:,:) < 0.0)
-            cnvcntq (:,:,:) = 1.0
-      else where
-            cnvcntq (:,:,:) = 0.0
-      end where
-      convprc = precip
-                      endif
 !-----------------------------------------------------------------------
 !***********************************************************************
 !----------------- large-scale condensation ----------------------------
@@ -1368,32 +1329,6 @@ endif  ! do_donner_deep
 
 !------- add on tendency ----------
      tdt=tdt+ttnd; qdt=qdt+qtnd
-
-!------- compute rh clouds if desired ------
-     if (do_rh_clouds) then
-
-           !calculate relative humidity
-           call rh_calc(pfull,tin,qin,RH,mask)
-
-           !pass RH to rh_clouds_sum
-           call rh_clouds_sum (is, js, RH)
-
-     end if
-
-!------- compute diagnostic clouds if desired ------
-     if (do_diag_clouds) then
-
-           !calculate relative humidity
-           call rh_calc(pfull,tin,qin,RH,mask)
-
-!  capture tendency of spec. hum. due to lg scale condensation
-           lgscldelq = qtnd
-
-! pass cloud predictors to diag_cloud_sum
-           call diag_cloud_sum (is,js, &
-                    tin,qin,rh,omega,lgscldelq,cnvcntq,convprc,kbot)
-
-     end if
 
 !------- save total precip and snow ---------
       lprec=lprec+rain
@@ -1689,7 +1624,7 @@ enddo
 !------- diagnostics for relative humidity -------
 
    if ( id_rh > 0 .or. id_rhsurf > 0 ) then
-      if (.not.(do_rh_clouds.or.do_diag_clouds)) call rh_calc (pfull,tin,qin,RH,mask)
+      call rh_calc (pfull,tin,qin,RH,mask)
       if ( id_rh     > 0 ) used = send_data ( id_rh, RH*100., Time, is, js, 1, rmask=mask )
       if ( id_rhsurf > 0 ) used = send_data ( id_rhsurf, RH(:,:,kx)*100., Time, is, js )
    endif
@@ -1810,22 +1745,9 @@ character(len=80)  :: scheme
                  ('moist_processes_init',  &
                   'both do_lsc and do_strat cannot be specified', FATAL)
 
-         if ( (do_rh_clouds.or.do_diag_clouds) .and. do_strat .and. &
-             mpp_pe() == mpp_root_pe() ) call error_mesg ('moist_processes_init', &
-     'do_rh_clouds or do_diag_clouds + do_strat should not be specified', NOTE)
-
-         if ( do_rh_clouds .and. do_diag_clouds .and. mpp_pe() == mpp_root_pe() ) &
-            call error_mesg ('moist_processes_init',  &
-       'do_rh_clouds and do_diag_clouds should not be specified', NOTE)
-
          if (do_mca .and. do_donner_deep) call error_mesg &
                  ('moist_processes_init',  &
             'both do_donner_deep and do_mca cannot be specified', FATAL)
-
-         if (do_donner_deep .and. do_rh_clouds) then
-           call error_mesg ('moist_processes_init',  &
-            'Cannot currently activate donner_deep_mod with rh_clouds', FATAL)
-         endif
 
       endif
 
@@ -1849,11 +1771,7 @@ character(len=80)  :: scheme
 
 !------------ initialize various schemes ----------
       if (do_bm) call betts_miller_init ()
-      if (do_lsc) then
-                     call lscale_cond_init ()
-                     if (do_rh_clouds) call rh_clouds_init (id,jd,kd)
-                     if (do_diag_clouds) call diag_cloud_init (id,jd,kd,ierr)
-      endif
+      if (do_lsc)    call lscale_cond_init ()
       if (do_strat)  call strat_cloud_init (axes,Time,id,jd,kd)
       if (do_dryadj) call     dry_adj_init ()
       if (do_cmt)    call cu_mo_trans_init (axes,Time)
@@ -1996,8 +1914,6 @@ subroutine moist_processes_end
 !----------------close various schemes-----------------
 
       if (do_strat)       call strat_cloud_end
-      if (do_rh_clouds)   call   rh_clouds_end
-      if (do_diag_clouds) call  diag_cloud_end
       if (do_donner_deep) call donner_deep_end
       if (do_cmt        ) call cu_mo_trans_end
       if (do_ras        ) call         ras_end
