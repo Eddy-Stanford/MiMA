@@ -37,7 +37,7 @@ See [Getting started](docs/GettingStarted.md) for details on the build options, 
 ## Documentation
 
 * [Getting started](docs/GettingStarted.md): dependencies, compiling, running the test case
-* [Model configurations](docs/Configurations.md): radiation schemes, life cycle experiments, initial-condition noise
+* [Model configurations](docs/Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
 * [Parameter settings](docs/Parameters.md): default and recommended namelist values
 * [Version history](docs/Versions.md)
 * [References](docs/README.md#references)

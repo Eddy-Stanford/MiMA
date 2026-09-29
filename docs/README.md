@@ -10,7 +10,7 @@ The source code is on [GitHub](https://github.com/Eddy-Stanford/MiMA).
 ## Contents
 
 * [Getting started](GettingStarted.md): dependencies, compiling, running the test case
-* [Model configurations](Configurations.md): radiation schemes, life cycle experiments, initial-condition noise
+* [Model configurations](Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
 * [Parameter settings](Parameters.md): default and recommended namelist values
 * [Version history](Versions.md): main additions and changes
 * [References](#references): required and relevant references

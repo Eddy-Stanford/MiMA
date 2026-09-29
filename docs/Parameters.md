@@ -217,7 +217,7 @@ The dynamical core is set up in `atmos_spectral/model/spectral_dynamics.f90` and
    scale_heights | 4 | parameter 2 to define uneven_sigma levels
    vert_coord_option       | 'even_sigma' | use sigma levels
    exponent | 7.0 | parameter 3 to define vertical level distribution
-   specify_initial_conditions | .false. | read initial conditions from `INPUT/initial_conditions.nc` (see [life cycle calculations](Configurations.md#life-cycle-calculations))
+   specify_initial_conditions | .false. | read initial conditions from `INPUT/initial_conditions.nc` (see [specified initial conditions](Configurations.md#specified-initial-conditions))
    add_noise | -1. | if > 0, amplitude [K] of random noise added to the spectral temperature field at start-up (see [noise](Configurations.md#adding-noise-to-the-initial-conditions))
    add_noise_seed | -1 | random seed for `add_noise`; set >= 0 for reproducible noise
    noise_spectral_cutoff_minimum | 1 | lowest spectral index that receives noise
