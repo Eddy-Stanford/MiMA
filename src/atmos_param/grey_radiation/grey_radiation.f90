@@ -92,9 +92,9 @@ namelist/grey_radiation_nml/ solar_constant, del_sol, &
 integer :: id_olr, id_swdn_sfc, id_swdn_toa, id_lwdn_sfc, id_lwup_sfc, &
            id_tdt_rad, id_flux_rad, id_flux_lw, id_flux_sw, id_entrop_rad
 !mj debug
-integer :: id_phalf,id_tau,id_tau_rad
+integer :: id_tau,id_tau_rad
 
-character(len=14), parameter :: mod_name = 'grey_radiation'
+character(len=9), parameter :: mod_name = 'radiation'
 
 real :: missing_value = -999.
 
@@ -149,25 +149,25 @@ initialized = .true.
 
     id_olr = &
     register_diag_field ( mod_name, 'olr', axes(1:2), Time, &
-               'outgoing longwave radiation', &
-               'watts/m2', missing_value=missing_value               )
+               'Outgoing longwave radiation at TOA', &
+               'W/m2', missing_value=missing_value               )
     id_swdn_sfc = &
-    register_diag_field ( mod_name, 'swdn_sfc', axes(1:2), Time, &
-               'SW flux down at surface', &
-               'watts/m2', missing_value=missing_value               )
+    register_diag_field ( mod_name, 'swnet_sfc', axes(1:2), Time, &
+               'Net SW flux at surface (positive down)', &
+               'W/m2', missing_value=missing_value               )
     id_swdn_toa = &
     register_diag_field ( mod_name, 'swdn_toa', axes(1:2), Time, &
                'SW flux down at TOA', &
-               'watts/m2', missing_value=missing_value               )
+               'W/m2', missing_value=missing_value               )
     id_lwup_sfc = &
     register_diag_field ( mod_name, 'lwup_sfc', axes(1:2), Time, &
                'LW flux up at surface', &
-               'watts/m2', missing_value=missing_value               )
+               'W/m2', missing_value=missing_value               )
 
     id_lwdn_sfc = &
     register_diag_field ( mod_name, 'lwdn_sfc', axes(1:2), Time, &
                'LW flux down at surface', &
-               'watts/m2', missing_value=missing_value               )
+               'W/m2', missing_value=missing_value               )
 
     id_tdt_rad = &
         register_diag_field ( mod_name, 'tdt_rad', axes(1:3), Time, &
@@ -175,34 +175,29 @@ initialized = .true.
                'K/s', missing_value=missing_value               )
 
     id_flux_rad = &
-        register_diag_field ( mod_name, 'flux_rad', axes(half), Time, &
-               'Total radiative flux (positive up)', &
-               'W/m^2', missing_value=missing_value               )
+        register_diag_field ( mod_name, 'netrad_half', axes(half), Time, &
+               'Net radiative flux on half levels (positive up)', &
+               'W/m2', missing_value=missing_value               )
     id_flux_lw = &
-        register_diag_field ( mod_name, 'flux_lw', axes(half), Time, &
-               'Net longwave radiative flux (positive up)', &
-               'W/m^2', missing_value=missing_value               )
+        register_diag_field ( mod_name, 'lwnet_half', axes(half), Time, &
+               'Net LW flux on half levels (positive up)', &
+               'W/m2', missing_value=missing_value               )
     id_flux_sw = &
-        register_diag_field ( mod_name, 'flux_sw', axes(half), Time, &
-               'Net shortwave radiative flux (positive up)', &
-               'W/m^2', missing_value=missing_value               )
+        register_diag_field ( mod_name, 'swnet_half', axes(half), Time, &
+               'Net SW flux on half levels (positive up)', &
+               'W/m2', missing_value=missing_value               )
     id_entrop_rad = &
             register_diag_field ( mod_name, 'entrop_rad', axes(1:3), Time, &
                'Entropy production by radiation', &
                '1/s', missing_value=missing_value               ) 
-!mj debug
-    id_phalf = &
-        register_diag_field ( mod_name, 'phalf_rad', axes(half), Time, &
-               'Half grid pressure', &
-               'Pa', missing_value=missing_value               )
     id_tau = &
-        register_diag_field ( mod_name, 'tau', axes(half), Time, &
-               'Half grid attenuation', &
-               '?', missing_value=missing_value               )
+        register_diag_field ( mod_name, 'tau_lw', axes(half), Time, &
+               'LW optical depth on half levels', &
+               '1', missing_value=missing_value               )
     id_tau_rad = &
-        register_diag_field ( mod_name, 'tau_rad', axes(half), Time, &
-               'Half grid attenuation', &
-               '?', missing_value=missing_value               )
+        register_diag_field ( mod_name, 'tau_sw', axes(half), Time, &
+               'SW optical depth on half levels', &
+               '1', missing_value=missing_value               )
 
 
 
@@ -394,9 +389,6 @@ swin = solar_down(:,:,1)
          used = send_data ( id_entrop_rad, entrop_rad, Time_diag, is, js, 1 )
       endif
 !mj debug
-      if ( id_phalf > 0 ) then 
-         used = send_data ( id_phalf, p_half, Time_diag, is, js, 1 )
-      endif
       if ( id_tau > 0 ) then 
          used = send_data ( id_tau, tau, Time_diag, is, js, 1 )
       endif

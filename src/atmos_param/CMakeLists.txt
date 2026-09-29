@@ -7,6 +7,7 @@ cg_drag/cg_drag.f90
 diag_integral/diag_integral.f90
 vert_diff/vert_diff.f90
 grey_radiation/grey_radiation.f90
+radiation/radiation.f90
 vert_turb_driver/vert_turb_driver.f90
 qflux/qflux.f90
 mg_drag/mg_drag.f90

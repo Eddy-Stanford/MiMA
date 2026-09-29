@@ -223,8 +223,6 @@ The namelist `physics_driver_nml` steers which physics components are used. It r
  Variable | Default Value | Meaning
  :--- | :---: | :---
  tau_diff | 3600.    | time scale for smoothing diffusion coefficients
- do_grey_radiation | .false. | rather do grey radiation?
- do_rrtm_radiation | .true. | or RRTM radiation?
  do_damping | .true. | do any of the damping schemes?
  do_local_heating | .false. | add artificial local heating? If so, see `local_heating_nml` namelist
  diff_min | 1.e-3    | minimum value of a diffusion coefficient beneath which the coefficient is reset to zero

@@ -159,7 +159,7 @@
 
         integer :: id_tdt_rad,id_tdt_sw,id_tdt_lw,id_coszen,id_flux_sw,id_flux_lw,id_albedo,id_ozone,id_thalf
         integer :: id_olr,id_isr
-        character(len=14), parameter :: mod_name = 'rrtm_radiation'
+        character(len=9), parameter :: mod_name = 'radiation'
         real :: missing_value = -999.
 
 !---------------------------------------------------------------------------------------------------------------
@@ -247,24 +247,24 @@
                  'cosine of zenith angle', &
                  'none', missing_value=missing_value               )
           id_flux_sw = &
-               register_diag_field ( mod_name, 'flux_sw', axes(1:2), Time, &
-                 'Net SW surface flux', &
+               register_diag_field ( mod_name, 'swnet_sfc', axes(1:2), Time, &
+                 'Net SW flux at surface (positive down)', &
                  'W/m2', missing_value=missing_value               )
           id_flux_lw = &
-               register_diag_field ( mod_name, 'flux_lw', axes(1:2), Time, &
-                 'LW surface flux', &
+               register_diag_field ( mod_name, 'lwdn_sfc', axes(1:2), Time, &
+                 'LW flux down at surface', &
                  'W/m2', missing_value=missing_value               )
           id_olr     = &
                register_diag_field ( mod_name, 'olr', axes(1:2), Time, &
-                 'Outgoing longwave radation', &
+                 'Outgoing longwave radiation at TOA', &
                  'W/m2', missing_value=missing_value               )
           id_isr     = &
-               register_diag_field ( mod_name, 'isr', axes(1:2), Time, &
-                 'Incoming shortwave radation', &
+               register_diag_field ( mod_name, 'swnet_toa', axes(1:2), Time, &
+                 'Net SW flux at TOA (positive down)', &
                  'W/m2', missing_value=missing_value               )
           id_albedo  = &
-               register_diag_field ( mod_name, 'rrtm_albedo', axes(1:2), Time, &
-                 'Interactive albedo', &
+               register_diag_field ( mod_name, 'albedo_rad', axes(1:2), Time, &
+                 'Surface albedo seen by the radiation', &
                  'none', missing_value=missing_value               )
           id_ozone   = &
                register_diag_field ( mod_name, 'ozone', axes(1:3), Time, &
@@ -795,6 +795,29 @@
              used = send_data ( id_thalf, thalf(:,:,2:size(thalf,3)), Time, is, js, 1 )
           endif
         end subroutine write_diag_rrtm
+!*****************************************************************************************
+
+        subroutine rrtm_precip_accum(precip, rain, snow)
+!
+! Count where it precipitates, for the precipitation-dependent albedo.
+! precip is the total precipitation; rain and snow the large-scale parts.
+!
+          use rrtm_vars, only: do_precip_albedo,precip_albedo_mode, &
+                               rrtm_precip,num_precip
+          implicit none
+          real(kind=rb),dimension(:,:),intent(in) :: precip, rain, snow
+
+          if(do_precip_albedo)then
+             if( trim(precip_albedo_mode) .eq. 'full' )then
+                where(precip > 0.) rrtm_precip = rrtm_precip + 1.
+             elseif( trim(precip_albedo_mode) .eq. 'lscale')then
+                where(rain+snow > 0.) rrtm_precip = rrtm_precip + 1. !precip -> total precip, rain+snow -> lscale
+             elseif( trim(precip_albedo_mode) .eq. 'conv') then
+                where(precip-rain-snow > 0.) rrtm_precip = rrtm_precip + 1.
+             endif
+             num_precip = num_precip + 1
+          endif
+        end subroutine rrtm_precip_accum
 !*****************************************************************************************
 
         subroutine rrtm_radiation_end

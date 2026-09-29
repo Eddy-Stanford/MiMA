@@ -69,7 +69,6 @@ use fms_mod,                 only: mpp_clock_id, mpp_clock_begin,   &
                                    close_file, mpp_pe, mpp_root_pe, &
                                    write_data, mpp_error, mpp_chksum
 
-use constants_mod,           only: cp_air !mj for rrtmg
 
 !    component modules:
 
@@ -91,17 +90,10 @@ use damping_driver_mod,      only: damping_driver,      &
                                    damping_driver_init, &
                                    damping_driver_end
 
-use grey_radiation_mod, only: grey_radiation_init, grey_radiation, grey_radiation_end
+use radiation_mod,           only: radiation_init, radiation_down, radiation_end
 
 use local_heating_mod, only:  local_heating_init,local_heating
 
-!mj: RRTM radiative scheme
-use rrtmg_lw_init
-use rrtmg_lw_rad
-use rrtmg_sw_init
-use rrtmg_sw_rad
-use rrtm_radiation
-use rrtm_vars     
 !-----------------------------------------------------------------
 
 implicit none
@@ -150,10 +142,6 @@ end interface
 real    :: tau_diff = 3600.    ! time scale for smoothing diffusion 
                                ! coefficients
 
-logical :: do_grey_radiation = .false.
-
-logical :: do_rrtm_radiation = .true.
-
 logical :: do_damping = .true.
 
 logical :: do_local_heating = .false.
@@ -182,7 +170,6 @@ logical :: diffusion_smooth = .true.
 !
 namelist / physics_driver_nml / tau_diff,      &
                                 diff_min, diffusion_smooth, &
-                                do_grey_radiation, do_rrtm_radiation, &
                                 do_damping, do_local_heating
 
 !---------------------------------------------------------------------
@@ -418,8 +405,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 10      call close_file (unit)
       endif
 
-      if(do_grey_radiation .and. do_rrtm_radiation) &
-        call error_mesg('physics_driver_init','do_grey_radiation and do_rrtm_radiation cannot both be .true.',FATAL)
 
       call time_manager_init
       call tracer_manager_init
@@ -462,14 +447,8 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !-----------------------------------------------------------------------
       call vert_diff_driver_init (Surf_diff, id, jd, kd, axes, Time )
 
-      if(do_grey_radiation) call grey_radiation_init(axes, Time)
+      call radiation_init(axes, Time, id, jd, kd, lonb, latb)
 
-      if(do_rrtm_radiation) then
-         call rrtmg_lw_ini(cp_air)
-         call rrtmg_sw_ini(cp_air)
-         call rrtm_radiation_init(axes,Time,id*jd,kd,lonb,latb)
-      endif
-      
       if(do_local_heating) call local_heating_init(axes, Time)
 
 !-----------------------------------------------------------------------
@@ -921,15 +900,8 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
       coszen  = 0.0
 
       call mpp_clock_begin ( radiation_clock )
-      if(do_grey_radiation) then
-         call grey_radiation(is, js, Time_next, lat, lon, p_half, albedo, t_surf_rad, t, tdt, flux_sw, flux_lw)
-         coszen = 1.0
-      endif
-      if(do_rrtm_radiation) then
-         !need t at half grid
-         call interp_temp(z_full,z_half,t_surf_rad,t)
-         call run_rrtmg(is,js,Time,lat,lon,p_full,p_half,albedo,q,t,t_surf_rad,tdt,coszen,flux_sw,flux_lw)
-      endif
+      call radiation_down(is, js, Time, Time_next, lat, lon, p_full, p_half, z_full, z_half, &
+                          t, q, t_surf_rad, albedo, tdt, coszen, flux_sw, flux_lw)
       call mpp_clock_end ( radiation_clock )
 !----------------------------------------------------------------------
 !    artificial local heating if required
@@ -1397,8 +1369,7 @@ type(time_type), intent(in) :: Time
 !--------------------------------------------------------------------
       call vert_turb_driver_end
       call vert_diff_driver_end
-      if(do_grey_radiation) call grey_radiation_end
-      if(do_rrtm_radiation) call rrtm_radiation_end
+      call radiation_end
       call moist_processes_end
       call atmos_tracer_driver_end
       if(do_damping) call damping_driver_end

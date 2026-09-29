@@ -10,9 +10,16 @@ This page describes some common ways of changing the model setup beyond the defa
 
 ## Radiation options
 
-By default, MiMA uses the RRTM radiation code. This is set by `do_rrtm_radiation = .true.` (default).
+The radiation scheme is chosen with `radiation_scheme` in `radiation_nml`:
 
-MiMA includes the gray radiation scheme developed by Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)). To switch between the radiation schemes, the flags `do_grey_radiation` and `do_rrtm_radiation` in the namelist `physics_driver_nml` can be set accordingly (only one of them should be `.true.` of course).
+```fortran
+&radiation_nml
+    radiation_scheme = 'rrtm' /
+```
+
+* `'rrtm'` (default): RRTMG clear-sky radiation, configured with `rrtm_radiation_nml` and `astro_nml`.
+* `'gray'`: the gray radiation scheme of Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)), configured with `grey_radiation_nml`.
+* `'none'`: no radiative heating and no radiative surface fluxes.
 
 ## Specified initial conditions
 

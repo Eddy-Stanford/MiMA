@@ -174,9 +174,10 @@
     constant_gust    = 0.,
     do_diffusivity = .true./
 
+ &radiation_nml
+     radiation_scheme = 'rrtm' /
+
  &physics_driver_nml
-     do_grey_radiation = .false.,
-     do_rrtm_radiation = .true.,
      do_damping = .true. /
 
 # domains_stack_size will vary for different model resolutions,
