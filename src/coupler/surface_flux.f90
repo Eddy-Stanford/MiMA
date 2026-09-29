@@ -363,6 +363,7 @@ subroutine surface_flux_1d (                                           &
        t_surf0,  t_surf1,  u_dif,     v_dif,               &
        rho_drag, drag_t,    drag_m,   drag_q,    rho,      &
        q_atm,    q_surf0,  dw_atmdu,  dw_atmdv
+  logical, dimension(size(t_atm(:))) :: evap_clipped
        
    
   integer :: i, nbad
@@ -494,7 +495,8 @@ subroutine surface_flux_1d (                                           &
      ! evaporation
      rho_drag  =  drag_q * rho
      flux_q    =  rho_drag * (q_surf0 - q_atm) ! flux of water vapor  (Kg/(m**2 s))
-     where(flux_q < 0.0) !added by CIG on May 31 2018; never should have negative evaporation
+     evap_clipped = flux_q < 0.0
+     where(evap_clipped) !added by CIG on May 31 2018; never should have negative evaporation
 	flux_q = 0.0
      endwhere
 
@@ -507,6 +509,14 @@ subroutine surface_flux_1d (                                           &
      endwhere
         
      dedq_atm  = -rho_drag   ! d(latent heat flux)/d(atmospheric mixing ratio)
+
+     ! where negative evaporation was clipped to zero, the flux does not
+     ! depend on the surface or atmospheric state
+     where (evap_clipped)
+        dedq_surf = 0.0
+        dedt_surf = 0.0
+        dedq_atm  = 0.0
+     endwhere
 
      q_star = flux_q / (u_star * rho)             ! moisture scale
      ! ask Chris and Steve K if we still want to keep this for diagnostics
