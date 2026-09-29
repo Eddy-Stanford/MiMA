@@ -80,10 +80,6 @@ private
    logical :: do_mca=.false., do_lsc=.true.,  &
               use_tau=.false., do_gust_cv = .false., &
               do_bm=.true.
-!mj correct numerical sphum sink
-   logical :: do_correct_q=.false.
-   real :: qsrc = 0.0 ! moisture source per second
-!jm
 
    real :: pdepth = 150.e2
    real :: tfreeze = 273.16
@@ -127,8 +123,7 @@ namelist /moist_processes_nml/ do_mca, do_lsc,  &
                                use_tau, &
                                do_gust_cv, &
                                gustmax, gustconst, &
-                               do_bm, &
-                               do_correct_q, qsrc !mj
+                               do_bm
 
 !-----------------------------------------------------------------------
 !-------------------- diagnostics fields -------------------------------
@@ -336,9 +331,6 @@ real, dimension(size(rdt,1),size(rdt,2),size(rdt,3),size(rdt,4)) :: wet_data
       dtinv=1./dt
       lprec=0.0; fprec=0.0; precip=0.0; rain=0.0; snow=0.0
 
-!------------------ mj correct q ---------------------------------------
-      if(do_correct_q) qdt = qdt + q*qsrc*exp(qsrc*dt)
-!
 !------------------ setup input data -----------------------------------
 
    if (use_tau) then
@@ -714,9 +706,6 @@ enddo
      endif
      num_precip = num_precip + 1
   endif
-!-----------------------------------------------------------------------
-!------------------mj correct q for numerical sink----------------------
-!  if(do_correct_q) qdt = qdt + qsrc
 !-----------------------------------------------------------------------
 !***********************************************************************
 !--------------------- GENERAL DIAGNOSTICS -----------------------------
