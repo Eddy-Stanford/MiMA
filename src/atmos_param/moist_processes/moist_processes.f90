@@ -295,7 +295,7 @@ integer n
 
 integer :: i, j, k, ix, jx, kx, nt, ip, tr
 real    :: dtinv
-logical :: use_mask, used, avgbl
+logical :: use_mask, used
 
 real, dimension(size(t,1),size(t,2),size(t,3)+1) :: press
 real, dimension(size(t,1),size(t,2),size(t,3)) :: tin_in
@@ -770,11 +770,10 @@ enddo
    if ( id_cape > 0 .or. id_cin > 0) then
 !! calculate r
          rin = qin/(1.0 - qin)
-         avgbl = .false.
          do j=js,je
             do i=is,ie
                call capecalcnew( kx, pfull(i,j,:), phalf(i,j,:), CP_AIR, RDGAS, RVGAS, &
-                         HLV, KAPPA, tin(i,j,:), rin(i,j,:), avgbl, cape(i,j), cin(i,j))
+                         HLV, KAPPA, tin(i,j,:), rin(i,j,:), cape(i,j), cin(i,j))
             end do
          end do
         if (id_cape > 0) then
@@ -1062,7 +1061,7 @@ END SUBROUTINE rh_calc
 !all new cape calculation.
 
 subroutine capecalcnew(kx,p,phalf,cp,rdgas,rvgas,hlv,kappa,tin,rin,&
-                                avgbl,cape,cin)
+                                cape,cin)
 
 !
 !    Input:
@@ -1078,7 +1077,6 @@ subroutine capecalcnew(kx,p,phalf,cp,rdgas,rvgas,hlv,kappa,tin,rin,&
 !    kappa       the constant kappa
 !    tin         temperature of the environment
 !    rin         specific humidity of the environment
-!    avgbl       if true, the parcel is averaged in theta and r up to its LCL
 !
 !    Output:
 !    cape        Convective available potential energy
@@ -1095,7 +1093,6 @@ subroutine capecalcnew(kx,p,phalf,cp,rdgas,rvgas,hlv,kappa,tin,rin,&
 !    Calculate CAPE and CIN.
       implicit none
       integer, intent(in)                    :: kx
-      logical, intent(in)                    :: avgbl
       real, intent(in), dimension(:)         :: p, phalf, tin, rin
       real, intent(in)                       :: rdgas, rvgas, hlv, kappa, cp
       real, intent(out)                      :: cape, cin

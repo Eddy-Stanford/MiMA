@@ -150,7 +150,6 @@ contains
 !---------------------- local data -------------------------------------
 
 logical,dimension(size(tin,1),size(tin,2),size(tin,3)) :: do_adjust
-logical :: avgbl
    real,dimension(size(tin,1),size(tin,2),size(tin,3)) ::  &
              rin, esat, qsat, desat, dqsat, pmes, pmass
    real,dimension(size(tin,1),size(tin,2))             ::  &
@@ -172,7 +171,6 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
       ix=size(tin,1)
       jx=size(tin,2)
       kx=size(tin,3)
-      avgbl = .false.
       small = 1.e-10
 
 ! calculate r
@@ -194,7 +192,7 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 ! new code (second order in delta ln p and exact LCL calculation)
              call capecalcnew( kx,  pfull(i,j,:),  phalf(i,j,:),&
                             cp_air, rdgas, rvgas, hlv, kappa, tin(i,j,:), &
-                            rin(i,j,:), avgbl, cape1, cin1, tpc, &
+                            rin(i,j,:), cape1, cin1, tpc, &
                             rpc, klzb)
 
 ! set values for storage
@@ -446,7 +444,7 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 !all new cape calculation.
 
       subroutine capecalcnew(kx,p,phalf,cp_air,rdgas,rvgas,hlv,kappa,tin,rin,&
-                             avgbl,cape,cin,tp,rp,klzb)
+                             cape,cin,tp,rp,klzb)
 
 !
 !    Input:
@@ -462,7 +460,6 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 !    kappa       the constant kappa
 !    tin         temperature of the environment
 !    rin         specific humidity of the environment
-!    avgbl       if true, the parcel is averaged in theta and r up to its LCL
 !
 !    Output:
 !    cape        Convective available potential energy
@@ -485,7 +482,6 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 !    Calculate CAPE and CIN.
       implicit none
       integer, intent(in)                    :: kx
-      logical, intent(in)                    :: avgbl
       real, intent(in), dimension(:)         :: p, phalf, tin, rin
       real, intent(in)                       :: rdgas, rvgas, hlv, kappa, cp_air
       integer, intent(out)                   :: klzb
@@ -623,103 +619,6 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
             endif
          end if
       end if
-! then average the properties over the boundary layer if so desired.  to give
-! a new "parcel".  this may not be saturated at the LCL, so make sure you get
-! to a level where it is before moist adiabatic ascent!
-!!!! take out all the below (between the exclamation points) if no avgbl !!!!
-      if (avgbl) then
-         theta(klcl:kx) = tin(klcl:kx)*(pstar/p(klcl:kx))**kappa
-         thetam = 0.
-         rm = 0.
-         do k=klcl,kx
-            thetam = thetam + theta(k)*(phalf(k+1) - phalf(k))
-            rm = rm + rin(k)*(phalf(k+1) - phalf(k))
-         end do
-         thetam = thetam/(phalf(kx+1) - phalf(klcl))
-         rm = rm/(phalf(kx+1) - phalf(klcl))
-! check if you're saturated at the top level.  if not, then get a new LCL
-         tp(klcl) = thetam*(p(klcl)/pstar)**kappa
-         call escomp(tp(klcl),es)
-         rs = rdgas/rvgas*es/p(klcl)
-! if you're not saturated, get a new LCL
-         if (rm.lt.rs) then
-! reset CIN to zero.
-            cin = 0.
-! again, use the analytic expression to calculate the exact pressure and
-! temperature where you�re saturated.
-! the expression that we utilize is
-! log(r/theta**(1/kappa)*pstar*rvgas/rdgas/es00)= log(es/T**(1/kappa))
-! (the division by es00 is necessary because the RHS values are tabulated
-! for control moisture content)
-! The right hand side of this is only a function of temperature, therefore
-! this is put into a lookup table to solve for temperature.
-            value = log(thetam**(-1/kappa)*rm*pstar*rvgas/rdgas/es0)
-            call lcltabl(value,tlcl2)
-            plcl2 = pstar*(tlcl2/thetam)**(1/kappa)
-! just in case plcl is very high up
-            if (plcl2.lt.p(1)) then
-               plcl2 = p(1)
-            end if
-            k = kx
-! calculate the parcel temperature (adiabatic ascent) below the LCL.
-! the mixing ratio stays the same
-            do while (p(k).gt.plcl2)
-               tp(k) = thetam*(p(k)/pstar)**kappa
-               call escomp(tp(k),es)
-               rp(k) = rdgas/rvgas*es/p(k)
-! this definition of CIN contains everything below the LCL
-               cin = cin + rdgas*(tin(k) - tp(k))*log(phalf(k+1)/phalf(k))
-               k = k-1
-            end do
-! first level where you�re saturated at the level
-            klcl2 = k
-	    if (klcl2.eq.1) klcl2 = 2
-! do a saturated ascent to get the parcel temp at the LCL.
-! use your 2nd order equation up to the pressure above.
-! moist adaibat derivatives: (use the lcl values for temp, humid, and
-! pressure)
-            a = kappa*tlcl2 + hlv/cp_air*rm
-            b = hlv**2.*rm/cp_air/rvgas/tlcl2**2.
-            dtdlnp = a/(1. + b)
-! first order in p
-!            tp(klcl2) = tlcl2 + dtdlnp*log(p(klcl2)/plcl2)
-! second order in p (RK2)
-! first get temp halfway up
-         tp(klcl2) = tlcl2 + dtdlnp*log(p(klcl2)/plcl2)/2.
-         if ((tp(klcl2).lt.173.16).and.nocape) go to 11
-         call escomp(tp(klcl2),es)
-         rp(klcl2) = rdgas/rvgas*es/(p(klcl2) + plcl2)*2.
-         a = kappa*tp(klcl2) + hlv/cp_air*rp(klcl2)
-         b = hlv**2./cp_air/rvgas*rp(klcl2)/tp(klcl2)**2.
-         dtdlnp = a/(1. + b)
-! second half of RK2
-         tp(klcl2) = tlcl2 + dtdlnp*log(p(klcl2)/plcl2)
-!            d2tdlnp2 = (kappa + b - 1. - b/tlcl2*(hlv/rvgas/tlcl2 - &
-!                          2.)*dtdlnp)/ (1. + b)*dtdlnp - hlv*rm/cp_air/ &
-!                          (1. + b)
-! second order in p
-!            tp(klcl2) = tlcl2 + dtdlnp*log(p(klcl2)/plcl2) + &
-!               .5*d2tdlnp2*(log(p(klcl2)/plcl2))**2.
-            call escomp(tp(klcl2),es)
-            rp(klcl2) = rdgas/rvgas*es/p(klcl2)
-! CAPE/CIN stuff
-            if ((tp(klcl2).lt.tin(klcl2)).and.nocape) then
-! if you�re not yet buoyant, then add to the CIN and continue
-               cin = cin + rdgas*(tin(klcl2) - &
-                    tp(klcl2))*log(phalf(klcl2+1)/phalf(klcl2))
-            else
-! if you�re buoyant, then add to cape
-               cape = cape + rdgas*(tp(klcl) - &
-                     tin(klcl))*log(phalf(klcl+1)/phalf(klcl))
-! if it�s the first time buoyant, then set the level of free convection to k
-               if (nocape) then
-                  nocape = .false.
-                  klfc = klcl2
-               endif
-            end if
-         end if
-      end if
-!!!! take out all of the above (within the exclamations) if no avgbl !!!!
 ! then, start at the LCL, and do moist adiabatic ascent by the first order
 ! scheme -- 2nd order as well
       do k=klcl-1,1,-1
