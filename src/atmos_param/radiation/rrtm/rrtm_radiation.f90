@@ -1,6 +1,4 @@
-
-
-      module rrtm_vars
+      module rrtm_radiation
 !
 !    Modeling an idealized Moist Atmosphere (MiMA)
 !    Copyright (C) 2015  Martin Jucker
@@ -34,6 +32,10 @@
 !  rrtm_radiation variables
 !
         implicit none
+        private
+
+        public :: rrtm_radiation_init, interp_temp, run_rrtmg, &
+                  rrtm_precip_accum, rrtm_radiation_end
 
         logical                                    :: rrtm_init=.false.    ! has radiation been initialized?
         type(interpolate_type),save                :: o3_interp            ! use external file for ozone
@@ -173,12 +175,6 @@
              &lonstep, do_zm_tracers, do_zm_rad, &
              &do_precip_albedo, precip_albedo_mode, precip_albedo, precip_lat
 
-      end module rrtm_vars
-!*****************************************************************************************
-!*****************************************************************************************
-      module rrtm_radiation
-        use parkind, only : im => kind_im, rb => kind_rb
-        implicit none
 
       contains
 
@@ -188,7 +184,6 @@
 ! Initialize diagnostics, allocate variables, set constants
 !
 ! Modules
-          use rrtm_vars
           use rrtm_astro, only:       astro_init,solday
           use parrrtm, only:          nbndlw
           use parrrsw, only:          nbndsw
@@ -271,8 +266,8 @@
                  'Ozone', &
                  'mmr', missing_value=missing_value               )
           id_thalf   = &
-               register_diag_field ( mod_name, 'thalf', axes(1:3), Time, &
-                 'half grid points temperature', &
+               register_diag_field ( mod_name, 'thalf', (/axes(1),axes(2),axes(4)/), Time, &
+                 'Temperature on half levels', &
                  'K', missing_value=missing_value               )
 !
 !------------ make sure namelist choices are consistent -------
@@ -367,7 +362,6 @@
         end subroutine rrtm_radiation_init
 !*****************************************************************************************
         subroutine interp_temp(z_full,z_half,t_surf_rad,t)
-          use rrtm_vars
           implicit none
 
           real(kind=rb),dimension(:,:,:),intent(in)  :: z_full,z_half,t
@@ -421,7 +415,6 @@
           use rrtmg_sw_rad, only:    rrtmg_sw
           use rrtm_astro, only:      compute_zenith,use_dyofyr,solr_cnst,&
                                      solrad,solday,equinox_day
-          use rrtm_vars
           use time_manager_mod,only: time_type,get_time,set_time
           use interpolator_mod,only: interpolator
 !---------------------------------------------------------------------------------------------------------------
@@ -526,6 +519,8 @@
              o3f = o3f*scale_ozone
              !due to interpolation, some values might be negative
              o3f = max(0.0,o3f)
+          else
+             o3f = o3_val   ! only used for the ozone diagnostic; RRTM uses o3 = o3_val
           endif
 
           !interactive albedo: zonal mean of precipitation
@@ -734,11 +729,6 @@
 ! write out diagnostics fields
 !
 ! Modules
-          use rrtm_vars,only:         sw_flux,lw_flux,zencos,tdt_rad,tdt_sw_rad,tdt_lw_rad,&
-                                      &olr,isr,&
-                                      &id_tdt_rad,id_tdt_sw,id_tdt_lw,id_coszen,&
-                                      &id_flux_sw,id_flux_lw,id_albedo,id_ozone,&
-                                      &id_thalf,id_isr,id_olr
           use diag_manager_mod, only: register_diag_field, send_data
           use time_manager_mod,only:  time_type
 ! Input variables
@@ -792,7 +782,7 @@
           endif
 !------- Half grid point temperature                                ------------
           if ( present(thalf) .and. id_thalf > 0 ) then
-             used = send_data ( id_thalf, thalf(:,:,2:size(thalf,3)), Time, is, js, 1 )
+             used = send_data ( id_thalf, thalf, Time, is, js, 1 )
           endif
         end subroutine write_diag_rrtm
 !*****************************************************************************************
@@ -802,8 +792,6 @@
 ! Count where it precipitates, for the precipitation-dependent albedo.
 ! precip is the total precipitation; rain and snow the large-scale parts.
 !
-          use rrtm_vars, only: do_precip_albedo,precip_albedo_mode, &
-                               rrtm_precip,num_precip
           implicit none
           real(kind=rb),dimension(:,:),intent(in) :: precip, rain, snow
 
@@ -821,11 +809,24 @@
 !*****************************************************************************************
 
         subroutine rrtm_radiation_end
-          use rrtm_vars, only: do_read_ozone,o3_interp
           use interpolator_mod, only: interpolator_end
           implicit none
 
           if(do_read_ozone)call interpolator_end(o3_interp)
+
+          if(allocated(t_half))      deallocate(t_half)
+          if(allocated(h2o))         deallocate(h2o, o3, co2, ones, zeros, emis, &
+                                                taucld, tauaer, sw_zro, zro_sw)
+          if(allocated(zencos))      deallocate(zencos)
+          if(allocated(sw_flux))     deallocate(sw_flux)
+          if(allocated(lw_flux))     deallocate(lw_flux)
+          if(allocated(rrtm_precip)) deallocate(rrtm_precip)
+          if(allocated(tdt_rad))     deallocate(tdt_rad)
+          if(allocated(tdt_sw_rad))  deallocate(tdt_sw_rad)
+          if(allocated(tdt_lw_rad))  deallocate(tdt_lw_rad)
+          if(allocated(isr))         deallocate(isr)
+          if(allocated(olr))         deallocate(olr)
+          rrtm_init = .false.
 
         end subroutine rrtm_radiation_end
 
