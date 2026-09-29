@@ -28,8 +28,6 @@ use             fms_mod, only: file_exist, check_nml_error,    &
                                mpp_pe, mpp_root_pe, stdlog,    &
                                error_mesg, FATAL, NOTE
 
-use         dry_adj_mod, only: dry_adj, dry_adj_init
-
 use     strat_cloud_mod, only: strat_cloud_init, strat_driv, strat_cloud_end, &
                                strat_cloud_sum
 
@@ -86,7 +84,7 @@ private
 
 
    logical :: do_mca=.false., do_lsc=.true.,  &
-              do_strat=.false., do_dryadj=.false., &
+              do_strat=.false., &
               use_tau=.false., do_gust_cv = .false., &
               do_bm=.true., &
               use_df_stuff=.true.
@@ -109,8 +107,6 @@ private
 !                [logical, default: do_lsc=true ]
 !   do_strat = switch to turn on/off stratiform cloud scheme
 !                [logical, default: do_strat=false ]
-!  do_dryadj = switch to turn on/off dry adjustment scheme
-!                [logical, default: do_dryadj=false ]
 !   use_tau  = switch to determine whether current time level (tau)
 !                will be used or else future time level (tau+1).
 !                if use_tau = true then the input values for t,q, and r
@@ -144,7 +140,7 @@ private
 !-----------------------------------------------------------------------
 
 namelist /moist_processes_nml/ do_mca, do_lsc, do_strat,  &
-                               do_dryadj, pdepth, tfreeze,        &
+                               pdepth, tfreeze,        &
                                use_tau, &
                                do_gust_cv, &
                                gustmax, gustconst, &
@@ -157,7 +153,7 @@ namelist /moist_processes_nml/ do_mca, do_lsc, do_strat,  &
 integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
            id_tdt_ls  , id_qdt_ls  , id_prec_ls  , id_snow_ls  , &
            id_precip  , id_WVP, id_LWP, id_IWP, id_AWP, id_gust_conv, &
-           id_tdt_dadj, id_rh, id_mc_full, &
+           id_rh, id_mc_full, &
            id_qldt_ls , id_qidt_ls , id_qldt_conv, id_qidt_conv, &
            id_qadt_ls , id_qadt_conv,id_ql_ls_col, id_qi_ls_col, &
            id_ql_conv_col, id_qi_conv_col, id_qa_ls_col, id_qa_conv_col,&
@@ -475,24 +471,7 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
           coldT=.FALSE.
    endwhere
 
-!-----------------------------------------------------------------------
-!***********************************************************************
-!----------------- dry adjustment scheme -------------------------------
-
 call mpp_clock_begin( convection_clock )
-if (do_dryadj) then
-
-         call dry_adj (tin, pfull, phalf, ttnd, mask)
-         tin=tin+ttnd
-         ttnd=ttnd*dtinv
-         tdt = tdt + ttnd
-!------------- diagnostics for dt/dt_dry_adj ---------------------------
-     if ( id_tdt_dadj > 0 ) then
-        used = send_data ( id_tdt_dadj, ttnd, Time, is, js, 1, &
-                           rmask=mask )
-     endif
-! ----------------------------------------------------------------------
-end if
 
 !---------------------------------------------------------------------
 !    initialize an array to hold tracer tendencies due to moist
@@ -1209,7 +1188,6 @@ character(len=80)  :: scheme
       if (do_bm) call betts_miller_init ()
       if (do_lsc)    call lscale_cond_init ()
       if (do_strat)  call strat_cloud_init (axes,Time,id,jd,kd)
-      if (do_dryadj) call     dry_adj_init ()
 
 
 !----- initialize quantities for global integral package -----
@@ -1939,11 +1917,6 @@ if ( do_strat ) then
         'Column integrated cloud mass ',                'kg/m2'   )
 
 endif
-
-   id_tdt_dadj = register_diag_field ( mod_name, &
-     'tdt_dadj', axes(1:3), Time, &
-   'Temperature tendency from dry conv adj',       'deg_K/s',  &
-                        missing_value=missing_value               )
 
    id_rh = register_diag_field ( mod_name, &
      'rh', axes(1:3), Time, &

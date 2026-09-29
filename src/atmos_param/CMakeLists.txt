@@ -24,7 +24,6 @@ monin_obukhov/monin_obukhov.f90
 lscale_cond/lscale_cond.f90
 local_heating/local_heating.f90
 stable_bl_turb/stable_bl_turb.f90
-dry_adj/dry_adj.f90
 rrtm_radiation/astro.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_cldprop.f90
 rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_rad.nomcica.f90
