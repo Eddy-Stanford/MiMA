@@ -1282,6 +1282,8 @@ subroutine capecalcnew(kx,p,phalf,cp,rdgas,rvgas,hlv,kappa,tin,rin,&
          tp(1:kx) = tin(1:kx)
          rp(1:kx) = rin(1:kx)
       end if
+! if the parcel is still buoyant at the top level, take that as the LZB
+      if (.not. nocape .and. klzb == 0) klzb = 1
 !      write (*,*) 'plcl, klcl, tlcl, r0 new', plcl, klcl, tlcl, r0
 !      write (*,*) 'tp, rp new', tp, rp
 !       write (*,*) 'tp, new', tp
@@ -1353,7 +1355,8 @@ subroutine capecalcnew(kx,p,phalf,cp,rdgas,rvgas,hlv,kappa,tin,rin,&
       ival = floor(10.*(v1 + 23.0))
       v2 = -230. + ival
       v1 = 10.*v1
-      tlcl = (v2 + 1.0 - v1)*lcltable(ival+1) + (v1 - v2)*lcltable(ival+2)
+! the table has 127 entries; at the upper clamp ival+2 would be 128
+      tlcl = (v2 + 1.0 - v1)*lcltable(ival+1) + (v1 - v2)*lcltable(min(ival+2,127))
 
       end subroutine lcltabl
 
