@@ -23,7 +23,6 @@ use  time_manager_mod, only: time_type,get_time
 
 use      constants_mod, only: rdgas, rvgas, cp_air, hlv, hlf
 
-use ocean_rough_mod, only: compute_ocean_roughness
 ! mj know about surface topography
 use spectral_dynamics_mod,only: get_surf_geopotential
 use topography_mod,only: get_ocean_mask
@@ -232,10 +231,6 @@ pi = 4.0*atan(1.)
      rough_mom   = const_roughness
      rough_heat  = const_roughness
      rough_moist = const_roughness
-   elseif(roughness_choice == 2) then
-!    call compute_ocean_roughness (mask, flux_u, flux_v,   & ! Fez
-     call compute_ocean_roughness (mask, u_star, &           ! Inchon and beyond. Changes answers.
-                         rough_mom, rough_heat, rough_moist)
  elseif(roughness_choice == 3) then   !cig: set higher roughness values over land as compared to ocean
      rough_mom   = const_roughness
      rough_heat  = const_roughness
@@ -613,6 +608,8 @@ real, dimension(size(Atm%t_bot,1), size(Atm%t_bot,2)) :: &
    if(do_sc_sst) do_read_sst = .true.
    if(trop_capacity .le. 0.) trop_capacity = heat_capacity
    if(land_capacity .le. 0.) land_capacity = heat_capacity
+   if(roughness_choice /= 1 .and. roughness_choice /= 3 .and. roughness_choice /= 4) &
+        call error_mesg ('simple_surface', 'roughness_choice must be 1, 3 or 4', FATAL)
 
 !--------- write version number and namelist ------------------
 

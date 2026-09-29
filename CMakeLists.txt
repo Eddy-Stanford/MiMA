@@ -79,7 +79,6 @@ COMPILE_FLAGS -O0
 )
 add_subdirectory( src/atmos_shared )
 add_subdirectory( src/atmos_spectral )
-add_subdirectory( src/ice_param )
 add_subdirectory( src/shared )
 
 target_link_libraries(mima PRIVATE mima_c)

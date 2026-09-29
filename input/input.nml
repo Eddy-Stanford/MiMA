@@ -184,9 +184,6 @@
     constant_gust    = 0.,
     do_diffusivity = .true./
 
- &ocean_rough_nml
-      rough_scheme = 'beljaars' /
-
  &physics_driver_nml
      do_grey_radiation = .false.,
      do_rrtm_radiation = .true.,
