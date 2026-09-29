@@ -30,7 +30,7 @@ use fms_mod,          only:  open_file, file_exist, error_mesg, &
                              fms_init, &
                              mpp_pe, mpp_root_pe,&
                              FATAL, write_version_number, &
-                             stdlog, close_file, string
+                             stdlog, close_file
 use constants_mod,    only:  radius, constants_init
 use mpp_mod,          only:  mpp_sum, mpp_init
 
@@ -165,7 +165,7 @@ integer                     :: num_field = 0
 character(len=max_len_name) :: field_name   (max_num_field)
 character(len=16)           :: field_format (max_num_field)
 real                        :: field_sum    (max_num_field)
-integer          :: field_count  (max_num_field)
+integer(kind=8)             :: field_count  (max_num_field)
 
 !---------------------------------------------------------------------
 !    variables defining output formats.
@@ -1191,7 +1191,9 @@ type (time_type), intent(in) :: Time
       real    :: field_avg(max_num_field)
       real    :: xtime, rcount
       integer :: nn, ninc, nst, nend, fields_to_print
-      integer :: i, kount
+      integer :: i
+      integer(kind=8) :: kount
+      character(len=24) :: chcount, chsize
 
 !--------------------------------------------------------------------
 !   local variables:
@@ -1224,7 +1226,7 @@ type (time_type), intent(in) :: Time
         rcount = real(field_count(i))
         call mpp_sum (rcount)
         call mpp_sum (field_sum(i))
-        field_count(i) = nint(rcount)
+        field_count(i) = nint(rcount, kind=8)
 
 !--------------------------------------------------------------------
 !    verify that all the data expected for an integral has been 
@@ -1235,20 +1237,23 @@ type (time_type), intent(in) :: Time
                       'field_count equals zero for field_name ' //  &
                        field_name(i)(1:len_trim(field_name(i))), FATAL )
         kount = field_count(i)/field_size
-        if ((field_size)*kount /= field_count(i)) &
+        if ((field_size)*kount /= field_count(i)) then
+          write (chsize, '(i0)') field_size
+          write (chcount, '(i0)') field_count(i)
           call error_mesg &
                  ('diag_integral_mod',  &
                   'field_count not a multiple of field_size. ' // &
                   'field_name is ' // trim( field_name(i)) // &
-                  ', field_size=' // trim(string(field_size)) // &
-                  ', field_count=' // trim(string(field_count(i))), FATAL )
+                  ', field_size=' // trim(chsize) // &
+                  ', field_count=' // trim(chcount), FATAL )
+        endif
 
 !----------------------------------------------------------------------
 !    define the global integral for field i. reinitialize the point
 !    and data accumulators.
 !----------------------------------------------------------------------
         field_avg(fields_to_print) = field_sum(i)/  &
-                                     (sum_area*float(kount))
+                                     (sum_area*real(kount))
         field_sum  (i) = 0.0
         field_count(i) = 0
       end do
