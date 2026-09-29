@@ -86,15 +86,8 @@ real ::   z_ref_heat      = 2.,       &
           albedo_cntrNH     = 65.,    & !cig
           albedo_desert     = 0.20,   & !cig
           albedo_wdth     = 10.,      & !mj
-	  max_of          = 25.,      &
-	  lonmax_of       = 180.,     &
-	  latmax_of       = 0.,       &
-          latwidth_of     = 15.,      &
-	  lonwidth_of     = 90.,      &
 	  higher_albedo    = 0.38,    &
 	  lat_glacier      = 45.,     &
-	  maxofmerid       = .5,      &
-	  latmaxofmerid    = 25.,     &
 	  Tm               = 305.,    &
 	  deltaT           = 40.,     &
           qflux_amp        = 30.,     & !mj
@@ -107,8 +100,6 @@ real ::   mom_roughness_land  = 1., &
 integer :: surface_choice   = 1
 integer :: roughness_choice = 1
 integer :: albedo_choice    = 1 ! 1->constant, 2->NH or SH step, 3->N-S symmetric step, 4->profile with albedo_exp,5->tanh with albedo_cntrNH,albedo_cntrSH,albedo_wdth,  6->sin2 increase from equator to pole, 7->as in 5 but with higher albedo for deserts
-logical :: do_oflx          = .false.
-logical :: do_oflxmerid     = .false.
 logical :: do_qflux         = .false. !mj
 logical :: do_warmpool      = .false. !mj
 logical :: do_read_sst      = .false. !mj
@@ -124,10 +115,9 @@ namelist /simple_surface_nml/ z_ref_heat, z_ref_mom,             &
                               trop_cap_limit, heat_cap_limit,    & !mj
                               np_cap_factor,    zsurf_cap_limit, & !mj
                               roughness_choice, const_roughness, &
-                              albedo_choice, const_albedo, do_oflx, &
-			      max_of, lonmax_of, latmax_of, latwidth_of, &
-			      lonwidth_of, higher_albedo, lat_glacier, &
-			      do_oflxmerid, maxofmerid, latmaxofmerid, Tm, &
+                              albedo_choice, const_albedo, &
+			      higher_albedo, lat_glacier, &
+			      Tm, &
 			      deltaT,  mom_roughness_land,  q_roughness_land,     &  !cig
                               do_qflux,do_warmpool,              &  !mj
                               do_read_sst,do_sc_sst,sst_file,    &  !mj
@@ -579,10 +569,9 @@ real, dimension(size(Atm%t_bot,1), size(Atm%t_bot,2)) :: &
 
  integer :: unit, ierr, io
 
- integer :: i, j, k, lati
+ integer :: i, j, k
  real :: xx, xx2, lat, lon, pi, y0
  real :: coslat !mj
- real, dimension(100) :: oftabl
  real, dimension(32) :: ssttabl
  ! mj shallower ocean in tropics, land-sea contrast
  real :: loc_cap
@@ -902,45 +891,7 @@ else
   flux_v = 0.0
 endif
 
-if (do_oflx) then
-  do i=1, size(Atm%t_bot,1)
-    do j=1, size(Atm%t_bot,2)
-      lat = 0.5*180./pi*(Atm%lat_bnd(j+1) + Atm%lat_bnd(j))
-      lon = 0.5*180./pi*(Atm%lon_bnd(i+1) + Atm%lon_bnd(i))
-      if (lonmax_of - lonwidth_of < lon .and. lon < lonmax_of + lonwidth_of ) then
-        flux_o(i,j) = max_of*sin(pi*(lon - (lonmax_of - lonwidth_of))/lonwidth_of)* &
-           exp(-(lat-latmax_of)**2./latwidth_of**2.)
-      endif
-    enddo
-  enddo
-else
-   flux_o = 0.
-endif
-
-if(do_oflxmerid) then
-     data oftabl / -36.3215, -36.2461, -36.1313, -35.9763, -35.7805, &
-     -35.5430, -35.2629, -34.9392, -34.5707, -34.1562, -33.6940, -33.1824, &
-     -32.6194, -32.0029, -31.3302, -30.5986, -29.8049, -28.9454, -28.0163, &
-     -27.0132, -25.9313, -24.7655, -23.5104, -22.1599, -20.7081, -19.1486, &
-     -17.4754, -15.6824, -13.7641, -11.7158,  -9.5341,  -7.2172,  -4.7656, &
-     -2.1827,   0.5248,   3.3459,   6.2647,   9.2603,  12.3059,  15.3690, &
-     18.4114,  21.3899,  24.2574,  26.9641,  29.4597,  31.6952,  33.6258, &
-     35.2132,  36.4275,  37.2494,  37.6712,  37.6971,  37.3434,  36.6366, &
-     35.6125,  34.3136,  32.7867,  31.0806,  29.2438,  27.3228,  25.3601, &
-     23.3935,  21.4554,  19.5724,  17.7656,  16.0508,  14.4388,  12.9365, &
-     11.5470,  10.2706,   9.1053,   8.0474,   7.0916,   6.2320,   5.4622, &
-     4.7753,   4.1646,   3.6232,   3.1449,   2.7234,   2.3529,   2.0280, &
-     1.7439,   1.4959,   1.2800,   1.0923,   0.9296,   0.7889,   0.6673, &
-     0.5626,   0.4726,   0.3954,   0.3294,   0.2730,   0.2249,   0.1842, &
-     0.1497,   0.1205,   0.0960,   0.0425/
-   do j=1, size(Atm%t_bot,2)
-      lat = 0.5*180./pi*(Atm%lat_bnd(j+1) + Atm%lat_bnd(j))
-      if(abs(lat).le.latmaxofmerid) then
-         lati = floor(4.*abs(lat))
-         flux_o(:,j) = flux_o(:,j)+maxofmerid*(oftabl(lati)+(oftabl(lati+1)-oftabl(lati))*(4.*abs(lat)-lati))
-      end if
-   enddo
-endif
+flux_o = 0.
 
 if ( do_qflux .or. do_warmpool) then
    call qflux_init
