@@ -19,9 +19,7 @@ cloud_generator/null/cloud_generator.f90
 topo_drag/topo_drag.f90
 diffusivity/diffusivity.f90
 physics_driver/physics_driver.f90
-betts_miller/bm_omp.f90
 betts_miller/betts_miller.f90
-betts_miller/bm_massflux.f90
 monin_obukhov/monin_obukhov.f90
 lscale_cond/lscale_cond.f90
 local_heating/local_heating.f90

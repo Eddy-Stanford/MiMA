@@ -132,8 +132,6 @@
 
  &moist_processes_nml
      do_bm           =.true.,   
-     do_bmmass       =.false., 
-     do_bmomp        =.false.,
      do_mca          =.false.,
      do_lsc          =.true.,
      do_strat        =.false., 

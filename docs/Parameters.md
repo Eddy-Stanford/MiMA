@@ -296,8 +296,6 @@ The moist processes parameters are set in `atmos_param/moist_processes/moist_pro
  use_tau | .false. | Use current time values? (future time if .false.)
  do_gust_cv | .false. | Do convective gustiness?
  do_bm  | .false. | Do Betts-Miller convetion?
- do_bmmass | .false. | Do Betts-Miller mass flux scheme?
- do_bmomp | .false. | Do Pauluis version of Betts-Miller scheme?
  use_df_stuff | .false. | When true, specific humidity = (rdgas/rvgas)*esat/pressure
  
  

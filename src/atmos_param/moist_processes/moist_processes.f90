@@ -13,8 +13,6 @@
 !-----------------------------------------------------------------------
 
 use    betts_miller_mod, only: betts_miller, betts_miller_init
-use     bm_massflux_mod, only: bm_massflux, bm_massflux_init ! XXX These should be published by betts_miller_mod
-use          bm_omp_mod, only: bm_omp,      bm_omp_init      ! XXX These should be published by betts_miller_mod
 
 use      moist_conv_mod, only: moist_conv, moist_conv_init
 use     lscale_cond_mod, only: lscale_cond, lscale_cond_init
@@ -90,7 +88,7 @@ private
    logical :: do_mca=.false., do_lsc=.true.,  &
               do_strat=.false., do_dryadj=.false., &
               use_tau=.false., do_gust_cv = .false., &
-              do_bm=.true., do_bmmass=.false., do_bmomp=.false., &
+              do_bm=.true., &
               use_df_stuff=.true.
 !mj correct numerical sphum sink
    logical :: do_correct_q=.false.
@@ -132,11 +130,6 @@ private
 !
 !   do_bm    = switch to turn on/off betts-miller scheme
 !                [logical, default: do_bm=true ]
-!   do_bmmass  = switch to turn on/off betts-miller massflux scheme
-!                [logical, default: do_bmmass=false ]
-!   do_bmomp  = switch to turn on/off olivier's version of the betts-miller
-!               scheme (with separated boundary layer)
-!                [logical, default: do_bmomp=false ]
 !   use_df_stuff = switch to turn on alternative definition of specific humidity.
 !               When true, specific humidity = (rdgas/rvgas)*esat/pressure
 !               [logical, default: do_df_stuff=true]
@@ -155,7 +148,7 @@ namelist /moist_processes_nml/ do_mca, do_lsc, do_strat,  &
                                use_tau, &
                                do_gust_cv, &
                                gustmax, gustconst, &
-                               do_bm, do_bmmass, do_bmomp, use_df_stuff, &
+                               do_bm, use_df_stuff, &
                                do_correct_q, qsrc !mj
 
 !-----------------------------------------------------------------------
@@ -171,7 +164,7 @@ integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
            id_q_conv_col, id_q_ls_col, id_t_conv_col, id_t_ls_col, &
            id_prod_no, id_cape, id_cin, id_tref, id_qref, id_rhsurf, &
            id_bmflag, id_klzbs, id_invtaubmt, id_invtaubmq, &
-           id_capeflag, id_massflux, id_entrop_ls
+           id_capeflag, id_entrop_ls
 
 integer, dimension(:), allocatable :: id_tracerdt_conv,  &
                                       id_tracerdt_conv_col, &
@@ -329,7 +322,7 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: qltnd,qitnd,qatnd, &
                                                   qlin, qiin, qain
 real, dimension(size(r,1),size(r,2),size(r,3),size(r,4)) :: tracer, tracertnd
 real, dimension(size(t,1),size(t,2),size(t,3)+1) :: mc,mask3
-real, dimension(size(t,1),size(t,2),size(t,3)) :: mc_full, massflux
+real, dimension(size(t,1),size(t,2),size(t,3)) :: mc_full
 real, dimension(size(t,1),size(t,2),size(t,3)) :: RH, pmass, wetdeptnd, q_ref, t_ref
 real, dimension(size(t,1),size(t,2))           :: rain, precip, cape, cin
 real, dimension(size(t,1),size(t,2))           :: wvp,lwp,iwp
@@ -583,24 +576,11 @@ end if
 !-----------------------------------------------------------------------
                            endif ! if (do_mca)
 
-  if ( any((/do_bm,do_bmmass,do_bmomp/)) ) then
+  if (do_bm) then ! betts-miller cumulus param scheme
 
-    if (do_bm) then ! betts-miller cumulus param scheme
-      call betts_miller (dt,tin,qin,pfull,phalf,coldT,rain,snow,ttnd,qtnd,&
-                        q_ref,bmflag,klzbs,cape,cin,t_ref,invtaubmt,&
-                        invtaubmq, capeflag, mask=mask)
-    endif
-
-    if (do_bmmass) then ! betts-miller-style massflux cumulus param scheme
-      call bm_massflux (dt,tin,qin,pfull,phalf,coldT,rain,snow,ttnd,qtnd,&
-                     q_ref,bmflag,klzbs,t_ref,massflux,&
-                     mask=mask)
-    endif
-
-    if (do_bmomp) then ! olivier's betts-miller cumulus param scheme
-      call bm_omp (dt,tin,qin,pfull,phalf,coldT,rain,snow,ttnd,qtnd,&
-                      q_ref,bmflag,klzbs,t_ref, mask=mask)
-    endif
+    call betts_miller (dt,tin,qin,pfull,phalf,coldT,rain,snow,ttnd,qtnd,&
+                      q_ref,bmflag,klzbs,cape,cin,t_ref,invtaubmt,&
+                      invtaubmq, capeflag, mask=mask)
 
 !------- (update input values and) compute tendency -----
     tin=tin+ttnd;    qin=qin+qtnd
@@ -615,7 +595,7 @@ end if
     precip=precip+rain+snow
 
 !-----------------------------------------------------------------------
-  endif ! if ( any((/do_bm,do_bmmass,do_bmomp/)) )
+  endif ! if (do_bm)
 
 ! Do wet deposition for the convective routine here
 ! qdt should give the vertical distribution here
@@ -653,7 +633,7 @@ end if
 !--------------- DIAGNOSTICS FOR CONVECTIVE SCHEME ---------------------
 !-----------------------------------------------------------------------
 
- if ( any((/do_bm,do_bmmass,do_bmomp/)) ) then
+ if (do_bm) then
      if ( id_tref > 0 ) then
        used = send_data ( id_tref, t_ref, Time, is, js, 1, &
                           rmask=mask )
@@ -680,13 +660,6 @@ end if
      if (id_capeflag > 0) then
        used = send_data (id_capeflag, capeflag, Time, is, js)
      end if
- end if
-
- if (do_bmmass) then
-    if (id_massflux > 0 ) then
-        used = send_data ( id_massflux, massflux, Time, is, js, 1, &
-                           rmask=mask)
-    end if
  end if
 
 !------- diagnostics for dt/dt_conv -------
@@ -1206,21 +1179,6 @@ character(len=80)  :: scheme
          if ( do_mca .and. do_bm ) call error_mesg   &
                    ('moist_processes_init',  &
                     'both do_mca and do_bm cannot be specified', FATAL)
-         if ( do_bm .and. do_bmmass ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bm and do_bmmass cannot be specified', FATAL)
-         if ( do_bm .and. do_bmomp ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bm and do_bmomp cannot be specified', FATAL)
-         if ( do_bmomp .and. do_bmmass ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bmomp and do_bmmass cannot be specified', FATAL)
-         if ( do_bmmass .and. do_mca ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bmmass and do_mca cannot be specified', FATAL)
-         if ( do_bmomp .and. do_mca ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bmomp and do_mca cannot be specified', FATAL)
 
          if ( do_lsc .and. do_strat ) call error_mesg   &
                  ('moist_processes_init',  &
@@ -1788,7 +1746,7 @@ subroutine diag_field_init ( axes, Time )
 
 !------------ initializes diagnostic fields in this module -------------
 
-if ( any((/do_bm,do_bmmass,do_bmomp/)) ) then
+if (do_bm) then
    id_qref = register_diag_field ( mod_name, &
      'qref', axes(1:3), Time, &
      'Adjustment reference specific humidity profile', &
@@ -1821,13 +1779,6 @@ if ( do_bm ) then
       'Flag: why CAPE is zero', &
       'no units', missing_value=missing_value            )
 end if  ! if ( do_bm )
-
-if (do_bmmass) then
-   id_massflux = register_diag_field (mod_name, &
-      'massflux', axes(1:3), Time, &
-      'Massflux implied by temperature adjustment', &
-      'm/s', missing_value=missing_value                 )
-end if  ! if ( do_bmmass )
 
    id_tdt_conv = register_diag_field ( mod_name, &
      'tdt_conv', axes(1:3), Time, &
