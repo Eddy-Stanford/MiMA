@@ -4,24 +4,13 @@ use fms_mod,                only:  fms_init, mpp_pe, mpp_root_pe,  &
                                    file_exist, check_nml_error,  &
                                    error_mesg,  FATAL, WARNING, NOTE, &
                                    close_file, open_namelist_file, &
-                                   stdlog, write_version_number, &
-                                   read_data, write_data,   &
-                                   open_restart_file
-!mj no restart file, as this specific implementation only works with cubed sphere
-!use fms_io_mod,             only:  register_restart_field, restart_file_type, &
-!                                   save_restart, restore_state, get_mosaic_tile_file
+                                   stdlog, write_version_number
 use time_manager_mod,       only:  time_manager_init, time_type
 use diag_manager_mod,       only:  diag_manager_init,   &
                                    register_diag_field, send_data
 use constants_mod,          only:  constants_init, PI, RDGAS, GRAV, CP_AIR, &
                                    SECONDS_PER_DAY
 
-#ifdef COL_DIAG
-use column_diagnostics_mod, only:  column_diagnostics_init, &
-                                   initialize_diagnostic_columns, &
-                                   column_diagnostics_header, &
-                                   close_column_diagnostics_units
-#endif
 
 !-------------------------------------------------------------------
 
@@ -43,24 +32,14 @@ character(len=128)  :: version =  '$Id: cg_drag.F90,v 19.0 2014/09/08 $'
 character(len=128)  :: tagname =  '$Name: riga $'
 
 
-
 !---------------------------------------------------------------------
 !-------  interfaces --------
 
-!mj removing restart stuff
 public    cg_drag_init, cg_drag_calc, cg_drag_end, &
           cg_drag_time_vary, cg_drag_endts
-!         cg_drag_restart
 
-!!$private   read_restart_file, read_nc_restart_file, &
-!!$          write_restart_file, gwfc
 private   gwfc
 
-!!$!--- for netcdf restart
-!!$type(restart_file_type), pointer, save :: Cg_restart => NULL()
-!!$type(restart_file_type), pointer, save :: Til_restart => NULL()
-!!$logical                                :: in_different_file = .false.
-!!$integer                                :: vers, old_time_step
 
 !wfc++ Addition for regular use
       integer, allocatable, dimension(:,:)     ::  source_level, damp_level
@@ -129,35 +108,12 @@ real        :: phi0n = 15., phi0s = -15., dphin = 10., dphis = -10.
 
 real        :: kelvin_kludge=1.
 
-integer     :: num_diag_pts_ij=0  ! number of diagnostic columns specif-
-                                  ! ied by global (i,j) coordinates
-integer     :: num_diag_pts_latlon=0 
-                                  ! number of diagnostic columns
-                                  ! specified by lat-lon coordinates
-integer, parameter           ::  MAX_PTS= 20
-                                  ! maximum number of diagnostic columns
-integer, dimension(MAX_PTS)  ::  i_coords_gl=-100     
-                                  ! global i coordinates for ij 
-                                  ! diagnostic columns 
-integer, dimension(MAX_PTS)  ::  j_coords_gl=-100   
-                                  ! global j coordinates for ij 
-                                  ! diagnostic columns 
-real,    dimension(MAX_PTS)  ::  lat_coords_gl=-999. 
-                                  ! latitudes for latlon diagnostic 
-                                  ! columns  [degrees, -90. -> 90. ]
-real,    dimension(MAX_PTS)  ::  lon_coords_gl=-999. 
-                                  ! longitudes for latlon diagnostic 
-                                  ! columns [ degrees, 0. -> 360. ]
-
 
 namelist / cg_drag_nml /         &
                           cg_drag_freq, cg_drag_offset, &
                           source_level_pressure, damp_level_pressure,   &
                           nk, cmax, dc, Bt_0,  &
                           Bt_sh, Bt_nh, Bt_eq,  &
-                          num_diag_pts_ij, num_diag_pts_latlon, &
-                          i_coords_gl, j_coords_gl,   &
-                          lat_coords_gl, lon_coords_gl, &
                           phi0n,phi0s,dphin,dphis, Bw, Bn, cw, cwtropics, cn, flag, &
 			  kelvin_kludge
 
@@ -216,27 +172,6 @@ integer    :: klevel_of_source, klevel_of_damp
 !---------------------------------------------------------------------
 integer          :: cgdrag_alarm
 
-!---------------------------------------------------------------------
-!   variables used with column diagnostics:
-!
-!   diag_units     output unit numbers
-!   num_diag_pts   number of columns where diagnostics are desired 
-!   column_diagnostics_desired
-!                  column diagnostics are desired ?
-!   do_column_diagnostics 
-!                  a diagnostic column is in this jrow ?  
-!   diag_lon       longitude of diagnostic columns [ degrees ]
-!   diag_lat       latiude of diagnostic columns  [ degrees ]
-!   diag_i         processor-based i index of diagnostic columns
-!   diag_j         processor-based j index of diagnostic columns
-!
-!--------------------------------------------------------------------
-integer                            :: num_diag_pts = 0  
-logical                            :: column_diagnostics_desired=.false.
-integer, dimension(:), allocatable :: diag_units         
-logical, dimension(:), allocatable :: do_column_diagnostics
-real,    dimension(:), allocatable :: diag_lon, diag_lat
-integer, dimension(:), allocatable :: diag_j, diag_i   
 
 !---------------------------------------------------------------------
 !   variables for netcdf diagnostic fields.
@@ -251,7 +186,6 @@ logical          :: module_is_initialized=.false.
 
 !-------------------------------------------------------------------
 !-------------------------------------------------------------------
-
 
 
                         contains
@@ -333,9 +267,6 @@ type(time_type),         intent(in)      :: Time
       call time_manager_init
       call diag_manager_init
       call constants_init
-#ifdef COL_DIAG
-!      call column_diagnostics_init 
-#endif SKIP
 !---------------------------------------------------------------------
 !    read namelist.
 !---------------------------------------------------------------------
@@ -428,51 +359,11 @@ type(time_type),         intent(in)      :: Time
  
 !      deallocate( lat )
 
-!---------------------------------------------------------------------
-!    determine if column diagnostics are desired from this module. if
-!    so, set a flag to so indicate.
-!---------------------------------------------------------------------
-      num_diag_pts = num_diag_pts_ij + num_diag_pts_latlon
-      if (num_diag_pts > 0) then
-        column_diagnostics_desired = .true.
-      endif
 
 !---------------------------------------------------------------------
 !    if column diagnostics are desired, check that array dimensions are
 !    sufficiently large for the number of requests. 
 !---------------------------------------------------------------------
-#ifdef COL_DIAG
-      if (column_diagnostics_desired) then
-        if (num_diag_pts > MAX_PTS) then
-          call error_mesg ( 'cg_drag_mod', &
-         ' must reset MAX_PTS or reduce number of diagnostic points', &
-                                                     FATAL)
-        endif
-
-!---------------------------------------------------------------------
-!    allocate arrays needed for column diagnostics. 
-!---------------------------------------------------------------------
-        allocate (do_column_diagnostics   (jdf)          )
-        allocate (diag_units              (num_diag_pts) )
-        allocate (diag_lon                (num_diag_pts) )
-        allocate (diag_lat                (num_diag_pts) )
-        allocate (diag_i                  (num_diag_pts) )
-        allocate (diag_j                  (num_diag_pts) )
-
-!---------------------------------------------------------------------
-!    call initialize_diagnostic_columns to determine the locations 
-!    (i, j, lat and lon) of any diagnostic columns in this processsor's 
-!    space and to open output files for the diagnostics.
-!---------------------------------------------------------------------
-        call initialize_diagnostic_columns    &
-                     (mod_name, num_diag_pts_latlon, num_diag_pts_ij, &
-                      i_coords_gl, j_coords_gl, lat_coords_gl,   &
-!mj dimensions are different
-                      lon_coords_gl, lonb(:,1), latb(1,:), do_column_diagnostics, &
-                      lon_coords_gl, lonb, latb, do_column_diagnostics, &
-                      diag_lon, diag_lat, diag_i, diag_j, diag_units)
-      endif
-#endif
 
 !---------------------------------------------------------------------
 !    define the number of waves in the gravity wave spectrum, and define
@@ -532,21 +423,11 @@ type(time_type),         intent(in)      :: Time
 !    if present, read the restart data file.
 !---------------------------------------------------------------------
 !mj we don't do this anymore
-!!$      if (size(restart_versions(:)) .gt. 2 ) then
-!!$        call cg_drag_register_restart
-!!$      endif
-!!$
-!!$      if (file_exist('INPUT/cg_drag.res.nc')) then
-!!$        call read_nc_restart_file
-!!$
-!!$      elseif (file_exist('INPUT/cg_drag.res')) then
-!!$        call read_restart_file
 !-------------------------------------------------------------------
 !    if no restart file is present, initialize the gwd field to zero.
 !    define the time remaining until the next cg_drag calculation from
 !    the namelist inputs.
 !-------------------------------------------------------------------
-!!$      else
 !mj check day is multiple of cg_drag_freq (as restart capability has been removed)
      if( cg_drag_freq /= 0 ) then
         if( modulo(86400,cg_drag_freq) /= 0 ) then
@@ -560,16 +441,12 @@ type(time_type),         intent(in)      :: Time
      else 
         cgdrag_alarm = cg_drag_freq
      endif
-!!$      endif
-!!$      vers = restart_versions(size(restart_versions(:)))
-!!$     old_time_step = cgdrag_alarm 
 !---------------------------------------------------------------------
 !    mark the module as initialized.
 !---------------------------------------------------------------------
       module_is_initialized = .true.
 
 !---------------------------------------------------------------------
-
 
 
 end subroutine cg_drag_init
@@ -813,48 +690,6 @@ real, dimension(:,:,:), intent(out)     :: gwfcng_x, gwfcng_y
           gwd_v(is:ie,js:je,:) = gwfcng_y(:,:,:)
 
 
-#ifdef COL_DIAG
-!--------------------------------------------------------------------
-!  if column diagnostics are desired, determine if any columns are on
-!  this processor. if so, call column_diagnostics_header to write
-!  out location and timestamp information. then output desired 
-!  quantities to the diag_unit file.
-!---------------------------------------------------------------------
-        if (column_diagnostics_desired) then
-          do j=1,jmax
-            if (do_column_diagnostics(j+js-1)) then
-              do nn=1,num_diag_pts
-                if (js + j - 1 == diag_j(nn)) then
-                  call column_diagnostics_header   &
-                       (mod_name, diag_units(nn), Time, nn, diag_lon, &
-                        diag_lat, diag_i, diag_j) 
-                  iz0 = source_level (diag_i(nn), j)
-                  write (diag_units(nn),'(a, i5)')    &
-                                              '  source_level  =', iz0
-                  write (diag_units(nn),'(a)')     &
-                         '   k         u           z        density&
-		         &         bf      gwforcing'
-                  do k=0,iz0 
-                    write (diag_units(nn), '(i5, 2x, 5e12.5)')   &
-                                       k,                         &
-                                       zu       (diag_i(nn),j,k), &
-                                       zzchm    (diag_i(nn),j,k), &
-                                       zden     (diag_i(nn),j,k), &
-                                       zbf      (diag_i(nn),j,k), &
-                                       gwd_xtnd (diag_i(nn),j,k) 
-                  end do
-                  write (diag_units(nn), '(i5, 14x, 2e12.5)')     &
-                                       iz0+1,                       &
-                                       zzchm  (diag_i(nn),j,iz0+1), &
-                                       zden   (diag_i(nn),j,iz0+1)
-                endif
-              end do  ! (nn loop)
-            endif    ! (do_column_diagnostics)
-          end do   ! (j loop)
-        endif    ! (column_diagnostics_desired)
-#endif
-
-
 !--------------------------------------------------------------------
 !    if activated, store the effective eddy diffusivity into a 
 !    processor-global array, and if desired as a netcdf diagnostic, 
@@ -870,7 +705,6 @@ real, dimension(:,:,:), intent(out)     :: gwfcng_x, gwfcng_y
           endif
 
 
-
 !--------------------------------------------------------------------
 !    save any other netcdf file diagnostics that are desired.
 !--------------------------------------------------------------------
@@ -884,7 +718,6 @@ real, dimension(:,:,:), intent(out)     :: gwfcng_x, gwfcng_y
         if (id_gwfy_cgwd > 0) then
           used = send_data (id_gwfy_cgwd, gwfcng_y, Time, is, js, 1)
         endif
-
 
 
 !--------------------------------------------------------------------
@@ -908,7 +741,6 @@ real, dimension(:,:,:), intent(out)     :: gwfcng_x, gwfcng_y
 end subroutine cg_drag_calc
 
 
-
 !###################################################################
 
 subroutine cg_drag_end
@@ -922,18 +754,7 @@ subroutine cg_drag_end
 
 !For version 3 and after, use NetCDF restarts.
 !mj don't restart anymore
-!!$      if (mpp_pe() == mpp_root_pe() ) &
-!!$            call error_mesg ('cg_drag_mod', 'write_restart_nc: &
-!!$              &Writing netCDF formatted restart file as &
-!!$                &requested. ', NOTE)
-!!$      call cg_drag_restart
 
-
-#ifdef COL_DIAG
-      if (column_diagnostics_desired) then
-        call close_column_diagnostics_units (diag_units)
-      endif
-#endif
 
 !---------------------------------------------------------------------
 !    mark the module as uninitialized.
@@ -946,284 +767,11 @@ subroutine cg_drag_end
 end subroutine cg_drag_end
 
 
-
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 !
 !                     PRIVATE SUBROUTINES
 !                   mj removed all restart capability
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-!!$
-!!$
-!!$subroutine  write_restart_file
-!!$
-!!$integer :: unit     ! unit for writing restart file
-!!$
-!!$!-------------------------------------------------------------------
-!!$!    open unit for restart file.
-!!$!-------------------------------------------------------------------
-!!$      unit = open_restart_file ('RESTART/cg_drag.res', 'write')
-!!$
-!!$!-------------------------------------------------------------------
-!!$!    the root pe writes out the restart version, the time remaining 
-!!$!    before the next call to cg_drag_mod and the current cg_drag 
-!!$!    timestep.
-!!$!-------------------------------------------------------------------
-!!$      if (mpp_pe() == mpp_root_pe() ) then
-!!$        write (unit) restart_versions(size(restart_versions(:)))
-!!$        write (unit) cgdrag_alarm, cg_drag_freq
-!!$      endif
-!!$
-!!$!-------------------------------------------------------------------
-!!$!    each processor writes out its gravity wave forcing tendency 
-!!$!    on the zonal flow.
-!!$!-------------------------------------------------------------------
-!!$      call write_data (unit, gwd_u)
-!!$
-!!$!---------  ----------------------------------------------------------
-!!$!    close restart file unit. if column diagnostics have been generated,
-!!$!    close the units to which they were written.
-!!$!---------------------------------------------------------------------
-!!$      call close_file (unit)
-!!$
-!!$end subroutine write_restart_file
-!!$
-!!$
-!!$!#####################################################################
-!!$
-!!$subroutine read_restart_file
-!!$
-!!$!-------------------------------------------------------------------
-!!$!   read_restart_file reads the cg_drag_mod restart file.
-!!$!-------------------------------------------------------------------
-!!$
-!!$!-------------------------------------------------------------------
-!!$!   local variables
-!!$
-!!$      integer                 :: unit
-!!$      character(len=8)        :: chvers
-!!$      integer, dimension(5)   :: dummy
-!!$      real                    :: secs_per_day = SECONDS_PER_DAY
-!!$
-!!$!-------------------------------------------------------------------
-!!$!   local variables: 
-!!$!   
-!!$!       unit           unit number for nml file 
-!!$!       chvers         character representation of restart version 
-!!$!       vers           restart version 
-!!$!       dummy          array to hold restart version 1 control variables
-!!$!       old_time_step  cg_drag timestep used in previous model run [ s ]
-!!$!       secs_per_day   seconds in a day [ s ]
-!!$!
-!!$!---------------------------------------------------------------------
-!!$
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    open file to read restart data. 
-!!$!---------------------------------------------------------------------
-!!$      unit = open_restart_file ('INPUT/cg_drag.res','read')
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    read and check restart version number.
-!!$!---------------------------------------------------------------------
-!!$      read (unit) vers
-!!$      if (.not. any(vers == restart_versions) ) then
-!!$        write (chvers, '(i4)') vers
-!!$        call error_mesg ('cg_drag_init', &
-!!$               'restart version '//chvers//' cannot be read &
-!!$               &by this module version', FATAL)
-!!$      endif
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    read control information from restart file. 
-!!$!--------------------------------------------------------------------
-!!$      if (vers == 1) then
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    if reading restart version 1, use the contents of array dummy to
-!!$!    define the cg_drag timestep that was used in the run which wrote 
-!!$!    the restart. define the time remaining before the next cg_drag 
-!!$!    calculation to either be the previous timestep or the current
-!!$!    offset, if that is specified. this assumes that the restart was
-!!$!    written at 00Z.
-!!$!--------------------------------------------------------------------
-!!$        read (unit) dummy           
-!!$        old_time_step = secs_per_day*dummy(4) + dummy(3)
-!!$        if (cg_drag_offset == 0) then
-!!$          cgdrag_alarm =  old_time_step
-!!$        else
-!!$          cgdrag_alarm = cg_drag_offset 
-!!$        endif
-!!$      else 
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    for restart version 2, read the time remaining until the next 
-!!$!    cg_drag calculation, and the previously used timestep.
-!!$!---------------------------------------------------------------------
-!!$        read (unit) cgdrag_alarm, old_time_step
-!!$      endif
-!!$
-!!$!-------------------------------------------------------------------
-!!$!    read  restart data (gravity wave forcing tendency terms) and close 
-!!$!    unit.
-!!$!-------------------------------------------------------------------
-!!$      call read_data (unit, gwd_u)
-!!$      gwd_v(:,:,:) = 0.0
-!!$      call close_file (unit)
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    if current cg_drag calling frequency differs from that previously 
-!!$!    used, adjust the time remaining before the next calculation. 
-!!$!--------------------------------------------------------------------
-!!$      if (cg_drag_freq /= old_time_step) then
-!!$        cgdrag_alarm = cgdrag_alarm - old_time_step + cg_drag_freq
-!!$        if (mpp_pe() == mpp_root_pe() ) then
-!!$          call error_mesg ('cg_drag_mod',   &
-!!$                'cgdrag time step has changed, &
-!!$                &next cgdrag time also changed', NOTE)
-!!$        endif
-!!$      endif
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    if cg_drag_offset is specified and is smaller than the time remain-
-!!$!    ing until the next calculation, modify the time remaining to be 
-!!$!    that offset time. the assumption is made that the restart was
-!!$!    written at 00Z.
-!!$!--------------------------------------------------------------------
-!!$      if (cg_drag_offset /= 0) then
-!!$        if (cgdrag_alarm > cg_drag_offset) then
-!!$          cgdrag_alarm = cg_drag_offset
-!!$        endif
-!!$      endif
-!!$
-!!$!---------------------------------------------------------------------
-!!$
-!!$
-!!$end subroutine read_restart_file
-!!$
-!!$
-!!$subroutine read_nc_restart_file
-!!$!-----------------------------------------------------------------------
-!!$!    subroutine read_restart_nc reads a netcdf restart file to obtain 
-!!$!    the variables needed upon experiment restart. 
-!!$!-----------------------------------------------------------------------
-!!$
-!!$!---------------------------------------------------------------------
-!!$!   local variables:
-!!$
-!!$      character(len=64)     :: fname='INPUT/cg_drag.res.nc'
-!!$      character(len=8)      :: chvers
-!!$      integer, dimension(5) :: dummy
-!!$      real                  :: secs_per_day = SECONDS_PER_DAY
-!!$
-!!$!---------------------------------------------------------------------
-!!$!   local variables:
-!!$!
-!!$!        fname            restart file name
-!!$!
-!!$!----------------------------------------------------------------------
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    output a message indicating entrance into this routine.
-!!$!--------------------------------------------------------------------
-!!$      if (mpp_pe() == mpp_root_pe() ) then
-!!$        call error_mesg ('cg_drag_mod',  'read_restart_nc:&
-!!$             &Reading netCDF formatted restart file:'//trim(fname), NOTE)
-!!$      endif
-!!$
-!!$!-------------------------------------------------------------------
-!!$!    read the values of gwd_u and gwd_v
-!!$!-------------------------------------------------------------------
-!!$      if (size(restart_versions(:)) .le. 2 ) then
-!!$         call error_mesg ('cg_drag_mod',  'read_restart_nc: restart file format is netcdf, ' // &
-!!$              'restart_versions is not netcdf file version', FATAL)
-!!$      endif
-!!$      call restore_state(Cg_restart)
-!!$      if(in_different_file) call restore_state(Til_restart)
-!!$      if (.not. any(vers == restart_versions) ) then
-!!$        write (chvers, '(i4)') vers
-!!$        call error_mesg ('cg_drag_init', &
-!!$               'restart version '//chvers//' cannot be read &
-!!$               &by this module version', FATAL)
-!!$      endif
-!!$      vers = restart_versions(size(restart_versions(:)))
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    if current cg_drag calling frequency differs from that previously 
-!!$!    used, adjust the time remaining before the next calculation. 
-!!$!--------------------------------------------------------------------
-!!$      if (cg_drag_freq /= old_time_step) then
-!!$        cgdrag_alarm = cgdrag_alarm - old_time_step + cg_drag_freq
-!!$        if (mpp_pe() == mpp_root_pe() ) then
-!!$          call error_mesg ('cg_drag_mod',   &
-!!$                'cgdrag time step has changed, &
-!!$                &next cgdrag time also changed', NOTE)
-!!$        endif
-!!$        old_time_step = cg_drag_freq
-!!$      endif
-!!$
-!!$!--------------------------------------------------------------------
-!!$!    if cg_drag_offset is specified and is smaller than the time remain-
-!!$!    ing until the next calculation, modify the time remaining to be 
-!!$!    that offset time. the assumption is made that the restart was
-!!$!    written at 00Z.
-!!$!--------------------------------------------------------------------
-!!$      if (cg_drag_offset /= 0) then
-!!$        if (cgdrag_alarm > cg_drag_offset) then
-!!$          cgdrag_alarm = cg_drag_offset
-!!$        endif
-!!$      endif
-!!$
-!!$!---------------------------------------------------------------------
-!!$end subroutine read_nc_restart_file
-!!$
-!!$!####################################################################
-!!$! register restart field to be read and written through save_restart and restore_state.
-!!$subroutine cg_drag_register_restart
-!!$
-!!$  character(len=64) :: fname = 'cg_drag.res.nc'    ! name of restart file
-!!$  character(len=64) :: fname2 
-!!$  integer           :: id_restart
-!!$
-!!$  call get_mosaic_tile_file(fname, fname2, .false. ) 
-!!$  allocate(Cg_restart)
-!!$  if(trim(fname2) == trim(fname)) then
-!!$     Til_restart => Cg_restart
-!!$     in_different_file = .false.
-!!$  else
-!!$     in_different_file = .true.
-!!$     allocate(Til_restart)
-!!$  endif
-!!$
-!!$  id_restart = register_restart_field(Cg_restart, fname, 'restart_version', vers)
-!!$  id_restart = register_restart_field(Cg_restart, fname, 'cgdrag_alarm', cgdrag_alarm)
-!!$  id_restart = register_restart_field(Cg_restart, fname, 'cg_drag_freq', old_time_step)
-!!$  id_restart = register_restart_field(Til_restart, fname, 'gwd_u', gwd_u)
-!!$  id_restart = register_restart_field(Til_restart, fname, 'gwd_v', gwd_v)
-!!$
-!!$  return
-!!$
-!!$end subroutine cg_drag_register_restart
-!!$
-!!$!####################################################################
-!!$! <SUBROUTINE NAME="cg_drag_restart">
-!!$!
-!!$! <DESCRIPTION>
-!!$! write out restart file.
-!!$! Arguments: 
-!!$!   timestamp (optional, intent(in)) : A character string that represents the model time, 
-!!$!                                      used for writing restart. timestamp will append to
-!!$!                                      the any restart file name as a prefix. 
-!!$! </DESCRIPTION>
-!!$!
-!!$subroutine cg_drag_restart(timestamp)
-!!$  character(len=*), intent(in), optional :: timestamp
-!!$
-!!$  call save_restart(Cg_restart, timestamp)
-!!$  if(in_different_file) call save_restart(Til_restart, timestamp)
-!!$
-!!$end subroutine cg_drag_restart
-!!$! </SUBROUTINE> NAME=cg_drag_restart"
-!!$
 
 !####################################################################
 
@@ -1592,9 +1140,7 @@ real,    dimension(:,:,0:),  intent(out)            :: ked
 !--------------------------------------------------------------------
 
 
-
 end subroutine gwfc
-
 
 
 !####################################################################
