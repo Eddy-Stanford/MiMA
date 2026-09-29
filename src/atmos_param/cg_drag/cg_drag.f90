@@ -5,7 +5,8 @@ use fms_mod,                only:  fms_init, mpp_pe, mpp_root_pe,  &
                                    error_mesg,  FATAL, WARNING, NOTE, &
                                    close_file, open_namelist_file, &
                                    stdlog, write_version_number
-use time_manager_mod,       only:  time_manager_init, time_type
+use time_manager_mod,       only:  time_manager_init, time_type, get_time, &
+                                   operator(-)
 use diag_manager_mod,       only:  diag_manager_init,   &
                                    register_diag_field, send_data
 use constants_mod,          only:  constants_init, PI, RDGAS, GRAV, CP_AIR, &
@@ -171,6 +172,8 @@ integer    :: klevel_of_source, klevel_of_damp
 !
 !---------------------------------------------------------------------
 integer          :: cgdrag_alarm
+type(time_type)  :: Time_last_call     ! model time of the previous call
+logical          :: have_last_call = .false.
 
 
 !---------------------------------------------------------------------
@@ -454,14 +457,28 @@ end subroutine cg_drag_init
 
 !####################################################################
  
-subroutine cg_drag_time_vary (delt)
+subroutine cg_drag_time_vary (Time, delt)
 
+type(time_type),        intent(in)      :: Time
 real           ,        intent(in)      :: delt
 
+integer :: sec, day, dt_step
+
 !---------------------------------------------------------------------
-!    decrement the time remaining until the next cg_drag calculation.
+!    decrement the time remaining until the next cg_drag calculation by
+!    the model time elapsed since the previous call. delt is the physics
+!    time step, which is twice the model step on leapfrog steps, so it
+!    is only used on the first call (a single forward step).
 !---------------------------------------------------------------------
-      cgdrag_alarm = cgdrag_alarm - delt
+      if (have_last_call) then
+        call get_time (Time - Time_last_call, sec, day)
+        dt_step = sec + day*86400
+      else
+        dt_step = nint(delt)
+        have_last_call = .true.
+      endif
+      Time_last_call = Time
+      cgdrag_alarm = cgdrag_alarm - dt_step
 
 !---------------------------------------------------------------------
  
@@ -734,7 +751,7 @@ real, dimension(:,:,:), intent(out)     :: gwfcng_x, gwfcng_y
 ! mj now update the alarm clock, for control over how often cg_drag
 !    will recalculate the NOGWD tendencies
      call cg_drag_endts
-     call cg_drag_time_vary(delt)
+     call cg_drag_time_vary(Time, delt)
      
 
 
