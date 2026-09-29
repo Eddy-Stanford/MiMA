@@ -5,7 +5,6 @@ moist_processes/moist_processes.f90
 damping_driver/damping_driver.f90
 cloud_rad/cloud_rad.f90
 cg_drag/cg_drag.f90
-ras/ras.f90
 diag_integral/diag_integral.f90
 edt/edt.f90
 my25_turb/my25_turb.f90
@@ -15,7 +14,6 @@ grey_radiation/grey_radiation.f90
 vert_turb_driver/vert_turb_driver.f90
 qflux/qflux.f90
 entrain/entrain.f90
-cu_mo_trans/cu_mo_trans.f90
 mg_drag/mg_drag.f90
 cloud_generator/null/cloud_generator.f90
 topo_drag/topo_drag.f90

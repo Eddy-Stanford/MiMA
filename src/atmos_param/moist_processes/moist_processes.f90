@@ -7,7 +7,6 @@
 !         ---------------------------------------
 !             Betts-Miller convective adjustment
 !             moist convective adjustment
-!             relaxed arakawa-schubert
 !             large-scale condensation
 !             stratiform prognostic cloud scheme
 !
@@ -31,8 +30,6 @@ use             fms_mod, only: file_exist, check_nml_error,    &
                                mpp_pe, mpp_root_pe, stdlog,    &
                                error_mesg, FATAL, NOTE
 
-use             ras_mod, only: ras, ras_end, ras_init
-
 use         dry_adj_mod, only: dry_adj, dry_adj_init
 
 use     strat_cloud_mod, only: strat_cloud_init, strat_driv, strat_cloud_end, &
@@ -42,8 +39,6 @@ use diag_integral_mod, only:     diag_integral_field_init, &
                              sum_diag_integral_field
 
 use       constants_mod, only: CP_AIR, GRAV, RDGAS, RVGAS, HLV, KAPPA, ES0
-
-use     cu_mo_trans_mod, only: cu_mo_trans_init, cu_mo_trans, cu_mo_trans_end
 
 use  field_manager_mod, only: MODEL_ATMOS
 use tracer_manager_mod, only: get_tracer_index,&
@@ -92,9 +87,8 @@ private
 !-------------------- namelist data (private) --------------------------
 
 
-   logical :: do_mca=.false., do_lsc=.true., do_ras=.false.,  &
+   logical :: do_mca=.false., do_lsc=.true.,  &
               do_strat=.false., do_dryadj=.false., &
-              do_cmt=.false., &
               use_tau=.false., do_gust_cv = .false., &
               do_bm=.true., do_bmmass=.false., do_bmomp=.false., &
               use_df_stuff=.true.
@@ -115,8 +109,6 @@ private
 !                [logical, default: do_mca=false ]
 !   do_lsc   = switch to turn on/off large scale condensation
 !                [logical, default: do_lsc=true ]
-!   do_ras   = switch to turn on/off relaxed arakawa shubert
-!                [logical, default: do_ras=false ]
 !   do_strat = switch to turn on/off stratiform cloud scheme
 !                [logical, default: do_strat=false ]
 !  do_dryadj = switch to turn on/off dry adjustment scheme
@@ -151,17 +143,17 @@ private
 !
 !   notes: 1) do_lsc and do_strat cannot both be true
 !          2) pdepth and tfreeze are used to determine liquid vs. solid
-!             precipitation for mca, lsc, and ras schemes, the
+!             precipitation for mca and lsc schemes, the
 !             stratiform scheme determines it's own precipitation type.
 !          3) if do_strat=true then stratiform cloud tracers: liq_wat,
 !             ice_wat, cld_amt must be present
 !
 !-----------------------------------------------------------------------
 
-namelist /moist_processes_nml/ do_mca, do_lsc, do_ras, do_strat,  &
+namelist /moist_processes_nml/ do_mca, do_lsc, do_strat,  &
                                do_dryadj, pdepth, tfreeze,        &
                                use_tau, &
-                               do_cmt, do_gust_cv, &
+                               do_gust_cv, &
                                gustmax, gustconst, &
                                do_bm, do_bmmass, do_bmomp, use_df_stuff, &
                                do_correct_q, qsrc !mj
@@ -191,10 +183,8 @@ real :: missing_value = -999.
 integer :: convection_clock, largescale_clock
 
 logical :: do_tracers_in_mca = .false.
-logical :: do_tracers_in_ras = .false.
-logical, dimension(:), allocatable :: tracers_in_mca, tracers_in_ras
+logical, dimension(:), allocatable :: tracers_in_mca
 integer :: num_mca_tracers=0
-integer :: num_ras_tracers=0
 integer :: num_tracers=0
 
 !-----------------------------------------------------------------------
@@ -207,7 +197,7 @@ subroutine moist_processes (is, ie, js, je, Time, dt, land,            &
                             phalf, pfull, zhalf, zfull, omega, diff_t, &
                             radturbten,                                &
                             t, q, r, u, v, tm, qm, rm, um, vm,         &
-                            tdt, qdt, rdt, udt, vdt, diff_cu_mo,       &
+                            tdt, qdt, rdt, udt, vdt,                   &
                             convect, lprec, fprec, gust_cv, area,      &
                             lat, mask, kbot)
 
@@ -316,7 +306,6 @@ type(time_type), intent(in)              :: Time
    real, intent(inout),dimension(:,:,:,:):: rdt
 logical, intent(out), dimension(:,:)     :: convect
    real, intent(out), dimension(:,:)     :: lprec, fprec, gust_cv
-   real, intent(out), dimension(:,:,:)   :: diff_cu_mo
    real, intent(in) , dimension(:,:)     :: area
    real, intent(in) , dimension(:,:)     :: lat
 
@@ -362,9 +351,6 @@ real :: tinsave
 ! tracer code:
 integer :: nn
 real, dimension (size(t,1), size(t,2), &
-                 size(t,3), num_ras_tracers) :: qtrras , &
-                                                    ras_tracers
-real, dimension (size(t,1), size(t,2), &
                  size(t,3), num_mca_tracers) :: qtrmca , &
                                                 mca_tracers
 logical :: alpha, alphc
@@ -400,9 +386,6 @@ real, dimension(size(t,1),size(t,2),size(t,3)) :: conc_air
       if (.not. module_is_initialized) call error_mesg ('moist_processes',  &
                      'moist_processes_init has not been called.', FATAL)
 
-   ! --- if do_ras is false, diff_cu_mo is never been initialized, which cause
-   ! --- the model crash.
-   diff_cu_mo = 0.0
 
 !-----------------------------------------------------------------------
       conc_air = 10. * pfull / (boltz * t)
@@ -634,89 +617,6 @@ end if
 !-----------------------------------------------------------------------
   endif ! if ( any((/do_bm,do_bmmass,do_bmomp/)) )
 
-!-----------------------------------------------------------------------
-!***********************************************************************
-!----------- relaxed arakawa/schubert cumulus param scheme -------------
-
-                        if (do_ras) then
-!-----------------------------------------------------------------------
-!----------------------------------------------------------------------
-!    if any tracers are to be transported by ras convection,
-!    check each active tracer to find those to be transported and fill
-!    the ras_tracers array with these fields.
-!---------------------------------------------------------------------
-      if (num_ras_tracers > 0) then
-        nn = 1
-        do n=1, num_tracers
-          if (tracers_in_ras(n)) then
-            ras_tracers(:,:,:,nn) = tracer(:,:,:,n)
-            nn = nn + 1
-          endif
-        end do
-
-      call ras (is,   js,     Time,     tin,   qin,   &
-                uin,  vin,    pfull,    phalf, zhalf, coldT, &
-                dt,   ttnd,   qtnd,     utnd,  vtnd,  &
-                rain, snow,   do_strat, mask,  kbot,  &
-                mc,   tracer(:,:,:,nql), tracer(:,:,:,nqi), &
-               tracer(:,:,:,nqa), tracertnd(:,:,:,nql),&
-               tracertnd(:,:,:,nqi), tracertnd(:,:,:,nqa),  &
-               ras_tracers = ras_tracers, qtrras=qtrras)
-
-!---------------------------------------------------------------------
-!    update the current tracer tendencies with the contributions
-!    just obtained from ras transport.
-!---------------------------------------------------------------------
-      nn = 1
-      do n=1, num_tracers
-        if (tracers_in_ras(n)) then
-          rdt(:,:,:,n) = rdt(:,:,:,n) + qtrras (:,:,:,nn)
-          tracertnd(:,:,:,n) = tracertnd(:,:,:,n) + qtrras (:,:,:,nn)
-          nn = nn + 1
-        endif
-      end do
-     else
-      call ras (is,   js,     Time,     tin,   qin,   &
-                uin,  vin,    pfull,    phalf, zhalf, coldT, &
-                dt,   ttnd,   qtnd,     utnd,  vtnd,  &
-                rain, snow,   do_strat, mask,  kbot,  &
-                mc,   tracer(:,:,:,nql), tracer(:,:,:,nqi), &
-               tracer(:,:,:,nqa),  tracertnd(:,:,:,nql),&
-               tracertnd(:,:,:,nqi), tracertnd(:,:,:,nqa))
-     endif
-
-!------- add on tendency ----------
-      tdt=tdt+ttnd; qdt=qdt+qtnd
-      udt=udt+utnd; vdt=vdt+vtnd
-
-!------- update input values , compute and add on tendency -----------
-!-------              in the case of strat                 -----------
-
-      if (do_strat) then
-        do tr = 1, size(r,4)
-          if ( tr == nqa .or. &
-               tr == nql .or. &
-               tr == nqi ) then
-            rdt (:,:,:,tr) = rdt(:,:,:,tr) + tracertnd(:,:,:,tr)
-          endif
-        enddo
-      end if
-
-!------- save total precip and snow ---------
-
-      lprec=lprec+rain
-      fprec=fprec+snow
-      precip=precip+rain+snow
-
-!    print *, ' end ras plus donner             ', mpp_pe()
-! do diffusive cumulus momentum transport
-      if ( do_cmt ) then
-        call cu_mo_trans ( is, js, Time, mc, tin, &
-                           phalf, pfull, zhalf, zfull, diff_cu_mo )
-      endif
-
-!-----------------------------------------------------------------------
-                           endif
 ! Do wet deposition for the convective routine here
 ! qdt should give the vertical distribution here
       wet_data = 0.0
@@ -881,7 +781,7 @@ end if
 
       !------- diagnostics for tracers from convection -------
       do n = 1, size(tracertnd,4)
-        if (tracers_in_ras(n) .or. tracers_in_mca(n)) then
+        if (tracers_in_mca(n)) then
         if ( id_tracerdt_conv(n) > 0 ) then
           used = send_data ( id_tracerdt_conv(n), tracertnd(:,:,:,n), Time, is, js, 1, &
                              rmask=mask )
@@ -1303,16 +1203,9 @@ character(len=80)  :: scheme
 
 !------------------- dummy checks --------------------------------------
 
-         if ( do_mca .and. do_ras ) call error_mesg   &
-                   ('moist_processes_init',  &
-                    'both do_mca and do_ras cannot be specified', FATAL)
-
          if ( do_mca .and. do_bm ) call error_mesg   &
                    ('moist_processes_init',  &
                     'both do_mca and do_bm cannot be specified', FATAL)
-         if ( do_ras .and. do_bm ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bm and do_ras cannot be specified', FATAL)
          if ( do_bm .and. do_bmmass ) call error_mesg   &
                     ('moist_processes_init',  &
                      'both do_bm and do_bmmass cannot be specified', FATAL)
@@ -1325,15 +1218,9 @@ character(len=80)  :: scheme
          if ( do_bmmass .and. do_mca ) call error_mesg   &
                     ('moist_processes_init',  &
                      'both do_bmmass and do_mca cannot be specified', FATAL)
-         if ( do_bmmass .and. do_ras ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bmmass and do_ras cannot be specified', FATAL)
          if ( do_bmomp .and. do_mca ) call error_mesg   &
                     ('moist_processes_init',  &
                      'both do_bmomp and do_mca cannot be specified', FATAL)
-         if ( do_bmomp .and. do_ras ) call error_mesg   &
-                    ('moist_processes_init',  &
-                     'both do_bmomp and do_ras cannot be specified', FATAL)
 
          if ( do_lsc .and. do_strat ) call error_mesg   &
                  ('moist_processes_init',  &
@@ -1365,7 +1252,6 @@ character(len=80)  :: scheme
       if (do_lsc)    call lscale_cond_init ()
       if (do_strat)  call strat_cloud_init (axes,Time,id,jd,kd)
       if (do_dryadj) call     dry_adj_init ()
-      if (do_cmt)    call cu_mo_trans_init (axes,Time)
 
 
 !----- initialize quantities for global integral package -----
@@ -1396,9 +1282,7 @@ character(len=80)  :: scheme
 !    initialize these arrays to .false..
 !---------------------------------------------------------------------
       allocate (tracers_in_mca(num_tracers))
-      allocate (tracers_in_ras(num_tracers))
       tracers_in_mca = .false.
-      tracers_in_ras = .false.
 
 !----------------------------------------------------------------------
 !    for each tracer, determine if it is to be transported by convect-
@@ -1414,25 +1298,9 @@ character(len=80)  :: scheme
             case ("mca")
                num_mca_tracers = num_mca_tracers + 1
                tracers_in_mca(n) = .true.
-            case ("ras")
-               num_ras_tracers = num_ras_tracers + 1
-               tracers_in_ras(n) = .true.
-            case ("donner_and_ras")
-               num_ras_tracers = num_ras_tracers + 1
-               tracers_in_ras(n) = .true.
-            case ("donner_and_mca")
+            case ("donner_and_mca", "mca_and_ras", "all")
                num_mca_tracers = num_mca_tracers + 1
                tracers_in_mca(n) = .true.
-            case ("mca_and_ras")
-               num_mca_tracers = num_mca_tracers + 1
-               tracers_in_mca(n) = .true.
-               num_ras_tracers = num_ras_tracers + 1
-               tracers_in_ras(n) = .true.
-            case ("all")
-               num_mca_tracers = num_mca_tracers + 1
-               tracers_in_mca(n) = .true.
-               num_ras_tracers = num_ras_tracers + 1
-               tracers_in_ras(n) = .true.
             case default  ! corresponds to "none"
           end select
         endif
@@ -1447,19 +1315,10 @@ character(len=80)  :: scheme
       else
         do_tracers_in_mca = .false.
       endif
-      if (num_ras_tracers > 0) then
-        do_tracers_in_ras = .true.
-      else
-        do_tracers_in_ras = .false.
-      endif
 
 !--------------------------------------------------------------------
 !    initialize the convection scheme modules.
 !--------------------------------------------------------------------
-      if (do_ras)  then
-        call ras_init (do_strat, axes,Time, tracers_in_ras)
-      endif
-
       if (do_mca)  then
         call  moist_conv_init (axes,Time, tracers_in_mca)
       endif
@@ -1484,8 +1343,6 @@ subroutine moist_processes_end
 !----------------close various schemes-----------------
 
       if (do_strat)       call strat_cloud_end
-      if (do_cmt        ) call cu_mo_trans_end
-      if (do_ras        ) call         ras_end
       module_is_initialized = .false.
 
 !-----------------------------------------------------------------------
@@ -2160,7 +2017,7 @@ endif
       do n = 1,num_tracers
         call get_tracer_names (MODEL_ATMOS, n, name = tracer_name,  &
                                units = tracer_units)
-        if (tracers_in_ras(n) .or. tracers_in_mca(n)) then
+        if (tracers_in_mca(n)) then
           diaglname = trim(tracer_name)//  &
                         ' total tendency from moist convection'
           id_tracerdt_conv(n) =    &

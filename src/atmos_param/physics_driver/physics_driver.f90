@@ -239,11 +239,6 @@ integer, dimension(5) :: restart_versions = (/ 1, 2, 3, 4, 5 /)
 !    data between timesteps when required, or hold physics data between
 !    physics_down and physics_up.
 !  
-!    diff_cu_mo     contains contribution to difusion coefficient
-!                   coming from cu_mo_trans_mod (called from 
-!                   moist_processes in physics_driver_up) and then used 
-!                   as input on the next time step to vert_diff_down 
-!                   called in physics_driver_down.
 !    diff_t         vertical diffusion coefficient for temperature
 !                   which optionally may be time smoothed, meaning
 !                   values must be saved between steps
@@ -266,7 +261,7 @@ integer, dimension(5) :: restart_versions = (/ 1, 2, 3, 4, 5 /)
 !                   then used in vert_turb_driver called from 
 !                   physics_driver_down on the next step.
 !----------------------------------------------------------------------
-real,    dimension(:,:,:), allocatable :: diff_cu_mo, diff_t, diff_m
+real,    dimension(:,:,:), allocatable :: diff_t, diff_m
 real,    dimension(:,:,:), allocatable :: radturbten, lw_tendency
 real,    dimension(:,:)  , allocatable :: pbltop     
 logical, dimension(:,:)  , allocatable :: convect
@@ -534,7 +529,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !---------------------------------------------------------------------
       allocate ( diff_t     (id, jd, kd) )
       allocate ( diff_m     (id, jd, kd) )
-      allocate ( diff_cu_mo (id, jd, kd) )
       allocate ( pbltop     (id, jd) )
       allocate ( convect    (id, jd) )
       allocate ( radturbten (id, jd, kd))
@@ -549,7 +543,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
       else
          diff_t      = 0.0
          diff_m      = 0.0
-         diff_cu_mo  = 0.0
          pbltop      = -999.0
          convect     = .false.
          radturbten  = 0.0
@@ -741,13 +734,6 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !                        mask to remove points below ground
 !  </IN>
 !
-!  <IN NAME="diff_cum_mom" TYPE="real">
-!   OPTIONAL: present when do_moist_processes=.false.
-!    cu_mo_trans diffusion coefficients, which are passed through to vert_diff_down.
-!    Should not be present when do_moist_processes=.true., since these
-!    values are passed out from moist_processes.
-!  </IN>
-!
 !  <IN NAME="moist_convect" TYPE="real">
 !   OPTIONAL: present when do_moist_processes=.false.
 !    Should not be present when do_moist_processes=.true., since these
@@ -779,7 +765,7 @@ subroutine physics_driver_down (is, ie, js, je,                       &
                                 flux_sw_vis_dif,                      &
                                 flux_lw,  coszen,  gust,              &
                                 Surf_diff,                            &
-                                mask, kbot, diff_cum_mom,             &
+                                mask, kbot,                           &
                                 moist_convect, diffm, difft  )
 
 !---------------------------------------------------------------------
@@ -823,7 +809,6 @@ real,dimension(:,:),     intent(out)            :: flux_sw,  &
 type(surf_diff_type),    intent(inout)          :: Surf_diff
 real,dimension(:,:,:),   intent(in)   ,optional :: mask
 integer, dimension(:,:), intent(in)   ,optional :: kbot
-real,  dimension(:,:,:), intent(in)   ,optional :: diff_cum_mom
 logical, dimension(:,:), intent(in)   ,optional :: moist_convect
 real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft 
 
@@ -1044,19 +1029,6 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
                                 Time_next, kbot)
       call mpp_clock_end ( tracer_clock )
 
-!-----------------------------------------------------------------------
-!    If moist_processes is not called in physics_driver_down then values
-!    of the cu_mo_trans diffusion coefficients must be passed in via
-!    the optional argument "diff_cum_mom".
-!-----------------------------------------------------------------------
-      if(.not.do_moist_processes) then
-        if(present(diff_cum_mom)) then
-          diff_cu_mo(is:ie,js:je,:) = diff_cum_mom          
-        else
-          call error_mesg('physics_driver_down', &
-          'diff_cum_mom must be present when do_moist_processes=.false.',FATAL)
-        endif
-      endif
 
 !-----------------------------------------------------------------------
 !    optionally use an implicit calculation of the vertical diffusion 
@@ -1079,8 +1051,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
         dt2 = real(sec + day*86400)
         alpha = dt2/tau_diff
         diff_m(is:ie,js:je,:) = (diff_m(is:ie,js:je,:) +       &
-                                 alpha*(diff_m_vert(:,:,:) +  &
-                                 diff_cu_mo(is:ie,js:je,:)) )/&
+                                 alpha*diff_m_vert(:,:,:) )/  &
                                  (1. + alpha)
         where (diff_m(is:ie,js:je,:) < diff_min)
           diff_m(is:ie,js:je,:) = 0.0
@@ -1093,7 +1064,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
         end where
       else
         diff_t(is:ie,js:je,:) = diff_t_vert
-        diff_m(is:ie,js:je,:) = diff_m_vert + diff_cu_mo(is:ie, js:je,:)
+        diff_m(is:ie,js:je,:) = diff_m_vert
       end if
 
 !-----------------------------------------------------------------------
@@ -1354,7 +1325,6 @@ integer,dimension(:,:), intent(in),   optional :: kbot
 !--------------------------------------------------------------------
 !   local variables:
 
-      real, dimension(size(u,1), size(u,2), size(u,3)) :: diff_cu_mo_loc
       real, dimension(size(u,1), size(u,2))            :: gust_cv
       integer :: sec, day
       real    :: dt
@@ -1362,8 +1332,6 @@ integer,dimension(:,:), intent(in),   optional :: kbot
 !---------------------------------------------------------------------
 !   local variables:
 !
-!        diff_cu_mo_loc   diffusion coefficient contribution due to 
-!                         cumulus momentum transport
 !        gust_cv
 !        sec, day         second and day components of the time_type 
 !                         variable
@@ -1409,11 +1377,10 @@ integer,dimension(:,:), intent(in),   optional :: kbot
                               diff_t(is:ie,js:je,:),                    &
                               radturbten(is:ie,js:je,:),                &
                               t, q, r, u, v, tm, qm, rm, um, vm,        &
-                              tdt, qdt, rdt, udt, vdt, diff_cu_mo_loc , &
+                              tdt, qdt, rdt, udt, vdt,                  &
                               convect(is:ie,js:je), lprec, fprec,       &
                               gust_cv, area, lat, mask=mask, kbot=kbot)
         call mpp_clock_end ( moist_processes_clock )
-        diff_cu_mo(is:ie, js:je,:) = diff_cu_mo_loc(:,:,:)
         radturbten(is:ie,js:je,:) = 0.0
 
 !---------------------------------------------------------------------
@@ -1495,7 +1462,6 @@ type(time_type), intent(in) :: Time
       !--------------------------------------------------------------------
       !    write out the data fields that are relevant for this experiment.
       !--------------------------------------------------------------------
-      call write_data (fname, 'diff_cu_mo', diff_cu_mo)
       call write_data (fname, 'pbltop', pbltop)
       call write_data (fname, 'diff_t', diff_t)
       call write_data (fname, 'diff_m', diff_m)
@@ -1525,7 +1491,7 @@ type(time_type), intent(in) :: Time
 !---------------------------------------------------------------------
 !    deallocate the module variables.
 !---------------------------------------------------------------------
-      deallocate (diff_cu_mo, diff_t, diff_m, pbltop, convect,   &
+      deallocate (diff_t, diff_m, pbltop, convect,   &
                   radturbten, lw_tendency)
  
 !---------------------------------------------------------------------
@@ -1720,12 +1686,6 @@ subroutine read_restart_nc
          call read_data(fname, 'doing_strat', was_doing_strat, no_domain=.true.)
          call read_data(fname, 'doing_edt', was_doing_edt, no_domain=.true.)
          call read_data(fname, 'doing_entrain', was_doing_entrain, no_domain=.true.)
-!---------------------------------------------------------------------
-!    read the contribution to diffusion coefficient from cumulus
-!    momentum transport.
-!---------------------------------------------------------------------
-         call read_data (fname, 'diff_cu_mo', diff_cu_mo)
-         
 !---------------------------------------------------------------------
 !    pbl top is present in file versions 2 and up. if not present,
 !    set a flag.

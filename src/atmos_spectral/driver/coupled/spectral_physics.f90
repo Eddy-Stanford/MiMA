@@ -42,7 +42,6 @@ character(len=128), parameter :: tagname = &
 integer, parameter :: num_time_levels=2
 
 real, allocatable, dimension(:,:      ) :: rad_lon_2d, rad_lat_2d, area_2d
-real, allocatable, dimension(:,:,:    ) :: diff_cu_mo
 logical, allocatable, dimension(:,:   ) :: convect
 real, allocatable, dimension(:,:,:,:  ) :: diag_tracers
 integer :: num_levels, num_tracers, nhum
@@ -151,23 +150,19 @@ endif
 deallocate(rad_lon, rad_lat, wts_lat, lon_boundaries, lat_boundaries, grid_tracers)
 deallocate(radiation_ref_press, p_half_1d, ln_p_half_1d, shalf, p_full_1d, ln_p_full_1d, sfull)
 
-allocate (diff_cu_mo(is:ie,js:je,num_levels))
 allocate ( convect(is:ie,js:je))
 file = 'INPUT/spectral_physics.res.nc'
 if(file_exist(trim(file))) then
-  call field_size(trim(file), 'diff_cu_mo', siz)
-  if(siz(1) /= lon_max .or. siz(2) /= lat_max .or. siz(3) /= num_levels) then
+  call field_size(trim(file), 'convect', siz)
+  if(siz(1) /= lon_max .or. siz(2) /= lat_max) then
     write(ch1,'(i4)') siz(1)
     write(ch2,'(i4)') siz(2)
-    write(ch3,'(i4)') siz(3)
     write(ch4,'(i4)') lon_max
     write(ch5,'(i4)') lat_max
-    write(ch6,'(i4)') num_levels
     call error_mesg('spectral_physics_init','Resolution of restart data is incorrect.'// &
-    ' Restart data: lon_max='//ch1//', lat_max='//ch2//', num_levels='//ch3// &
-    '    Should be: lon_max='//ch4//', lat_max='//ch5//', num_levels='//ch6, FATAL)
+    ' Restart data: lon_max='//ch1//', lat_max='//ch2// &
+    '    Should be: lon_max='//ch4//', lat_max='//ch5, FATAL)
   endif
-  call read_data(trim(file), 'diff_cu_mo', diff_cu_mo, grid_domain)
   allocate (rconvect(is:ie,js:je))
   call read_data(trim(file), 'convect',    rconvect,   grid_domain) ! No interface for reading/writing netcdf logicals
   where(rconvect == 1.)
@@ -177,7 +172,6 @@ if(file_exist(trim(file))) then
   endwhere
   deallocate (rconvect)
 else
-  diff_cu_mo = 0.
   convect = .false.
 endif
 
@@ -257,7 +251,7 @@ else
                flux_sw_down_vis_dif, flux_sw_down_total_dir,                     &
                flux_sw_down_total_dif, flux_sw_vis,                              &
                flux_sw_vis_dir, flux_sw_vis_dif,                                 &
-               flux_lw, coszen, gust, Surf_diff, diff_cum_mom=diff_cu_mo,        &
+               flux_lw, coszen, gust, Surf_diff,                                &
                moist_convect=convect)
 endif
 
@@ -321,7 +315,7 @@ if(.not.do_moist_in_phys_up()) then
     call moist_processes(1, ie-is+1, 1, je-js+1, Time_next, delta_t, frac_land, p_half, p_full, z_half, z_full, wg_full, &
                          get_diff_t(), get_radturbten(),                                                                 &
                          tg, qg, tracers, ug, vg, tg, qg, tracers, ug, vg, dt_tg, dt_qg, dt_tracers, dt_ug, dt_vg,       &
-                         diff_cu_mo, convect, lprec, fprec, gust_cv, area_2d, rad_lat_2d)
+                         convect, lprec, fprec, gust_cv, area_2d, rad_lat_2d)
     gust = sqrt( gust*gust + gust_cv*gust_cv)
     call zero_radturbten()
     tg = tg + dt_tg*delta_t
@@ -344,7 +338,6 @@ real, dimension(is:ie,js:je)  :: rconvect
 if(.not.module_is_initialized) return
 
 file = 'RESTART/spectral_physics.res.nc'
-call write_data(trim(file), 'diff_cu_mo', diff_cu_mo, grid_domain)
 where(convect)
   rconvect = 1.
 elsewhere
@@ -352,7 +345,7 @@ elsewhere
 endwhere
 call write_data(trim(file), 'convect', rconvect, grid_domain) ! pjp: No interface for reading/writing netcdf logicals
 
-deallocate(rad_lon_2d, rad_lat_2d, area_2d, diff_cu_mo, convect)
+deallocate(rad_lon_2d, rad_lat_2d, area_2d, convect)
 call physics_driver_end(Time)
 call moist_processes_end
 module_is_initialized = .false.

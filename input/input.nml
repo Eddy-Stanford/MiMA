@@ -137,7 +137,6 @@
      do_mca          =.false.,
      do_lsc          =.true.,
      do_strat        =.false., 
-     do_ras          =.false.,
      use_df_stuff = .true. /
 
  &betts_miller_nml

@@ -291,7 +291,6 @@ The moist processes parameters are set in `atmos_param/moist_processes/moist_pro
  :--- | :---: | :---
  do_mca | .true. | Do moist convective adjustment?
  do_lsc | .true. | Do large scale condensation?
- do_ras | .false. | Do relaxed Arakawa-Schubert?
  do_strat | .false. | Do stratiform clouds?
  do_dryadj | .false. | Do dry adjustment?
  do_rh_clodus | .false. | Do relative humidity cloud scheme?
