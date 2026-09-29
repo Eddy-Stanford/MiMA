@@ -586,6 +586,25 @@ call mpp_clock_begin( convection_clock )
         used = send_data ( id_t_conv_col, tempdiag, Time, is, js )
       end if
 
+!------- diagnostics for tracers from convection -------
+      do n = 1, size(tracertnd,4)
+        if (tracers_in_mca(n)) then
+          if ( id_tracerdt_conv(n) > 0 ) then
+            used = send_data ( id_tracerdt_conv(n), tracertnd(:,:,:,n), Time, is, js, 1, &
+                               rmask=mask )
+          endif
+
+!------- diagnostics for tracers column integral tendency ------
+          if ( id_tracerdt_conv_col(n) > 0 ) then
+            tempdiag(:,:)=0.
+            do k=1,kx
+              tempdiag(:,:) = tempdiag(:,:) + tracertnd(:,:,k,n)*pmass(:,:,k)
+            end do
+            used = send_data ( id_tracerdt_conv_col(n), tempdiag, Time, is, js )
+          end if
+        end if
+      enddo
+
 
 ! convection diagnostics
   call mpp_clock_end ( convection_clock )
