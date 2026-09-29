@@ -319,7 +319,7 @@ We want to re-evaporate outfalling precipitation if any of the layers below are 
 
 The new radiative transfer routine, which eventually calls the RRTM
 short and long wave modules, has a few parameters that do not affect
-RRTM directly. Those parameters are given in the first table and can be found in `atmos_param/rrtm_radiation/rrtm_radiation.f90` and namelist `rrtm_radiation_nml`.
+RRTM directly. Those parameters are given in the first table and can be found in `atmos_param/radiation/rrtm/rrtm_radiation.f90` and namelist `rrtm_radiation_nml`.
 
 
  Variable | Default Value | Meaning
@@ -399,7 +399,7 @@ each radiation time step before calling RRTM.
 
 #### Astronomy
 
-All things which define Earth versus other planets/planetary systems are set in `atmos_param/rrtm_radiation/astro.f90` and `astro_nml`.
+All things which define Earth versus other planets/planetary systems are set in `atmos_param/radiation/rrtm/astro.f90` and `astro_nml`.
 
 Variable | Default Value | Meaning
  :--- | :---: | :---

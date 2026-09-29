@@ -1,4 +1,4 @@
-module grey_radiation_mod
+module gray_radiation_mod
 
 ! ==================================================================================
 ! ==================================================================================
@@ -30,7 +30,7 @@ private
 ! version information 
 
 character(len=128), parameter :: version = &
-'$Id: grey_radiation.f90,v 1.1.2.2 2005/05/21 02:01:56 pjp Exp $'
+'$Id: gray_radiation.f90,v 1.1.2.2 2005/05/21 02:01:56 pjp Exp $'
 
 character(len=128), parameter :: tagname = &
 '$Name:  $'
@@ -39,7 +39,7 @@ character(len=128), parameter :: tagname = &
 
 ! public interfaces
 
-public :: grey_radiation_init, grey_radiation, grey_radiation_end              
+public :: gray_radiation_init, gray_radiation, gray_radiation_end              
 !==================================================================================
 
 
@@ -79,7 +79,7 @@ logical :: wave_source     = .FALSE.
 
 real, save :: pi, deg_to_rad , rad_to_deg
 
-namelist/grey_radiation_nml/ solar_constant, del_sol, &
+namelist/gray_radiation_nml/ solar_constant, del_sol, &
            ir_tau_eq, ir_tau_pole, atm_abs, sw_diff, long_pert, del_long, &
            size_pert, linear_tau, del_sw,                    &
            lat_pert, lon_pert, del_lat, del_lon, fcng_pert, &
@@ -107,7 +107,7 @@ contains
 ! ==================================================================================
 
 
-subroutine grey_radiation_init(axes, Time)
+subroutine gray_radiation_init(axes, Time)
 
 !-------------------------------------------------------------------------------------
 integer, intent(in), dimension(4) :: axes
@@ -121,14 +121,14 @@ integer :: ierr, io, unit
 unit = open_namelist_file ( )
 ierr=1
 do while (ierr /= 0)
-   read  (unit, nml=grey_radiation_nml, iostat=io, end=10)
-   ierr = check_nml_error (io, 'grey_radiation_nml')
+   read  (unit, nml=gray_radiation_nml, iostat=io, end=10)
+   ierr = check_nml_error (io, 'gray_radiation_nml')
 enddo
 10 call close_file (unit)
 
 call write_version_number ( version, tagname )
 if ( mpp_pe() == mpp_root_pe() ) then
-  write (stdlog(), nml=grey_radiation_nml)
+  write (stdlog(), nml=gray_radiation_nml)
 endif
 call close_file (unit)
 
@@ -204,12 +204,12 @@ initialized = .true.
 
 
 return
-end subroutine grey_radiation_init
+end subroutine gray_radiation_init
 
 
 ! ==================================================================================
 
-subroutine grey_radiation (is, js, Time_diag, lat, lon, p_half, albedo, t_surf, t, tdt, net_surf_sw_down, surf_lw_down)
+subroutine gray_radiation (is, js, Time_diag, lat, lon, p_half, albedo, t_surf, t, tdt, net_surf_sw_down, surf_lw_down)
 
 integer, intent(in)                 :: is, js
 type(time_type), intent(in)         :: Time_diag
@@ -397,13 +397,13 @@ swin = solar_down(:,:,1)
       endif
 
 return
-end subroutine grey_radiation
+end subroutine gray_radiation
 
 ! ==================================================================================
 
-subroutine grey_radiation_end()
-end subroutine grey_radiation_end
+subroutine gray_radiation_end()
+end subroutine gray_radiation_end
 
 ! ==================================================================================
 
-end module grey_radiation_mod
+end module gray_radiation_mod

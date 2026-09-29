@@ -72,8 +72,8 @@ set_source_files_properties (
 # need to waste time having the compiler apply probably
 # meaningless optimisation.  So we disable optimisation for these
 # files.
-src/atmos_param/rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_k_g.f90
-src/atmos_param/rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_k_g.f90
+src/atmos_param/radiation/rrtm/rrtmg_sw/gcm_model/src/rrtmg_sw_k_g.f90
+src/atmos_param/radiation/rrtm/rrtmg_lw/gcm_model/src/rrtmg_lw_k_g.f90
 PROPERTIES
 COMPILE_FLAGS -O0
 )

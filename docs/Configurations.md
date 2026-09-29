@@ -18,7 +18,7 @@ The radiation scheme is chosen with `radiation_scheme` in `radiation_nml`:
 ```
 
 * `'rrtm'` (default): RRTMG clear-sky radiation, configured with `rrtm_radiation_nml` and `astro_nml`.
-* `'gray'`: the gray radiation scheme of Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)), configured with `grey_radiation_nml`.
+* `'gray'`: the gray radiation scheme of Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)), configured with `gray_radiation_nml`.
 * `'none'`: no radiative heating and no radiative surface fluxes.
 
 ## Specified initial conditions

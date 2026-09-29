@@ -17,7 +17,7 @@ use fms_mod,            only: open_namelist_file, check_nml_error, close_file, &
                               error_mesg, FATAL, write_version_number
 use time_manager_mod,   only: time_type
 use constants_mod,      only: cp_air
-use grey_radiation_mod, only: grey_radiation_init, grey_radiation, grey_radiation_end
+use gray_radiation_mod, only: gray_radiation_init, gray_radiation, gray_radiation_end
 use rrtmg_lw_init,      only: rrtmg_lw_ini
 use rrtmg_sw_init,      only: rrtmg_sw_ini
 use rrtm_radiation,     only: rrtm_radiation_init, interp_temp, run_rrtmg, &
@@ -69,7 +69,7 @@ if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=radiation_nml)
 
 select case (trim(radiation_scheme))
 case ('gray')
-   call grey_radiation_init(axes, Time)
+   call gray_radiation_init(axes, Time)
 case ('rrtm')
    call rrtmg_lw_ini(cp_air)
    call rrtmg_sw_ini(cp_air)
@@ -105,7 +105,7 @@ real,            intent(inout), dimension(:,:)  :: coszen, flux_sw, flux_lw
 
 select case (trim(radiation_scheme))
 case ('gray')
-   call grey_radiation(is, js, Time_next, lat, lon, p_half, albedo, t_surf_rad, t, tdt, flux_sw, flux_lw)
+   call gray_radiation(is, js, Time_next, lat, lon, p_half, albedo, t_surf_rad, t, tdt, flux_sw, flux_lw)
    coszen = 1.0
 case ('rrtm')
    ! RRTM needs the temperature at half levels
@@ -138,7 +138,7 @@ subroutine radiation_end
 
 select case (trim(radiation_scheme))
 case ('gray')
-   call grey_radiation_end
+   call gray_radiation_end
 case ('rrtm')
    call rrtm_radiation_end
 end select
