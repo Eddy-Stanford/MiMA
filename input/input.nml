@@ -163,8 +163,6 @@
 
 
 
- &diffusivity_nml
-     do_entrain = .false /
 
  &surface_flux_nml
      use_virtual_temp = .false.,

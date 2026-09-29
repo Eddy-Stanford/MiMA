@@ -151,12 +151,6 @@ Variable | Recommended Value | Meaning
  no_surface_radiative_flux | .false. | use to turn off surface radiative fluxes
 
 
-Namelist `diffusivity_nml`
-
-Variable | Recommended Value | Meaning
- :--- | :---: | :---
-do_entrain          | .false. | don't account for entrainment (which is off anyway)
-
 
 ### Vertical numerics
 
@@ -496,18 +490,8 @@ fixed_depth | .false.
 depth_0     | 5000.0 
 frac_inner  | 0.1 
 rich_crit_pbl | 1.0 
-entr_ratio    |  0.2 
-znom                |  1000.0 
-free_atm_diff       | .false. 
-free_atm_skyhi_diff | .false. 
-rich_crit_diff      |  0.25 
-mix_len             | 30. 
-rich_prandtl        |  1.00 
 background_m        |  0.0 
 background_t        |  0.0 
-ampns               | .false. 
-ampns_max           | 1.0E20  
-do_entrain          | .true.
 
 
 ### Vertical numerics
