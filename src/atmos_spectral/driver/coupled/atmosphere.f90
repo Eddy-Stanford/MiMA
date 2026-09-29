@@ -3,8 +3,7 @@ module atmosphere_mod
 use               mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_SYNC
 
 use               fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, WARNING, write_version_number, set_domain, &
-                                 stdlog, close_file, open_namelist_file, check_nml_error, file_exist, field_size, &
-                                 read_data, write_data
+                                 file_exist, field_size, read_data, write_data
 
 use    physics_driver_mod, only: do_moist_in_phys_up
 
@@ -74,10 +73,6 @@ logical :: module_is_initialized=.false., atmos_domain_is_computed=.false.
 
 type(time_type) :: Time_step, Time_prev, Time_next
 
-logical :: do_mcm_moist_processes = .false.
-
-namelist / atmosphere_nml / do_mcm_moist_processes
-
 !------------------------------------------------------------------------------------------------
 
 contains
@@ -89,7 +84,7 @@ subroutine atmosphere_init(Time_init, Time, Time_step_in, Surf_diff)
 type(time_type),      intent(in)    :: Time_init, Time, Time_step_in
 type(surf_diff_type), intent(inout) :: Surf_diff
 
-integer :: j, k, ierr, io, time_level, unit, lon_max, lat_max, ntr, nt
+integer :: j, k, time_level, lon_max, lat_max, ntr, nt
 integer, dimension(4) :: siz
 character(len=64) :: file, tr_name
 character(len=4) :: ch1,ch2,ch3,ch4,ch5,ch6
@@ -99,16 +94,7 @@ if(module_is_initialized) return
 dynclock = mpp_clock_id('Dynamics', flags=MPP_CLOCK_SYNC)
 phyclock = mpp_clock_id('Physics',  flags=MPP_CLOCK_SYNC)
 
-unit = open_namelist_file()
-ierr=1
-do while (ierr /= 0)
-  read(unit, nml=atmosphere_nml, iostat=io, end=20)
-  ierr = check_nml_error (io, 'atmosphere_nml')
-  enddo
-20 call close_file (unit)
-
 call write_version_number(version, tagname)
-if(mpp_pe() == mpp_root_pe()) write (stdlog(), nml=atmosphere_nml)
 !-----------------------------------------------------------------------------------------
 
 !  because the time step is used in different ways,
@@ -181,7 +167,7 @@ else
   call get_initial_fields(ug(:,:,:,1), vg(:,:,:,1), tg(:,:,:,1), psg(:,:,1), grid_tracers(:,:,:,1,:))
 endif
 
-call spectral_physics_init(Time, get_axis_id(), Surf_diff, nhum, p_half, do_mcm_moist_processes)
+call spectral_physics_init(Time, get_axis_id(), Surf_diff, nhum, p_half)
 
 if(dry_model) then
   call compute_pressures_and_heights(tg(:,:,:,current), psg(:,:,current), z_full, z_half, p_full, p_half)
@@ -280,12 +266,7 @@ call spectral_dynamics(Time, psg(:,:,future), ug(:,:,:,future), vg(:,:,:,future)
                        dt_psg, dt_ug, dt_vg, dt_tg, dt_tracers, wg_full, p_full, p_half, z_full)
 call mpp_clock_end(dynclock)
 
-if(do_moist_in_phys_up()) then
-  if ( do_mcm_moist_processes ) then
-    call error_mesg('atmosphere_up','do_mcm_moist_processes cannot be .true. when moist_processes'// &
-                    ' is called by physics_driver_up', FATAL)
-  endif
-else
+if(.not.do_moist_in_phys_up()) then
   call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, psg(:,:,future))
   call spectral_physics_moist(Time_next, delta_t, frac_land, p_half, p_full, z_half, z_full, wg_full, &
                               tg(:,:,:,future), grid_tracers(:,:,:,future,nhum), ug(:,:,:,future), vg(:,:,:,future), &

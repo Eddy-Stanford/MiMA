@@ -1,6 +1,4 @@
 set ( ATMOS_SPECTRAL_SOURCES
-driver/coupled/mcm_mca_lsc.f90
-driver/coupled/mcm_moist_processes.f90
 driver/coupled/spectral_physics.f90
 driver/coupled/atmosphere.f90
 model/leapfrog.f90

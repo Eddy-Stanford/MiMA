@@ -21,8 +21,6 @@ use physics_driver_mod,    only: physics_driver_init, physics_driver_down, physi
 
 use moist_processes_mod,   only: moist_processes_init, moist_processes, moist_processes_end
 
-use mcm_moist_processes_mod, only: mcm_moist_processes, mcm_moist_processes_init, mcm_moist_processes_end
-
 use tracer_type_mod,       only: tracer_type
 
 use field_manager_mod,     only: MODEL_ATMOS
@@ -50,20 +48,18 @@ real, allocatable, dimension(:,:,:,:  ) :: diag_tracers
 integer :: num_levels, num_tracers, nhum
 integer :: is, ie, js, je
 logical :: module_is_initialized = .false.
-logical :: do_mcm_moist_processes
 
 contains
 
 !------------------------------------------------------------------------------------------------
 
-subroutine spectral_physics_init(Time, axes, Surf_diff, nhum_in, p_half, do_mcm_moist_processes_in)
+subroutine spectral_physics_init(Time, axes, Surf_diff, nhum_in, p_half)
 
 type(time_type), intent(in) :: Time
 integer, intent(in),    dimension(:) :: axes
 type(surf_diff_type), intent(inout) :: Surf_diff
 integer, intent(in) :: nhum_in
 real, intent(in), dimension(:,:,:) :: p_half
-logical, intent(in) :: do_mcm_moist_processes_in
 real, allocatable, dimension(:,:,:,:) :: grid_tracers
 
 real, allocatable, dimension(:) :: rad_lon, rad_lat, wts_lat, lon_boundaries, lat_boundaries
@@ -87,7 +83,6 @@ call fms_init
 call time_manager_init
 
 nhum = nhum_in
-do_mcm_moist_processes = do_mcm_moist_processes_in
 
 call get_grid_domain(is, ie, js, je)
 allocate(rad_lon(is:ie), rad_lat(js:je), wts_lat(js:je))
@@ -140,12 +135,8 @@ call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
 
 call set_domain(grid_domain)
 
-if(do_mcm_moist_processes) then
-  call mcm_moist_processes_init( ie-is+1, je-js+1, num_levels, axes, Time)
-else
-  call moist_processes_init(ie-is+1, je-js+1, num_levels, lon_boundaries, lat_boundaries, &
-                            radiation_ref_press(:,1), axes, Time)
-endif
+call moist_processes_init(ie-is+1, je-js+1, num_levels, lon_boundaries, lat_boundaries, &
+                          radiation_ref_press(:,1), axes, Time)
 
 allocate(grid_tracers(is:ie, js:je, num_levels, num_tracers))
 grid_tracers = 0.
@@ -326,15 +317,7 @@ real, dimension(size(gust,1), size(gust,2)) :: gust_cv
 
 dt_tg=0.; dt_qg=0.; dt_ug=0.; dt_vg=0.; dt_tracers=0.
 
-if(do_moist_in_phys_up()) then
-  if ( do_mcm_moist_processes ) then
-    call error_mesg('spectral_physics_moist','do_mcm_moist_processes cannot be .true. when moist_processes'// &
-                    ' is called by physics_driver_up', FATAL)
-  endif
-else
-  if ( do_mcm_moist_processes ) then
-    call mcm_moist_processes(1, ie-is+1, 1, je-js+1, Time_next, delta_t, p_half, p_full, tg, tracers(:,:,:,nhum), lprec, fprec)
-  else
+if(.not.do_moist_in_phys_up()) then
     call moist_processes(1, ie-is+1, 1, je-js+1, Time_next, delta_t, frac_land, p_half, p_full, z_half, z_full, wg_full, &
                          get_diff_t(), get_radturbten(),                                                                 &
                          tg, qg, tracers, ug, vg, tg, qg, tracers, ug, vg, dt_tg, dt_qg, dt_tracers, dt_ug, dt_vg,       &
@@ -346,7 +329,6 @@ else
     ug = ug + dt_ug*delta_t
     vg = vg + dt_vg*delta_t
     tracers = tracers + dt_tracers*delta_t
-  endif
 endif
 
 return
@@ -372,11 +354,7 @@ call write_data(trim(file), 'convect', rconvect, grid_domain) ! pjp: No interfac
 
 deallocate(rad_lon_2d, rad_lat_2d, area_2d, diff_cu_mo, convect)
 call physics_driver_end(Time)
-if(do_mcm_moist_processes) then
-  call mcm_moist_processes_end
-else
-  call moist_processes_end
-endif
+call moist_processes_end
 module_is_initialized = .false.
 
 return

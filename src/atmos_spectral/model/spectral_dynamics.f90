@@ -60,7 +60,7 @@ module spectral_dynamics_mod
 
    public :: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels
    public :: get_use_virtual_temperature, get_reference_sea_level_press, get_surf_geopotential
-   public :: get_pk_bk, complete_robert_filter, complete_update_of_future
+   public :: complete_robert_filter, complete_update_of_future
    public :: get_axis_id, spectral_diagnostics, get_initial_fields
 
 !===============================================================================================
@@ -1368,25 +1368,6 @@ contains
 
       return
    end subroutine get_num_levels
-!================================================================================
-   subroutine get_pk_bk(pk_out, bk_out)
-      real, intent(out), dimension(:) :: pk_out, bk_out
-      character(len=32) :: chtmp='size(pk)=      size(bk)=        '
-
-      if(.not.module_is_initialized) then
-         call error_mesg('get_pk_bk', 'spectral_dynamics_init has not been called.', FATAL)
-      endif
-      if(size(pk_out,1) /= size(bk_out,1)) then
-         write(chtmp(10:13),'(i4)') size(pk_out,1)
-         write(chtmp(25:28),'(i4)') size(bk_out,1)
-         call error_mesg('get_pk_bk', 'size(pk) is not equal to size(bk). '//chtmp, FATAL)
-      endif
-
-      pk_out = pk
-      bk_out = bk
-
-      return
-   end subroutine get_pk_bk
 !================================================================================
    subroutine complete_update_of_future(psg_in, ug_in, vg_in, tg_in, tracer_attributes, grid_tracers_in)
 
