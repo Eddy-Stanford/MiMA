@@ -995,9 +995,11 @@ if ((num_clim_diag + size(clim_type%field_name(:))) .gt. max_diag_fields )  &
 do i=1,size(clim_type%field_name(:))
 climo_diag_name(i+num_clim_diag) = clim_type%field_name(i)
 climo_diag_id(i+num_clim_diag) =  register_diag_field('climo',clim_type%field_name(i),axes(1:2),init_time,&
-                                'climo_'//clim_type%field_name(i), 'kg/kg', missing_value)
+                                'column integral of '//trim(clim_type%field_name(i))//' (climatology grid)', &
+                                'kg/m2', missing_value)
 hinterp_id(i+num_clim_diag) =  register_diag_field('hinterp',clim_type%field_name(i),mod_axes(1:2),init_time,&
-                                'interp_'//clim_type%field_name(i),'kg/kg' , missing_value)
+                                'column integral of '//trim(clim_type%field_name(i))//' (interpolated to the model grid)', &
+                                'kg/m2', missing_value)
 enddo
 ! Total number of climatology diagnostics (num_clim_diag). This can be from multiple climatology fields with different spatial axes. 
 ! It is simply a holder for the diagnostic indices.

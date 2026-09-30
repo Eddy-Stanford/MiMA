@@ -379,7 +379,7 @@ if (do_rayleigh) then
    id_tdt_diss_rdamp = &
    register_diag_field ( mod_name, 'tdt_diss_rdamp', axes(1:3), Time,  &
                       'Dissipative heating from Rayleigh damping',&
-                             'deg_k/s', missing_value=missing_value   )
+                             'K/s', missing_value=missing_value   )
 
    id_diss_heat_rdamp = &
    register_diag_field ( mod_name, 'diss_heat_rdamp', axes(1:2), Time,   &
@@ -408,23 +408,23 @@ if (do_mg_drag) then
 
    id_taubx = &
    register_diag_field ( mod_name, 'taubx', axes(1:2), Time,        &
-                         'x base flux for grav wave drag', 'kg/m/s2', &
+                         'x base flux for grav wave drag', 'N/m2', &
                          missing_value=missing_value               )
 
    id_tauby = &
    register_diag_field ( mod_name, 'tauby', axes(1:2), Time,        &
-                         'y base flux for grav wave drag', 'kg/m/s2', &
+                         'y base flux for grav wave drag', 'N/m2', &
                          missing_value=missing_value )
 
    id_taus = &
    register_diag_field ( mod_name, 'taus', axes(1:3), Time,        &
-                       'saturation flux for gravity wave drag', 'kg/m/s2', &
+                       'saturation flux for gravity wave drag', 'N/m2', &
                       missing_value=missing_value               )
 
    id_tdt_diss_gwd = &
    register_diag_field ( mod_name, 'tdt_diss_gwd', axes(1:3), Time,    &
                           'Dissipative heating from gravity wave drag',&
-                              'deg_k/s', missing_value=missing_value   )
+                              'K/s', missing_value=missing_value   )
 
    id_diss_heat_gwd = &
    register_diag_field ( mod_name, 'diss_heat_gwd', axes(1:2), Time,      &

@@ -1436,8 +1436,8 @@ contains
       axis_id(3) = id_pfull
       axis_id(4) = id_phalf
 
-      id_pk = register_static_field(mod_name, 'pk', (/id_phalf/), 'vertical coordinate pressure values', 'pascals')
-      id_bk = register_static_field(mod_name, 'bk', (/id_phalf/), 'vertical coordinate sigma values', 'none')
+      id_pk = register_static_field(mod_name, 'pk', (/id_phalf/), 'vertical coordinate pressure values', 'Pa')
+      id_bk = register_static_field(mod_name, 'bk', (/id_phalf/), 'vertical coordinate sigma values', '1')
       id_zsurf = register_static_field(mod_name, 'zsurf', (/id_lon,id_lat/), 'geopotential height at the surface', 'm')
 
       if(id_pk    > 0) used = send_data(id_pk, pk)
@@ -1445,55 +1445,55 @@ contains
       if(id_zsurf > 0) used = send_data(id_zsurf, surf_geopotential/grav)
 
       id_ps  = register_diag_field(mod_name, &
-         'ps', (/id_lon,id_lat/),       Time, 'surface pressure',             'pascals')
+         'ps', (/id_lon,id_lat/),       Time, 'surface pressure',             'Pa')
 
       id_u   = register_diag_field(mod_name, &
-         'ucomp',   axes_3d_full,       Time, 'zonal wind component',         'm/sec',      range=vrange)
+         'ucomp',   axes_3d_full,       Time, 'zonal wind component',         'm/s',        range=vrange)
 
       id_v   = register_diag_field(mod_name, &
-         'vcomp',   axes_3d_full,       Time, 'meridional wind component',    'm/sec',      range=vrange)
+         'vcomp',   axes_3d_full,       Time, 'meridional wind component',    'm/s',        range=vrange)
 
       id_uu  = register_diag_field(mod_name, &
-         'ucomp_sq',axes_3d_full,       Time, 'zonal wind squared',           '(m/sec)**2', range=(/0.,vrange(2)**2/))
+         'ucomp_sq',axes_3d_full,       Time, 'zonal wind squared',           'm2/s2', range=(/0.,vrange(2)**2/))
 
       id_vv  = register_diag_field(mod_name, &
-         'vcomp_sq',axes_3d_full,       Time, 'meridional wind squared',      '(m/sec)**2', range=(/0.,vrange(2)**2/))
+         'vcomp_sq',axes_3d_full,       Time, 'meridional wind squared',      'm2/s2', range=(/0.,vrange(2)**2/))
 
       id_uv  = register_diag_field(mod_name, &
-         'ucomp_vcomp', axes_3d_full, Time, 'zonal wind * meridional wind', '(m/sec)**2', range=(/-vrange(2)**2,vrange(2)**2/))
+         'ucomp_vcomp', axes_3d_full, Time, 'zonal wind * meridional wind', 'm2/s2', range=(/-vrange(2)**2,vrange(2)**2/))
 
       id_omega_t = register_diag_field(mod_name, &
-         'omega_temp',axes_3d_full,     Time, 'dp/dt * temperature',          'Pa*K/sec')
+         'omega_temp',axes_3d_full,     Time, 'dp/dt * temperature',          'Pa K/s')
 
       id_wspd= register_diag_field(mod_name, &
-         'wspd',    axes_3d_full,       Time, 'wind speed',                   'm/sec',      range=(/0.,vrange(2)/))
+         'wspd',    axes_3d_full,       Time, 'wind speed',                   'm/s',        range=(/0.,vrange(2)/))
 
       id_t   = register_diag_field(mod_name, &
-         'temp',    axes_3d_full,       Time, 'temperature',                  'deg_k',      range=trange)
+         'temp',    axes_3d_full,       Time, 'temperature',                  'K',          range=trange)
 
       id_tt  = register_diag_field(mod_name, &
-         'temp_sq', axes_3d_full,       Time, 'temperature squared',          'deg_k**2',   range=(/0.,trange(2)**2/))
+         'temp_sq', axes_3d_full,       Time, 'temperature squared',          'K2',         range=(/0.,trange(2)**2/))
 
       id_vor = register_diag_field(mod_name, &
-         'vor',     axes_3d_full,       Time, 'vorticity',                    'sec**-1')
+         'vor',     axes_3d_full,       Time, 'vorticity',                    '1/s')
 
       id_div = register_diag_field(mod_name, &
-         'div',     axes_3d_full,       Time, 'divergence',                   'sec**-1')
+         'div',     axes_3d_full,       Time, 'divergence',                   '1/s')
 
       id_div9 = register_diag_field(mod_name, &
-         'div217',  (/id_lon,id_lat/),  Time, 'level 9 divergence',           'sec**-1')
+         'div217',  (/id_lon,id_lat/),  Time, 'divergence at model level 9',  '1/s')
 
       id_omega = register_diag_field(mod_name, &
-         'omega',   axes_3d_full,       Time, 'dp/dt vertical velocity',      'Pa/sec')
+         'omega',   axes_3d_full,       Time, 'dp/dt vertical velocity',      'Pa/s')
 
       id_omega_omega = register_diag_field(mod_name, &
-         'omega_sq',axes_3d_full,       Time, 'omega squared',                '(Pa/sec)**2')
+         'omega_sq',axes_3d_full,       Time, 'omega squared',                'Pa2/s2')
 
       id_pres_full = register_diag_field(mod_name, &
-         'pres_full',    axes_3d_full,       Time, 'pressure at full model levels', 'pascals')
+         'pres_full',    axes_3d_full,       Time, 'pressure at full model levels', 'Pa')
 
       id_pres_half = register_diag_field(mod_name, &
-         'pres_half',    axes_3d_half,       Time, 'pressure at half model levels', 'pascals')
+         'pres_half',    axes_3d_half,       Time, 'pressure at half model levels', 'Pa')
 
       id_zfull   = register_diag_field(mod_name, &
          'height',  axes_3d_full,       Time, 'geopotential height at full model levels','m')
@@ -1502,7 +1502,7 @@ contains
          'height_half',  axes_3d_half,  Time, 'geopotential height at half model levels','m')
 
       id_slp = register_diag_field(mod_name, &
-         'slp',(/id_lon,id_lat/),       Time, 'sea level pressure',           'pascals')
+         'slp',(/id_lon,id_lat/),       Time, 'sea level pressure',           'Pa')
 
       if(id_slp > 0) then
          gamma = 0.006

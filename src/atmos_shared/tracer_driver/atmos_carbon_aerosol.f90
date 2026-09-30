@@ -492,10 +492,10 @@ integer :: n
 !
    id_emissbc = register_static_field ( 'tracers',                    &
                      'bcemiss', axes(1:2),       &
-                     'bcemiss', 'g/m2/s')
+                     'black carbon emission', 'g/m2/s')
    id_emissoc = register_static_field ( 'tracers',                    &
                      'ocemiss', axes(1:2),       &
-                     'ocemiss', 'g/m2/s')
+                     'organic carbon emission', 'g/m2/s')
 !
    allocate (bcsource(size(lonb(:))-1,size(latb(:))-1))
    allocate (ocsource(size(lonb(:))-1,size(latb(:))-1))

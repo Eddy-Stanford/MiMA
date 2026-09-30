@@ -90,7 +90,7 @@ line per registered field, whether or not it is in `diag_table`:
 
 ```
 Module|Field|Long Name|Units|Number of Axis|Time Axis|Missing Value|Min Value|Max Value|AXES LIST
-dynamics|ucomp|zonal wind component|m/sec|3|T||  -400.00000000000000|   400.00000000000000|lon,lat,pfull
+dynamics|ucomp|zonal wind component|m/s|3|T||  -400.00000000000000|   400.00000000000000|lon,lat,pfull
 ```
 
 **Fields that are not registered.** If a field line names a module/field that is not
@@ -162,7 +162,7 @@ Source files that CMake does not compile are left out.
 | [`moist`](#module-moist) | 30 |  | moist_processes.f90 |
 | [`radiation`](#module-radiation) | 19 | `radiation_scheme` (radiation): gray, rrtm | gray_radiation.f90, rrtm_radiation.f90 |
 | [`simple_surface`](#module-simple_surface) | 31 |  | simple_surface.f90 |
-| [`tracers`](#module-tracers) | 7 |  | atmos_carbon_aerosol.f90, atmos_convection_tracer.f90, atmos_radon.f90, atmos_sulfur_hex.f90, atmos_tracer_utilities.f90 |
+| [`tracers`](#module-tracers) | 6 |  | atmos_carbon_aerosol.f90, atmos_sulfur_hex.f90, atmos_tracer_utilities.f90 |
 | [`vert_diff`](#module-vert_diff) | 10 |  | vert_diff_driver.f90 |
 | [`vert_turb`](#module-vert_turb) | 8 |  | vert_turb_driver.f90 |
 
@@ -174,11 +174,11 @@ Registered only when `do_cg_drag` (damping_driver) and `do_damping` (physics_dri
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `bf_cgwd` | lon, lat, pfull | /s | buoyancy frequency from cg_drag |  | cg_drag.f90:393 |
-| `gwfu_cgwd` | lon, lat, pfull | m/s^2 | gravity wave forcing on mean zonal flow |  | cg_drag.f90:397 |
-| `gwfv_cgwd` | lon, lat, pfull | m/s^2 | gravity wave forcing on mean meridional flow |  | cg_drag.f90:401 |
-| `kedx_cgwd` | lon, lat, pfull | m^2/s | effective eddy viscosity from cg_drag |  | cg_drag.f90:405 |
-| `kedy_cgwd` | lon, lat, pfull | m^2/s | effective eddy viscosity from cg_drag |  | cg_drag.f90:409 |
+| `bf_cgwd` | lon, lat, pfull | 1/s | buoyancy frequency from cg_drag |  | cg_drag.f90:393 |
+| `gwfu_cgwd` | lon, lat, pfull | m/s2 | gravity wave forcing on mean zonal flow |  | cg_drag.f90:397 |
+| `gwfv_cgwd` | lon, lat, pfull | m/s2 | gravity wave forcing on mean meridional flow |  | cg_drag.f90:401 |
+| `kedx_cgwd` | lon, lat, pfull | m2/s | effective eddy viscosity from cg_drag (zonal) |  | cg_drag.f90:405 |
+| `kedy_cgwd` | lon, lat, pfull | m2/s | effective eddy viscosity from cg_drag (meridional) |  | cg_drag.f90:409 |
 
 <a id="module-climo"></a>
 
@@ -186,7 +186,7 @@ Registered only when `do_cg_drag` (damping_driver) and `do_damping` (physics_dri
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `{clim_type%field_name(i)}` | lon, lat | kg/kg | climo_{clim_type%field_name(i)} |  | interpolator.F90:989 |
+| `{clim_type%field_name(i)}` | lon, lat | kg/m2 | column integral of {clim_type%field_name(i)} (climatology grid) |  | interpolator.F90:997 |
 
 <a id="module-damping"></a>
 
@@ -199,11 +199,11 @@ Registered only when `do_damping` (physics_driver).
 | `diss_heat_gwd` | lon, lat | W/m2 | Integrated dissipative heating from gravity wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:430 |
 | `diss_heat_rdamp` | lon, lat | W/m2 | Integrated dissipative heating from Rayleigh damping | `do_rayleigh` (damping_driver) | damping_driver.f90:385 |
 | `sgsmtn` | lon, lat; static | m | sub-grid scale topography for gravity wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:394 |
-| `taubx` | lon, lat | kg/m/s2 | x base flux for grav wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:410 |
-| `tauby` | lon, lat | kg/m/s2 | y base flux for grav wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:415 |
-| `taus` | lon, lat, pfull | kg/m/s2 | saturation flux for gravity wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:420 |
-| `tdt_diss_gwd` | lon, lat, pfull | deg_k/s | Dissipative heating from gravity wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:425 |
-| `tdt_diss_rdamp` | lon, lat, pfull | deg_k/s | Dissipative heating from Rayleigh damping | `do_rayleigh` (damping_driver) | damping_driver.f90:380 |
+| `taubx` | lon, lat | N/m2 | x base flux for grav wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:410 |
+| `tauby` | lon, lat | N/m2 | y base flux for grav wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:415 |
+| `taus` | lon, lat, pfull | N/m2 | saturation flux for gravity wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:420 |
+| `tdt_diss_gwd` | lon, lat, pfull | K/s | Dissipative heating from gravity wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:425 |
+| `tdt_diss_rdamp` | lon, lat, pfull | K/s | Dissipative heating from Rayleigh damping | `do_rayleigh` (damping_driver) | damping_driver.f90:380 |
 | `udt_cgwd` | lon, lat, pfull | m/s2 | u wind tendency for cg gravity wave drag | `do_cg_drag` (damping_driver) | damping_driver.f90:438 |
 | `udt_cnstd` | lon, lat, pfull | m/s2 | u wind tendency for constant drag | `do_const_drag` (damping_driver) | damping_driver.f90:446 |
 | `udt_gwd` | lon, lat, pfull | m/s2 | u wind tendency for gravity wave drag | `do_mg_drag` (damping_driver) | damping_driver.f90:400 |
@@ -217,30 +217,30 @@ Registered only when `do_damping` (physics_driver).
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `<tracer>` | lon, lat, pfull | &lt;tracer_units&gt; | &lt;tracer_longname&gt; |  | spectral_dynamics.f90:1515 |
-| `bk` | phalf; static | none | vertical coordinate sigma values |  | spectral_dynamics.f90:1439 |
-| `div` | lon, lat, pfull | sec**-1 | divergence |  | spectral_dynamics.f90:1479 |
-| `div217` | lon, lat | sec**-1 | level 9 divergence |  | spectral_dynamics.f90:1482 |
-| `height` | lon, lat, pfull | m | geopotential height at full model levels |  | spectral_dynamics.f90:1497 |
-| `height_half` | lon, lat, phalf | m | geopotential height at half model levels |  | spectral_dynamics.f90:1500 |
-| `omega` | lon, lat, pfull | Pa/sec | dp/dt vertical velocity |  | spectral_dynamics.f90:1485 |
-| `omega_sq` | lon, lat, pfull | (Pa/sec)**2 | omega squared |  | spectral_dynamics.f90:1488 |
-| `omega_temp` | lon, lat, pfull | Pa*K/sec | dp/dt * temperature |  | spectral_dynamics.f90:1464 |
-| `pk` | phalf; static | pascals | vertical coordinate pressure values |  | spectral_dynamics.f90:1438 |
-| `pres_full` | lon, lat, pfull | pascals | pressure at full model levels |  | spectral_dynamics.f90:1491 |
-| `pres_half` | lon, lat, phalf | pascals | pressure at half model levels |  | spectral_dynamics.f90:1494 |
-| `ps` | lon, lat | pascals | surface pressure |  | spectral_dynamics.f90:1446 |
-| `slp` | lon, lat | pascals | sea level pressure |  | spectral_dynamics.f90:1503 |
-| `temp` | lon, lat, pfull | deg_k | temperature |  | spectral_dynamics.f90:1470 |
-| `temp_sq` | lon, lat, pfull | deg_k**2 | temperature squared |  | spectral_dynamics.f90:1473 |
-| `ucomp` | lon, lat, pfull | m/sec | zonal wind component |  | spectral_dynamics.f90:1449 |
-| `ucomp_sq` | lon, lat, pfull | (m/sec)**2 | zonal wind squared |  | spectral_dynamics.f90:1455 |
-| `ucomp_vcomp` | lon, lat, pfull | (m/sec)**2 | zonal wind * meridional wind |  | spectral_dynamics.f90:1461 |
-| `vcomp` | lon, lat, pfull | m/sec | meridional wind component |  | spectral_dynamics.f90:1452 |
-| `vcomp_sq` | lon, lat, pfull | (m/sec)**2 | meridional wind squared |  | spectral_dynamics.f90:1458 |
-| `vor` | lon, lat, pfull | sec**-1 | vorticity |  | spectral_dynamics.f90:1476 |
-| `wspd` | lon, lat, pfull | m/sec | wind speed |  | spectral_dynamics.f90:1467 |
-| `zsurf` | lon, lat; static | m | geopotential height at the surface |  | spectral_dynamics.f90:1440 |
+| `<tracer>` | lon, lat, pfull | &lt;tracer_units&gt; | &lt;tracer_longname&gt; |  | spectral_dynamics.f90:1516 |
+| `bk` | phalf; static | 1 | vertical coordinate sigma values |  | spectral_dynamics.f90:1440 |
+| `div` | lon, lat, pfull | 1/s | divergence |  | spectral_dynamics.f90:1480 |
+| `div217` | lon, lat | 1/s | divergence at model level 9 |  | spectral_dynamics.f90:1483 |
+| `height` | lon, lat, pfull | m | geopotential height at full model levels |  | spectral_dynamics.f90:1498 |
+| `height_half` | lon, lat, phalf | m | geopotential height at half model levels |  | spectral_dynamics.f90:1501 |
+| `omega` | lon, lat, pfull | Pa/s | dp/dt vertical velocity |  | spectral_dynamics.f90:1486 |
+| `omega_sq` | lon, lat, pfull | Pa2/s2 | omega squared |  | spectral_dynamics.f90:1489 |
+| `omega_temp` | lon, lat, pfull | Pa K/s | dp/dt * temperature |  | spectral_dynamics.f90:1465 |
+| `pk` | phalf; static | Pa | vertical coordinate pressure values |  | spectral_dynamics.f90:1439 |
+| `pres_full` | lon, lat, pfull | Pa | pressure at full model levels |  | spectral_dynamics.f90:1492 |
+| `pres_half` | lon, lat, phalf | Pa | pressure at half model levels |  | spectral_dynamics.f90:1495 |
+| `ps` | lon, lat | Pa | surface pressure |  | spectral_dynamics.f90:1447 |
+| `slp` | lon, lat | Pa | sea level pressure |  | spectral_dynamics.f90:1504 |
+| `temp` | lon, lat, pfull | K | temperature |  | spectral_dynamics.f90:1471 |
+| `temp_sq` | lon, lat, pfull | K2 | temperature squared |  | spectral_dynamics.f90:1474 |
+| `ucomp` | lon, lat, pfull | m/s | zonal wind component |  | spectral_dynamics.f90:1450 |
+| `ucomp_sq` | lon, lat, pfull | m2/s2 | zonal wind squared |  | spectral_dynamics.f90:1456 |
+| `ucomp_vcomp` | lon, lat, pfull | m2/s2 | zonal wind * meridional wind |  | spectral_dynamics.f90:1462 |
+| `vcomp` | lon, lat, pfull | m/s | meridional wind component |  | spectral_dynamics.f90:1453 |
+| `vcomp_sq` | lon, lat, pfull | m2/s2 | meridional wind squared |  | spectral_dynamics.f90:1459 |
+| `vor` | lon, lat, pfull | 1/s | vorticity |  | spectral_dynamics.f90:1477 |
+| `wspd` | lon, lat, pfull | m/s | wind speed |  | spectral_dynamics.f90:1468 |
+| `zsurf` | lon, lat; static | m | geopotential height at the surface |  | spectral_dynamics.f90:1441 |
 
 <a id="module-dynamics_every"></a>
 
@@ -248,53 +248,53 @@ Registered only when `do_damping` (physics_driver).
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `2dt_<tracer>` | lon, lat, pfull; static | &lt;tracer_units&gt; | Amplitude of 2*dt wave in &lt;tracer_longname&gt; |  | every_step_diagnostics.f90:193 |
-| `2dt_ps` | lon, lat; static | pascals | Amplitude of 2*dt wave in surface pressure |  | every_step_diagnostics.f90:186 |
-| `2dt_t` | lon, lat, pfull; static | deg_k | Amplitude of 2*dt wave in temperature |  | every_step_diagnostics.f90:189 |
-| `2dt_u` | lon, lat, pfull; static | m/sec | Amplitude of 2*dt wave in zonal wind |  | every_step_diagnostics.f90:187 |
-| `2dt_v` | lon, lat, pfull; static | m/sec | Amplitude of 2*dt wave in meridional wind |  | every_step_diagnostics.f90:188 |
-| `<tracer>_every` | lon, lat, pfull | &lt;tracer_units&gt; | &lt;tracer_longname&gt; |  | every_step_diagnostics.f90:163 |
-| `<tracer>_hadv` | lon, lat, pfull | &lt;tracer_units&gt; * kg_air/(sec*m^2) | Humidity production due to horizontal advection |  | every_step_diagnostics.f90:164 |
-| `<tracer>_vadv` | lon, lat, pfull | &lt;tracer_units&gt; * kg_air/(sec*m^2) | Humidity production due to vertical advection |  | every_step_diagnostics.f90:166 |
-| `dry_stat_en` | lon, lat, pfull | J/kg | dry static energy |  | every_step_diagnostics.f90:133 |
-| `entrop_dampt` | lon, lat, pfull | 1/s | Entropy prod from horiz diff of temp |  | every_step_diagnostics.f90:140 |
-| `entrop_dampuv` | lon, lat, pfull | 1/s | Entropy prod from horiz diff of vel |  | every_step_diagnostics.f90:138 |
-| `entrop_tempcor` | lon, lat, pfull | 1/s | Entropy tend due to hor diff temp corr |  | every_step_diagnostics.f90:148 |
-| `kegen` | lon, lat, pfull | K | kappa omega T/p, pressure weighted |  | every_step_diagnostics.f90:130 |
-| `kegenq` | lon, lat, pfull | K | kappa omega T q/p, pressure weighted |  | every_step_diagnostics.f90:131 |
-| `kegenqtinv` | lon, lat, pfull | K | kappa omega q/p, pressure weighted |  | every_step_diagnostics.f90:132 |
-| `moist_stat_en` | lon, lat, pfull | J/kg | moist static energy |  | every_step_diagnostics.f90:134 |
-| `omegap` | lon, lat, pfull | Pa/sec | dp/dt vertical velocity, pressure weighted |  | every_step_diagnostics.f90:127 |
-| `ps_every` | lon, lat | pascals | surface pressure |  | every_step_diagnostics.f90:108 |
-| `psi_dwc` | lat, pfull | m/s Pa | residual mean streamfunction |  | every_step_diagnostics.f90:155 |
-| `psi_star` | lat, pfull | m/s Pa | residual mean streamfunction |  | every_step_diagnostics.f90:156 |
-| `qdt_watercor` | lon, lat, pfull | 1/s | Humidity tend due to dynamics water correction |  | every_step_diagnostics.f90:146 |
-| `t_every` | lon, lat, pfull | deg_k | temperature |  | every_step_diagnostics.f90:111 |
-| `tdt_damp` | lon, lat, pfull | m/s**2 | Temperature tend from horiz diff |  | every_step_diagnostics.f90:137 |
-| `tdt_dampuv` | lon, lat, pfull | K/s | Temp tend (not applied) due to diff of winds |  | every_step_diagnostics.f90:142 |
-| `tdt_tempcor` | lon, lat, pfull | K/s | Temp tend due to dynamics temp correction |  | every_step_diagnostics.f90:144 |
-| `u_every` | lon, lat, pfull | m/sec | zonal wind component |  | every_step_diagnostics.f90:109 |
-| `udt_damp` | lon, lat, pfull | m/s**2 | Zonal wind tend from horiz diff |  | every_step_diagnostics.f90:135 |
-| `upvp` | lon, lat, pfull | m^2/s^2 | meridional eddy momentum flux |  | every_step_diagnostics.f90:152 |
-| `upwp` | lon, lat, pfull | m/s Pa/s | vertical eddy momentum flux |  | every_step_diagnostics.f90:153 |
-| `uv` | lon, lat, pfull | m**2/s**2 | uv |  | every_step_diagnostics.f90:115 |
-| `v_every` | lon, lat, pfull | m/sec | meridional wind component |  | every_step_diagnostics.f90:110 |
-| `vdse` | lon, lat, pfull | m/s J/kg | v DSE |  | every_step_diagnostics.f90:118 |
-| `vdt_damp` | lon, lat, pfull | m/s**2 | Merid wind tend from horiz diff |  | every_step_diagnostics.f90:136 |
-| `vp` | lon, lat, pfull | m/sec | meridional wind weighter by ps |  | every_step_diagnostics.f90:113 |
-| `vpTp` | lon, lat, pfull | m/s K | meridional eddy heat flux |  | every_step_diagnostics.f90:154 |
-| `vq` | lon, lat, pfull | m/s | vq |  | every_step_diagnostics.f90:116 |
-| `vqint` | lon, lat | m^2/s | vqint |  | every_step_diagnostics.f90:117 |
-| `wdse` | lon, lat, pfull | Pa/s J/kg | omega DSE |  | every_step_diagnostics.f90:122 |
-| `wdsep` | lon, lat, pfull | Pa/s J/kg | omega DSE pressure weighted |  | every_step_diagnostics.f90:126 |
-| `wq` | lon, lat, pfull | Pa/s | omega q |  | every_step_diagnostics.f90:121 |
-| `wqp` | lon, lat, pfull | Pa/s | omega q pressure weighted |  | every_step_diagnostics.f90:125 |
-| `wsubt` | lon, lat, pfull | K | kappa omega T/p, pressure weighted |  | every_step_diagnostics.f90:128 |
-| `wsubtv` | lon, lat, pfull | K | kappa omega Tv/p, pressure weighted |  | every_step_diagnostics.f90:129 |
-| `wu` | lon, lat, pfull | Pa/s m/s | omega u |  | every_step_diagnostics.f90:119 |
-| `wup` | lon, lat, pfull | Pa/s m/s | omega u pressure weighted |  | every_step_diagnostics.f90:123 |
-| `wv` | lon, lat, pfull | Pa/s m/s | omega v |  | every_step_diagnostics.f90:120 |
-| `wvp` | lon, lat, pfull | Pa/s m/s | omega v pressure weighted |  | every_step_diagnostics.f90:124 |
+| `2dt_<tracer>` | lon, lat, pfull; static | &lt;tracer_units&gt; | Amplitude of 2*dt wave in &lt;tracer_longname&gt; |  | every_step_diagnostics.f90:204 |
+| `2dt_ps` | lon, lat; static | Pa | Amplitude of 2*dt wave in surface pressure |  | every_step_diagnostics.f90:197 |
+| `2dt_t` | lon, lat, pfull; static | K | Amplitude of 2*dt wave in temperature |  | every_step_diagnostics.f90:200 |
+| `2dt_u` | lon, lat, pfull; static | m/s | Amplitude of 2*dt wave in zonal wind |  | every_step_diagnostics.f90:198 |
+| `2dt_v` | lon, lat, pfull; static | m/s | Amplitude of 2*dt wave in meridional wind |  | every_step_diagnostics.f90:199 |
+| `<tracer>_every` | lon, lat, pfull | &lt;tracer_units&gt; | &lt;tracer_longname&gt; |  | every_step_diagnostics.f90:172 |
+| `<tracer>_hadv` | lon, lat, pfull | &lt;tracer_units&gt; kg/m2/s | Global mean column integrated &lt;tracer_longname&gt; tendency due to horizontal advection |  | every_step_diagnostics.f90:173 |
+| `<tracer>_vadv` | lon, lat, pfull | &lt;tracer_units&gt; kg/m2/s | Global mean column integrated &lt;tracer_longname&gt; tendency due to vertical advection |  | every_step_diagnostics.f90:176 |
+| `dry_stat_en` | lon, lat, pfull | J/kg | dry static energy |  | every_step_diagnostics.f90:140 |
+| `entrop_dampt` | lon, lat, pfull | 1/s | Entropy prod from horiz diff of temp |  | every_step_diagnostics.f90:147 |
+| `entrop_dampuv` | lon, lat, pfull | 1/s | Entropy prod from horiz diff of vel |  | every_step_diagnostics.f90:145 |
+| `entrop_tempcor` | lon, lat, pfull | 1/s | Entropy tend due to hor diff temp corr |  | every_step_diagnostics.f90:155 |
+| `kegen` | lon, lat, pfull | K/s | kappa omega T/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00 |  | every_step_diagnostics.f90:134 |
+| `kegenq` | lon, lat, pfull | K/s kg/kg | kappa omega T q/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00 |  | every_step_diagnostics.f90:136 |
+| `kegenqtinv` | lon, lat, pfull | kg/kg/s | kappa omega q/p from the dynamical core, weighted by ps/p00 |  | every_step_diagnostics.f90:138 |
+| `moist_stat_en` | lon, lat, pfull | J/kg | moist static energy |  | every_step_diagnostics.f90:141 |
+| `omegap` | lon, lat, pfull | Pa/s | dp/dt vertical velocity, weighted by ps/p00 |  | every_step_diagnostics.f90:131 |
+| `ps_every` | lon, lat | Pa | surface pressure |  | every_step_diagnostics.f90:108 |
+| `psi_dwc` | lat, pfull | m/s Pa | residual mean streamfunction from downward control (EP flux divergence) |  | every_step_diagnostics.f90:162 |
+| `psi_star` | lat, pfull | m/s Pa | residual mean streamfunction (Eulerian mean minus eddy heat flux term) |  | every_step_diagnostics.f90:164 |
+| `qdt_watercor` | lon, lat, pfull | kg/kg/s | Humidity tend due to dynamics water correction |  | every_step_diagnostics.f90:153 |
+| `t_every` | lon, lat, pfull | K | temperature |  | every_step_diagnostics.f90:111 |
+| `tdt_damp` | lon, lat, pfull | K/s | Temperature tend from horiz diff |  | every_step_diagnostics.f90:144 |
+| `tdt_dampuv` | lon, lat, pfull | K/s | Temp tend (not applied) due to diff of winds |  | every_step_diagnostics.f90:149 |
+| `tdt_tempcor` | lon, lat, pfull | K/s | Temp tend due to dynamics temp correction |  | every_step_diagnostics.f90:151 |
+| `u_every` | lon, lat, pfull | m/s | zonal wind component |  | every_step_diagnostics.f90:109 |
+| `udt_damp` | lon, lat, pfull | m/s2 | Zonal wind tend from horiz diff |  | every_step_diagnostics.f90:142 |
+| `upvp` | lon, lat, pfull | m2/s2 | meridional eddy momentum flux |  | every_step_diagnostics.f90:159 |
+| `upwp` | lon, lat, pfull | m/s Pa/s | vertical eddy momentum flux |  | every_step_diagnostics.f90:160 |
+| `uv` | lon, lat, pfull | m2/s2 | zonal wind times meridional wind, weighted by ps/p00 |  | every_step_diagnostics.f90:115 |
+| `v_every` | lon, lat, pfull | m/s | meridional wind component |  | every_step_diagnostics.f90:110 |
+| `vdse` | lon, lat, pfull | m/s J/kg | meridional wind times dry static energy, weighted by ps/p00 |  | every_step_diagnostics.f90:121 |
+| `vdt_damp` | lon, lat, pfull | m/s2 | Merid wind tend from horiz diff |  | every_step_diagnostics.f90:143 |
+| `vp` | lon, lat, pfull | m/s | meridional wind, weighted by ps/p00 |  | every_step_diagnostics.f90:113 |
+| `vpTp` | lon, lat, pfull | m/s K | meridional eddy heat flux |  | every_step_diagnostics.f90:161 |
+| `vq` | lon, lat, pfull | m/s kg/kg | meridional wind times specific humidity, weighted by ps/p00 |  | every_step_diagnostics.f90:117 |
+| `vqint` | lon, lat | kg/m/s | vertically integrated meridional moisture flux |  | every_step_diagnostics.f90:119 |
+| `wdse` | lon, lat, pfull | Pa/s J/kg | omega DSE |  | every_step_diagnostics.f90:126 |
+| `wdsep` | lon, lat, pfull | Pa/s J/kg | omega DSE, weighted by ps/p00 |  | every_step_diagnostics.f90:130 |
+| `wq` | lon, lat, pfull | Pa/s kg/kg | omega q |  | every_step_diagnostics.f90:125 |
+| `wqp` | lon, lat, pfull | Pa/s kg/kg | omega q, weighted by ps/p00 |  | every_step_diagnostics.f90:129 |
+| `wsubt` | lon, lat, pfull | K/s | kappa omega T/p, weighted by ps/p00 |  | every_step_diagnostics.f90:132 |
+| `wsubtv` | lon, lat, pfull | K/s | kappa omega Tv/p, weighted by ps/p00 |  | every_step_diagnostics.f90:133 |
+| `wu` | lon, lat, pfull | Pa/s m/s | omega u |  | every_step_diagnostics.f90:123 |
+| `wup` | lon, lat, pfull | Pa/s m/s | omega u, weighted by ps/p00 |  | every_step_diagnostics.f90:127 |
+| `wv` | lon, lat, pfull | Pa/s m/s | omega v |  | every_step_diagnostics.f90:124 |
+| `wvp` | lon, lat, pfull | Pa/s m/s | omega v, weighted by ps/p00 |  | every_step_diagnostics.f90:128 |
 
 <a id="module-held_suarez"></a>
 
@@ -316,7 +316,7 @@ Registered only when `do_held_suarez` (physics_driver).
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `{clim_type%field_name(i)}` | lon, lat | kg/kg | interp_{clim_type%field_name(i)} |  | interpolator.F90:991 |
+| `{clim_type%field_name(i)}` | lon, lat | kg/m2 | column integral of {clim_type%field_name(i)} (interpolated to the model grid) |  | interpolator.F90:1000 |
 
 <a id="module-local_heating"></a>
 
@@ -337,13 +337,13 @@ Registered only when `do_mca` (moist_processes).
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
 | `<tracer>dt_MCA` | lon, lat, pfull | &lt;tracer_units&gt;/s | &lt;tracer&gt; tendency from MCA | `tracers_in_mca(tr)` | moist_conv.f90:618 |
-| `<tracer>dt_MCA_col` | lon, lat | &lt;tracer_units&gt;m2/kg/s | &lt;tracer&gt; path tendency from MCA | `tracers_in_mca(tr)` | moist_conv.f90:633 |
+| `<tracer>dt_MCA_col` | lon, lat | &lt;tracer_units&gt; kg/m2/s | &lt;tracer&gt; path tendency from MCA | `tracers_in_mca(tr)` | moist_conv.f90:633 |
 | `prec_conv` | lon, lat | kg/m2/s | Precipitation rate from moist conv adj |  | moist_conv.f90:561 |
 | `q_conv_col` | lon, lat | kg/m2/s | Water vapor path tendency from moist conv adj |  | moist_conv.f90:569 |
 | `qdt_conv` | lon, lat, pfull | kg/kg/s | Spec humidity tendency from moist conv adj |  | moist_conv.f90:556 |
 | `snow_conv` | lon, lat | kg/m2/s | Frozen precip rate from moist conv adj |  | moist_conv.f90:565 |
 | `t_conv_col` | lon, lat | W/m2 | Column static energy tendency from moist conv adj |  | moist_conv.f90:573 |
-| `tdt_conv` | lon, lat, pfull | deg_K/s | Temperature tendency from moist conv adj |  | moist_conv.f90:551 |
+| `tdt_conv` | lon, lat, pfull | K/s | Temperature tendency from moist conv adj |  | moist_conv.f90:551 |
 
 <a id="module-moist"></a>
 
@@ -352,17 +352,17 @@ Registered only when `do_mca` (moist_processes).
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
 | `<tracer>` | lon, lat, pfull | &lt;tracer_units&gt; | &lt;tracer&gt; |  | moist_processes.f90:1517 |
-| `<tracer>_col` | lon, lat | &lt;tracer_units&gt; | column integrated&lt;tracer&gt; |  | moist_processes.f90:1524 |
+| `<tracer>_col` | lon, lat | &lt;tracer_units&gt; kg/m2 | column integrated &lt;tracer&gt; |  | moist_processes.f90:1524 |
 | `<tracer>dt_conv` | lon, lat, pfull | &lt;tracer_units&gt;/s | &lt;tracer&gt; total tendency from moist convection | `tracers_in_mca(n)` | moist_processes.f90:1499 |
-| `<tracer>dt_conv_col` | lon, lat | &lt;tracer_units&gt;/s | &lt;tracer&gt; total path tendency from moist convection | `tracers_in_mca(n)` | moist_processes.f90:1508 |
-| `bmflag` | lon, lat | no units | Betts-Miller flag | `do_bm` (moist_processes) | moist_processes.f90:1369 |
-| `cape` | lon, lat | J/Kg | Convectively available potential energy |  | moist_processes.f90:1456 |
-| `cin` | lon, lat | J/Kg | Convective inhibition |  | moist_processes.f90:1460 |
+| `<tracer>dt_conv_col` | lon, lat | &lt;tracer_units&gt; kg/m2/s | &lt;tracer&gt; total path tendency from moist convection | `tracers_in_mca(n)` | moist_processes.f90:1508 |
+| `bmflag` | lon, lat | 1 | Betts-Miller flag | `do_bm` (moist_processes) | moist_processes.f90:1369 |
+| `cape` | lon, lat | J/kg | Convectively available potential energy |  | moist_processes.f90:1456 |
+| `cin` | lon, lat | J/kg | Convective inhibition |  | moist_processes.f90:1460 |
 | `entrop_ls` | lon, lat, pfull | 1/s | Entropy tendency from large-scale cond | `do_lsc` (moist_processes) | moist_processes.f90:1423 |
 | `gust_conv` | lon, lat | m/s | Gustiness from deep convection |  | moist_processes.f90:1416 |
 | `invtaubmq` | lon, lat | 1/s | Inverse humidity relaxation time | `do_bm` (moist_processes) | moist_processes.f90:1384 |
 | `invtaubmt` | lon, lat | 1/s | Inverse temperature relaxation time | `do_bm` (moist_processes) | moist_processes.f90:1380 |
-| `klzbs` | lon, lat | no units | klzb | `do_bm` (moist_processes) | moist_processes.f90:1373 |
+| `klzbs` | lon, lat | 1 | Betts-Miller level of zero buoyancy (model level index) | `do_bm` (moist_processes) | moist_processes.f90:1373 |
 | `prec_conv` | lon, lat | kg/m2/s | Precipitation rate |  | moist_processes.f90:1408 |
 | `prec_ls` | lon, lat | kg/m2/s | Precipitation rate from large-scale cond | `do_lsc` (moist_processes) | moist_processes.f90:1438 |
 | `precip` | lon, lat | kg/m2/s | Total precipitation rate |  | moist_processes.f90:1464 |
@@ -372,13 +372,13 @@ Registered only when `do_mca` (moist_processes).
 | `qdt_ls` | lon, lat, pfull | kg/kg/s | Spec humidity tendency from large-scale cond | `do_lsc` (moist_processes) | moist_processes.f90:1433 |
 | `qref` | lon, lat, pfull | kg/kg | Adjustment reference specific humidity profile | `do_bm` (moist_processes) | moist_processes.f90:1361 |
 | `rh` | lon, lat, pfull | percent | relative humidity |  | moist_processes.f90:1472 |
-| `rhsurf` | lon, lat | percent | Surface relative humidity |  | moist_processes.f90:1477 |
+| `rhsurf` | lon, lat | percent | Relative humidity at the lowest model level |  | moist_processes.f90:1477 |
 | `snow_conv` | lon, lat | kg/m2/s | Frozen precip rate |  | moist_processes.f90:1412 |
 | `snow_ls` | lon, lat | kg/m2/s | Frozen precip rate from large-scale cond | `do_lsc` (moist_processes) | moist_processes.f90:1442 |
 | `t_conv_col` | lon, lat | W/m2 | Column static energy tendency |  | moist_processes.f90:1404 |
 | `t_ls_col` | lon, lat | W/m2 | Column static energy tendency from large-scale cond | `do_lsc` (moist_processes) | moist_processes.f90:1450 |
-| `tdt_conv` | lon, lat, pfull | deg_K/s | Temperature tendency |  | moist_processes.f90:1390 |
-| `tdt_ls` | lon, lat, pfull | deg_K/s | Temperature tendency from large-scale cond | `do_lsc` (moist_processes) | moist_processes.f90:1428 |
+| `tdt_conv` | lon, lat, pfull | K/s | Temperature tendency |  | moist_processes.f90:1390 |
+| `tdt_ls` | lon, lat, pfull | K/s | Temperature tendency from large-scale cond | `do_lsc` (moist_processes) | moist_processes.f90:1428 |
 | `tref` | lon, lat, pfull | K | Adjustment reference temperature profile | `do_bm` (moist_processes) | moist_processes.f90:1365 |
 | `WVP` | lon, lat | kg/m2 | Column integrated water vapor |  | moist_processes.f90:1468 |
 
@@ -390,25 +390,25 @@ Which fields exist depends on `radiation_scheme` in `&radiation_nml`: **availabl
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `albedo_rad` | lon, lat | none | Surface albedo seen by the radiation | rrtm | rrtm_radiation.f90:268 |
-| `coszen` | lon, lat | none | cosine of zenith angle | rrtm | rrtm_radiation.f90:248 |
-| `entrop_rad` | lon, lat, pfull | 1/s | Entropy production by radiation | gray | gray_radiation.f90:184 |
-| `lwdn_sfc` | lon, lat | W/m2 | LW flux down at surface | gray, rrtm | gray_radiation.f90:162<br>rrtm_radiation.f90:256 |
-| `lwnet_half` | lon, lat, phalf | W/m2 | Net LW flux on half levels (positive up) | gray | gray_radiation.f90:176 |
-| `lwup_sfc` | lon, lat | W/m2 | LW flux up at surface | gray | gray_radiation.f90:157 |
-| `netrad_half` | lon, lat, phalf | W/m2 | Net radiative flux on half levels (positive up) | gray | gray_radiation.f90:172 |
-| `olr` | lon, lat | W/m2 | Outgoing longwave radiation at TOA | gray, rrtm | gray_radiation.f90:145<br>rrtm_radiation.f90:260 |
-| `ozone` | lon, lat, pfull | mmr | Ozone | rrtm | rrtm_radiation.f90:272 |
-| `swdn_toa` | lon, lat | W/m2 | SW flux down at TOA | gray | gray_radiation.f90:153 |
-| `swnet_half` | lon, lat, phalf | W/m2 | Net SW flux on half levels (positive up) | gray | gray_radiation.f90:180 |
-| `swnet_sfc` | lon, lat | W/m2 | Net SW flux at surface (positive down) | gray, rrtm | gray_radiation.f90:149<br>rrtm_radiation.f90:252 |
-| `swnet_toa` | lon, lat | W/m2 | Net SW flux at TOA (positive down) | rrtm | rrtm_radiation.f90:264 |
-| `tau_lw` | lon, lat, phalf | 1 | LW optical depth on half levels | gray | gray_radiation.f90:188 |
-| `tau_sw` | lon, lat, phalf | 1 | SW optical depth on half levels | gray | gray_radiation.f90:192 |
-| `tdt_lw` | lon, lat, pfull | K/s | Temperature tendency due to LW radiation | rrtm | rrtm_radiation.f90:244 |
-| `tdt_rad` | lon, lat, pfull | K/s | Temperature tendency due to radiation | gray, rrtm | gray_radiation.f90:167<br>rrtm_radiation.f90:236 |
-| `tdt_sw` | lon, lat, pfull | K/s | Temperature tendency due to SW radiation | rrtm | rrtm_radiation.f90:240 |
-| `thalf` | lon, lat, phalf | K | Temperature on half levels | rrtm | rrtm_radiation.f90:276 |
+| `albedo_rad` | lon, lat | 1 | Surface albedo seen by the radiation | gray, rrtm | gray_radiation.f90:165<br>rrtm_radiation.f90:279 |
+| `coszen` | lon, lat | 1 | cosine of zenith angle | rrtm | rrtm_radiation.f90:251 |
+| `entrop_rad` | lon, lat, pfull | 1/s | Entropy production by radiation | gray | gray_radiation.f90:192 |
+| `lwdn_sfc` | lon, lat | W/m2 | LW flux down at surface | gray, rrtm | gray_radiation.f90:170<br>rrtm_radiation.f90:259 |
+| `lwnet_half` | lon, lat, phalf | W/m2 | Net LW flux on half levels (positive up) | gray | gray_radiation.f90:184 |
+| `lwup_sfc` | lon, lat | W/m2 | LW flux up at surface | gray, rrtm | gray_radiation.f90:161<br>rrtm_radiation.f90:275 |
+| `netrad_half` | lon, lat, phalf | W/m2 | Net radiative flux on half levels (positive up) | gray | gray_radiation.f90:180 |
+| `olr` | lon, lat | W/m2 | Outgoing longwave radiation at TOA | gray, rrtm | gray_radiation.f90:145<br>rrtm_radiation.f90:263 |
+| `ozone` | lon, lat, pfull | kg/kg | Ozone mass mixing ratio | rrtm | rrtm_radiation.f90:283 |
+| `swdn_toa` | lon, lat | W/m2 | SW flux down at TOA | gray, rrtm | gray_radiation.f90:153<br>rrtm_radiation.f90:271 |
+| `swnet_half` | lon, lat, phalf | W/m2 | Net SW flux on half levels (positive up) | gray | gray_radiation.f90:188 |
+| `swnet_sfc` | lon, lat | W/m2 | Net SW flux at surface (positive down) | gray, rrtm | gray_radiation.f90:149<br>rrtm_radiation.f90:255 |
+| `swnet_toa` | lon, lat | W/m2 | Net SW flux at TOA (positive down) | gray, rrtm | gray_radiation.f90:157<br>rrtm_radiation.f90:267 |
+| `tau_lw` | lon, lat, phalf | 1 | LW optical depth on half levels | gray | gray_radiation.f90:196 |
+| `tau_sw` | lon, lat, phalf | 1 | SW optical depth on half levels | gray | gray_radiation.f90:200 |
+| `tdt_lw` | lon, lat, pfull | K/s | Temperature tendency due to LW radiation | rrtm | rrtm_radiation.f90:247 |
+| `tdt_rad` | lon, lat, pfull | K/s | Temperature tendency due to radiation | gray, rrtm | gray_radiation.f90:175<br>rrtm_radiation.f90:239 |
+| `tdt_sw` | lon, lat, pfull | K/s | Temperature tendency due to SW radiation | rrtm | rrtm_radiation.f90:243 |
+| `thalf` | lon, lat, phalf | K | Temperature on half levels | rrtm | rrtm_radiation.f90:287 |
 
 <a id="module-simple_surface"></a>
 
@@ -416,37 +416,37 @@ Which fields exist depends on `radiation_scheme` in `&radiation_nml`: **availabl
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `albedo` | lon, lat | none | surface albedo |  | simple_surface.f90:1076 |
-| `b_star` | lon, lat | m/s2 | buoyancy scale |  | simple_surface.f90:1000 |
-| `del_h` | lon, lat | none | ref height interp factor for heat |  | simple_surface.f90:1067 *(never sent)* |
-| `del_m` | lon, lat | none | ref height interp factor for momentum |  | simple_surface.f90:1070 *(never sent)* |
-| `del_q` | lon, lat | none | ref height interp factor for moisture |  | simple_surface.f90:1073 *(never sent)* |
-| `drag_heat` | lon, lat | none | drag coeff for heat |  | simple_surface.f90:976 |
-| `drag_moist` | lon, lat | none | drag coeff for moisture |  | simple_surface.f90:972 |
-| `drag_mom` | lon, lat | none | drag coeff for momentum |  | simple_surface.f90:980 |
-| `entrop_evap` | lon, lat | kg/m2/s/K | entropy source from evap |  | simple_surface.f90:1082 |
-| `entrop_lwflx` | lon, lat | w/m2/K | entropy source from LW flux |  | simple_surface.f90:1090 |
-| `entrop_shflx` | lon, lat | w/m2/K | entropy source from SH flux |  | simple_surface.f90:1086 |
-| `evap` | lon, lat | kg/m2/s | evaporation rate |  | simple_surface.f90:1021 |
-| `heat_capacity` | lon, lat | none | mixed layer heat capacity |  | simple_surface.f90:1079 |
-| `lwflx` | lon, lat | w/m2 | net (down-up) longwave flux |  | simple_surface.f90:1029 |
-| `oflx` | lon, lat | w/m2 | prescribed ocean heat divergence |  | simple_surface.f90:1025 |
-| `rh_ref` | lon, lat | percent | relative humidity at {z_ref_heat} |  | simple_surface.f90:1053 *(never sent)* |
-| `rough_heat` | lon, lat | m | surface roughness for heat |  | simple_surface.f90:988 |
-| `rough_moist` | lon, lat | m | surface roughness for moisture |  | simple_surface.f90:984 |
-| `rough_mom` | lon, lat | m | surface roughness for momentum |  | simple_surface.f90:992 |
-| `shflx` | lon, lat | w/m2 | sensible heat flux |  | simple_surface.f90:1017 |
-| `t_atm` | lon, lat | deg_k | temperature at btm level |  | simple_surface.f90:1033 |
-| `t_ref` | lon, lat | deg_k | temperature at {z_ref_heat} |  | simple_surface.f90:1048 *(never sent)* |
-| `t_surf` | lon, lat | deg_k | surface temperature |  | simple_surface.f90:1012 |
-| `tau_x` | lon, lat | pa | zonal wind stress |  | simple_surface.f90:1004 *(never sent)* |
-| `tau_y` | lon, lat | pa | meridional wind stress |  | simple_surface.f90:1008 *(never sent)* |
-| `u_atm` | lon, lat | m/s | u wind component at btm level |  | simple_surface.f90:1038 |
-| `u_ref` | lon, lat | m/s | zonal wind component at {z_ref_mom} |  | simple_surface.f90:1057 *(never sent)* |
-| `u_star` | lon, lat | m/s | friction velocity |  | simple_surface.f90:996 |
-| `v_atm` | lon, lat | m/s | v wind component at btm level |  | simple_surface.f90:1043 |
-| `v_ref` | lon, lat | m/s | meridional wind component at {z_ref_mom} |  | simple_surface.f90:1062 *(never sent)* |
-| `wind` | lon, lat | m/s | wind speed for flux calculations |  | simple_surface.f90:967 |
+| `albedo` | lon, lat | 1 | surface albedo |  | simple_surface.f90:1152 |
+| `b_star` | lon, lat | m/s2 | buoyancy scale |  | simple_surface.f90:1076 |
+| `del_h` | lon, lat | 1 | Monin-Obukhov profile factor (T({z_ref_heat})-T_surf)/(T_atm-T_surf) |  | simple_surface.f90:1143 |
+| `del_m` | lon, lat | 1 | Monin-Obukhov profile factor u({z_ref_mom})/u_atm |  | simple_surface.f90:1146 |
+| `del_q` | lon, lat | 1 | Monin-Obukhov profile factor (q({z_ref_heat})-q_surf)/(q_atm-q_surf) |  | simple_surface.f90:1149 |
+| `drag_heat` | lon, lat | 1 | drag coeff for heat |  | simple_surface.f90:1052 |
+| `drag_moist` | lon, lat | 1 | drag coeff for moisture |  | simple_surface.f90:1048 |
+| `drag_mom` | lon, lat | 1 | drag coeff for momentum |  | simple_surface.f90:1056 |
+| `entrop_evap` | lon, lat | kg/m2/s/K | entropy source from evap |  | simple_surface.f90:1158 |
+| `entrop_lwflx` | lon, lat | W/m2/K | entropy source from LW flux |  | simple_surface.f90:1166 |
+| `entrop_shflx` | lon, lat | W/m2/K | entropy source from SH flux |  | simple_surface.f90:1162 |
+| `evap` | lon, lat | kg/m2/s | evaporation rate |  | simple_surface.f90:1097 |
+| `heat_capacity` | lon, lat | J/m2/K | mixed layer heat capacity |  | simple_surface.f90:1155 |
+| `lwflx` | lon, lat | W/m2 | net (down-up) longwave flux |  | simple_surface.f90:1105 |
+| `oflx` | lon, lat | W/m2 | prescribed ocean heat divergence |  | simple_surface.f90:1101 |
+| `rh_ref` | lon, lat | percent | relative humidity at {z_ref_heat} (100 q/q_sat) |  | simple_surface.f90:1129 |
+| `rough_heat` | lon, lat | m | surface roughness for heat |  | simple_surface.f90:1064 |
+| `rough_moist` | lon, lat | m | surface roughness for moisture |  | simple_surface.f90:1060 |
+| `rough_mom` | lon, lat | m | surface roughness for momentum |  | simple_surface.f90:1068 |
+| `shflx` | lon, lat | W/m2 | sensible heat flux |  | simple_surface.f90:1093 |
+| `t_atm` | lon, lat | K | temperature at btm level |  | simple_surface.f90:1109 |
+| `t_ref` | lon, lat | K | air temperature at {z_ref_heat} |  | simple_surface.f90:1124 |
+| `t_surf` | lon, lat | K | surface temperature |  | simple_surface.f90:1088 |
+| `tau_x` | lon, lat | N/m2 | zonal surface stress on the atmosphere (positive eastward) |  | simple_surface.f90:1080 |
+| `tau_y` | lon, lat | N/m2 | meridional surface stress on the atmosphere (positive northward) |  | simple_surface.f90:1084 |
+| `u_atm` | lon, lat | m/s | u wind component at btm level |  | simple_surface.f90:1114 |
+| `u_ref` | lon, lat | m/s | zonal wind at {z_ref_mom} |  | simple_surface.f90:1133 |
+| `u_star` | lon, lat | m/s | friction velocity |  | simple_surface.f90:1072 |
+| `v_atm` | lon, lat | m/s | v wind component at btm level |  | simple_surface.f90:1119 |
+| `v_ref` | lon, lat | m/s | meridional wind at {z_ref_mom} |  | simple_surface.f90:1138 |
+| `wind` | lon, lat | m/s | wind speed for flux calculations |  | simple_surface.f90:1043 |
 
 <a id="module-tracers"></a>
 
@@ -454,13 +454,12 @@ Which fields exist depends on `radiation_scheme` in `&radiation_nml`: **availabl
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `bcemiss` | lon, lat; static | g/m2/s | bcemiss | `nbcphobic > 0` | atmos_carbon_aerosol.f90:493 |
-| `ocemiss` | lon, lat; static | g/m2/s | ocemiss | `nbcphobic > 0` | atmos_carbon_aerosol.f90:496 |
-| `rnemiss` | lon, lat; static | g/m2/s | rnemiss |  | atmos_convection_tracer.f90:269 *(never sent)*<br>atmos_radon.f90:300 *(never sent)* |
-| `sf6emiss` | lon, lat; static | g/m2/s | sulfhexemiss | `nsf6 > 0` | atmos_sulfur_hex.f90:298 |
-| `{tracer_ddep_names(n)}` | lon, lat | {tracer_units(n)} kg/(m2 s) | {tracer_ddep_longnames(n)} |  | atmos_tracer_utilities.f90:185 |
-| `{tracer_wdep_names(n)}_cv` | lon, lat | {tracer_units(n)} kg/(m2 s) | {tracer_wdep_longnames(n)} in convective scheme |  | atmos_tracer_utilities.f90:193 |
-| `{tracer_wdep_names(n)}_ls` | lon, lat | {tracer_units(n)} kg/(m2 s) | {tracer_wdep_longnames(n)} in large scale |  | atmos_tracer_utilities.f90:189 |
+| `bcemiss` | lon, lat; static | g/m2/s | black carbon emission | `nbcphobic > 0` | atmos_carbon_aerosol.f90:493 |
+| `ocemiss` | lon, lat; static | g/m2/s | organic carbon emission | `nbcphobic > 0` | atmos_carbon_aerosol.f90:496 |
+| `sf6emiss` | lon, lat; static | g/m2/s | SF6 emission | `nsf6 > 0` | atmos_sulfur_hex.f90:298 |
+| `{tracer_ddep_names(n)}` | lon, lat | {tracer_units(n)} kg/m2/s | {tracer_ddep_longnames(n)} |  | atmos_tracer_utilities.f90:185 |
+| `{tracer_wdep_names(n)}_cv` | lon, lat | {tracer_units(n)} kg/m2/s | {tracer_wdep_longnames(n)} in convective scheme |  | atmos_tracer_utilities.f90:193 |
+| `{tracer_wdep_names(n)}_ls` | lon, lat | {tracer_units(n)} kg/m2/s | {tracer_wdep_longnames(n)} in large scale |  | atmos_tracer_utilities.f90:189 |
 
 <a id="module-vert_diff"></a>
 
@@ -474,8 +473,8 @@ Which fields exist depends on `radiation_scheme` in `&radiation_nml`: **availabl
 | `evap_vdif` | lon, lat | kg/m2/s | Integrated moisture flux from vert diff |  | vert_diff_driver.f90:401 |
 | `qdt_vdif` | lon, lat, pfull | kg/kg/s | Spec humidity tendency from vert diff |  | vert_diff_driver.f90:381 |
 | `sens_vdif` | lon, lat | W/m2 | Integrated heat flux from vert diff |  | vert_diff_driver.f90:396 |
-| `tdt_diss_vdif` | lon, lat, pfull | deg_K/s | Dissipative heating from vert_diff |  | vert_diff_driver.f90:406 |
-| `tdt_vdif` | lon, lat, pfull | deg_K/s | Temperature tendency from vert diff |  | vert_diff_driver.f90:376 |
+| `tdt_diss_vdif` | lon, lat, pfull | K/s | Dissipative heating from vert diff |  | vert_diff_driver.f90:406 |
+| `tdt_vdif` | lon, lat, pfull | K/s | Temperature tendency from vert diff |  | vert_diff_driver.f90:376 |
 | `udt_vdif` | lon, lat, pfull | m/s2 | Zonal wind tendency from vert diff |  | vert_diff_driver.f90:386 |
 | `vdt_vdif` | lon, lat, pfull | m/s2 | Meridional wind tendency from vert diff |  | vert_diff_driver.f90:391 |
 
@@ -488,9 +487,9 @@ Which fields exist depends on `radiation_scheme` in `&radiation_nml`: **availabl
 | `diff_m` | lon, lat, phalf | m2/s | vert diff coeff for momentum |  | vert_turb_driver.f90:315 |
 | `diff_t` | lon, lat, phalf | m2/s | vert diff coeff for temp |  | vert_turb_driver.f90:310 |
 | `gust` | lon, lat | m/s | wind gustiness in surface layer |  | vert_turb_driver.f90:306 |
-| `uwnd` | lon, lat, pfull | meters/second | zonal wind on mass grid |  | vert_turb_driver.f90:283 |
-| `vwnd` | lon, lat, pfull | meters/second | meridional wind on mass grid |  | vert_turb_driver.f90:287 |
-| `z_full` | lon, lat, pfull | meters | geopotential height relative to surface at full levels |  | vert_turb_driver.f90:292 |
-| `z_half` | lon, lat, phalf | meters | geopotential height relative to surface at half levels |  | vert_turb_driver.f90:297 |
+| `uwnd` | lon, lat, pfull | m/s | zonal wind on mass grid |  | vert_turb_driver.f90:283 |
+| `vwnd` | lon, lat, pfull | m/s | meridional wind on mass grid |  | vert_turb_driver.f90:287 |
+| `z_full` | lon, lat, pfull | m | geopotential height relative to surface at full levels |  | vert_turb_driver.f90:292 |
+| `z_half` | lon, lat, phalf | m | geopotential height relative to surface at half levels |  | vert_turb_driver.f90:297 |
 | `z_pbl` | lon, lat | m | depth of planetary boundary layer |  | vert_turb_driver.f90:302 |
 

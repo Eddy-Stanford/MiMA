@@ -2068,7 +2068,7 @@ line per registered field, whether or not it is in `diag_table`:
 
 ```
 Module|Field|Long Name|Units|Number of Axis|Time Axis|Missing Value|Min Value|Max Value|AXES LIST
-dynamics|ucomp|zonal wind component|m/sec|3|T||  -400.00000000000000|   400.00000000000000|lon,lat,pfull
+dynamics|ucomp|zonal wind component|m/s|3|T||  -400.00000000000000|   400.00000000000000|lon,lat,pfull
 ```
 
 **Fields that are not registered.** If a field line names a module/field that is not

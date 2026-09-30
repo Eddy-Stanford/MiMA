@@ -250,7 +250,7 @@
           id_coszen  = &
                register_diag_field ( mod_name, 'coszen', axes(1:2), Time, &
                  'cosine of zenith angle', &
-                 'none', missing_value=missing_value               )
+                 '1', missing_value=missing_value               )
           id_flux_sw = &
                register_diag_field ( mod_name, 'swnet_sfc', axes(1:2), Time, &
                  'Net SW flux at surface (positive down)', &
@@ -278,11 +278,11 @@
           id_albedo  = &
                register_diag_field ( mod_name, 'albedo_rad', axes(1:2), Time, &
                  'Surface albedo seen by the radiation', &
-                 'none', missing_value=missing_value               )
+                 '1', missing_value=missing_value               )
           id_ozone   = &
                register_diag_field ( mod_name, 'ozone', axes(1:3), Time, &
-                 'Ozone', &
-                 'mmr', missing_value=missing_value               )
+                 'Ozone mass mixing ratio', &
+                 'kg/kg', missing_value=missing_value               )
           id_thalf   = &
                register_diag_field ( mod_name, 'thalf', (/axes(1),axes(2),axes(4)/), Time, &
                  'Temperature on half levels', &

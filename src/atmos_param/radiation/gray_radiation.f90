@@ -164,7 +164,7 @@ initialized = .true.
     id_albedo = &
     register_diag_field ( mod_name, 'albedo_rad', axes(1:2), Time, &
                'Surface albedo seen by the radiation', &
-               'none', missing_value=missing_value               )
+               '1', missing_value=missing_value               )
 
     id_lwdn_sfc = &
     register_diag_field ( mod_name, 'lwdn_sfc', axes(1:2), Time, &

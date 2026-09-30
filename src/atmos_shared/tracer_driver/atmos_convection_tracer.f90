@@ -31,8 +31,7 @@ use              fms_mod,       only : &
                                        mpp_pe, mpp_root_pe, stdlog
 use fms2_io_mod, only: file_exists
 use     time_manager_mod,       only : time_type
-use     diag_manager_mod,       only : send_data,            &
-                                       register_static_field
+use     diag_manager_mod,       only : send_data
 use   tracer_manager_mod,       only : get_tracer_index
 use    field_manager_mod,       only : MODEL_ATMOS
 use atmos_tracer_utilities_mod, only : wet_deposition,       &
@@ -62,10 +61,6 @@ namelist /atmos_convection_tracer_nml/  &
 
 character(len=6), parameter :: module_name = 'tracer'
 
-
-!--- identification numbers for  diagnostic fields and axes ----
-
-integer :: id_emiss
 
 logical :: module_is_initialized=.FALSE.
 
@@ -264,11 +259,6 @@ integer :: nn
 
   30        format (A,' was initialized as tracer number ',i2)
 !
-
-! Register a static field for the emissions of your tracer
-     id_emiss = register_static_field ( 'tracers',                    &
-                     'rnemiss', axes(1:2),       &
-                     'rnemiss', 'g/m2/s')
 
 !---------------------------------------------------------------------
 !    if a convection_tracer.res file exists, it will have been prev-

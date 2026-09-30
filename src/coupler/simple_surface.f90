@@ -1046,15 +1046,15 @@ subroutine diag_field_init ( Time, atmos_axes )
 
    id_drag_moist = &
    register_diag_field ( mod_name, 'drag_moist', atmos_axes, Time, &
-                        'drag coeff for moisture',    'none'     )
+                        'drag coeff for moisture',    '1'     )
 
    id_drag_heat  = &
    register_diag_field ( mod_name, 'drag_heat', atmos_axes, Time, &
-                        'drag coeff for heat',    'none'     )
+                        'drag coeff for heat',    '1'     )
 
    id_drag_mom   = &
    register_diag_field ( mod_name, 'drag_mom',  atmos_axes, Time, &
-                        'drag coeff for momentum',     'none'     )
+                        'drag coeff for momentum',     '1'     )
 
    id_rough_moist = &
    register_diag_field ( mod_name, 'rough_moist', atmos_axes, Time, &
@@ -1086,12 +1086,12 @@ subroutine diag_field_init ( Time, atmos_axes )
 
    id_t_surf     = &
    register_diag_field ( mod_name, 't_surf',     atmos_axes, Time, &
-                        'surface temperature',    'deg_k', &
+                        'surface temperature',    'K', &
                         range=trange    )
 
    id_t_flux     = &
    register_diag_field ( mod_name, 'shflx',      atmos_axes, Time, &
-                        'sensible heat flux',     'w/m2'    )
+                        'sensible heat flux',     'W/m2'    )
 
    id_q_flux     = &
    register_diag_field ( mod_name, 'evap',       atmos_axes, Time, &
@@ -1099,15 +1099,15 @@ subroutine diag_field_init ( Time, atmos_axes )
 
    id_o_flux     = &
    register_diag_field (mod_name, 'oflx',        atmos_axes, Time, &
-                        'prescribed ocean heat divergence', 'w/m2' )
+                        'prescribed ocean heat divergence', 'W/m2' )
 
    id_r_flux     = &
    register_diag_field ( mod_name, 'lwflx',      atmos_axes, Time, &
-                        'net (down-up) longwave flux',   'w/m2'    )
+                        'net (down-up) longwave flux',   'W/m2'    )
 
    id_t_atm      = &
    register_diag_field ( mod_name, 't_atm',      atmos_axes, Time, &
-                        'temperature at btm level',    'deg_k', &
+                        'temperature at btm level',    'K', &
                         range=trange     )
 
    id_u_atm      = &
@@ -1141,30 +1141,30 @@ subroutine diag_field_init ( Time, atmos_axes )
 
    id_del_h      = &
    register_diag_field ( mod_name, 'del_h',      atmos_axes, Time,  &
-                        'Monin-Obukhov profile factor (T('//trim(label_zh)//')-T_surf)/(T_atm-T_surf)', 'none' )
+                        'Monin-Obukhov profile factor (T('//trim(label_zh)//')-T_surf)/(T_atm-T_surf)', '1' )
    id_del_m      = &
    register_diag_field ( mod_name, 'del_m',      atmos_axes, Time,     &
-                        'Monin-Obukhov profile factor u('//trim(label_zm)//')/u_atm', 'none' )
+                        'Monin-Obukhov profile factor u('//trim(label_zm)//')/u_atm', '1' )
    id_del_q      = &
    register_diag_field ( mod_name, 'del_q',      atmos_axes, Time,     &
-                        'Monin-Obukhov profile factor (q('//trim(label_zh)//')-q_surf)/(q_atm-q_surf)', 'none' )
+                        'Monin-Obukhov profile factor (q('//trim(label_zh)//')-q_surf)/(q_atm-q_surf)', '1' )
    id_albedo      = &
    register_diag_field ( mod_name, 'albedo',      atmos_axes, Time,     &
-                        'surface albedo','none' )
+                        'surface albedo','1' )
    id_heat        = & !mj
    register_diag_field ( mod_name, 'heat_capacity',atmos_axes, Time,     &
-                        'mixed layer heat capacity','none' )
+                        'mixed layer heat capacity','J/m2/K' )
    id_entrop_evap      = &
    register_diag_field ( mod_name, 'entrop_evap', atmos_axes, Time,     &
                         'entropy source from evap','kg/m2/s/K' )
 
    id_entrop_shflx      = &
    register_diag_field ( mod_name, 'entrop_shflx', atmos_axes, Time,     &
-                        'entropy source from SH flux','w/m2/K' )
+                        'entropy source from SH flux','W/m2/K' )
 
    id_entrop_lwflx      = &
    register_diag_field ( mod_name, 'entrop_lwflx', atmos_axes, Time,     &
-                        'entropy source from LW flux','w/m2/K' )
+                        'entropy source from LW flux','W/m2/K' )
 
 
 

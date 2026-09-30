@@ -297,7 +297,7 @@ integer :: n
 
      id_emiss = register_static_field ( 'tracers',                    &
                      'sf6emiss', axes(1:2),       &
-                     'sulfhexemiss', 'g/m2/s')
+                     'SF6 emission', 'g/m2/s')
 
    allocate (sf6_grid(size(lonb(:))-1,size(latb(:))-1))
 

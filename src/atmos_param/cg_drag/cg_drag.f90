@@ -391,23 +391,23 @@ type(time_type),         intent(in)      :: Time
 !-------------------------------------------------------------------
       id_bf_cgwd =  &
          register_diag_field (mod_name, 'bf_cgwd', axes(1:3), Time, &
-              'buoyancy frequency from cg_drag', ' /s',   &
+              'buoyancy frequency from cg_drag', '1/s',   &
               missing_value=missing_value)
       id_gwfx_cgwd =  &
          register_diag_field (mod_name, 'gwfu_cgwd', axes(1:3), Time, &
               'gravity wave forcing on mean zonal flow', &
-              'm/s^2',  missing_value=missing_value)
+              'm/s2',  missing_value=missing_value)
       id_gwfy_cgwd =  &
          register_diag_field (mod_name, 'gwfv_cgwd', axes(1:3), Time, &
               'gravity wave forcing on mean meridional flow', &
-              'm/s^2',  missing_value=missing_value)
+              'm/s2',  missing_value=missing_value)
       id_kedx_cgwd =  &
          register_diag_field (mod_name, 'kedx_cgwd', axes(1:3), Time, &
-               'effective eddy viscosity from cg_drag', 'm^2/s',   &
+               'effective eddy viscosity from cg_drag (zonal)', 'm2/s',   &
                missing_value=missing_value)
       id_kedy_cgwd =  &
          register_diag_field (mod_name, 'kedy_cgwd', axes(1:3), Time, &
-               'effective eddy viscosity from cg_drag', 'm^2/s',   &
+               'effective eddy viscosity from cg_drag (meridional)', 'm2/s',   &
                missing_value=missing_value)
 
 !--------------------------------------------------------------------

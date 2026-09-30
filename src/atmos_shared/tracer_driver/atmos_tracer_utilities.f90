@@ -175,7 +175,7 @@ call get_tracer_names(MODEL_ATMOS,n,tracer_names(n),tracer_longnames(n),tracer_u
         case ('mole/mole')
           units = 'mole/m2/s'
         case default
-          units = trim(tracer_units(n))//' kg/(m2 s)'
+          units = trim(tracer_units(n))//' kg/m2/s'
           call error_mesg('atmos_tracer_utilities_init',&
           ' Dry dep units set to '//trim(units)//' in atmos_tracer_utilities for '//trim(tracer_names(n)),&
            NOTE)

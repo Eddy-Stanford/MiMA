@@ -105,36 +105,43 @@ axes_2d = (/ id_lon, id_lat /)
 axes_3d = (/ id_lon, id_lat, id_pfull /)
 axes_zm = (/ id_lat, id_pfull /) !mj
 
-id_ps = register_diag_field(mod_name, 'ps_every', axes_2d, Time, 'surface pressure', 'pascals')
-id_u  = register_diag_field(mod_name, 'u_every',  axes_3d, Time, 'zonal wind component', 'm/sec', range=vrange)
-id_v  = register_diag_field(mod_name, 'v_every',  axes_3d, Time, 'meridional wind component', 'm/sec', range=vrange)
-id_t  = register_diag_field(mod_name, 't_every',  axes_3d, Time, 'temperature', 'deg_k', range=trange)
+id_ps = register_diag_field(mod_name, 'ps_every', axes_2d, Time, 'surface pressure', 'Pa')
+id_u  = register_diag_field(mod_name, 'u_every',  axes_3d, Time, 'zonal wind component', 'm/s', range=vrange)
+id_v  = register_diag_field(mod_name, 'v_every',  axes_3d, Time, 'meridional wind component', 'm/s', range=vrange)
+id_t  = register_diag_field(mod_name, 't_every',  axes_3d, Time, 'temperature', 'K', range=trange)
 
-id_vp  = register_diag_field(mod_name, 'vp',      axes_3d, time, 'meridional wind weighter by ps', 'm/sec', range=vrange)
+id_vp  = register_diag_field(mod_name, 'vp',      axes_3d, time, 'meridional wind, weighted by ps/p00', 'm/s', range=vrange)
 !id_pt   = register_diag_field(mod_name, 'pottemp',axes_3d, time, 'potential temperature',    'deg_k', range=trange)
-id_uv   = register_diag_field(mod_name, 'uv',   axes_3d, time, 'uv',        'm**2/s**2')
-id_vq   = register_diag_field(mod_name, 'vq',   axes_3d, time, 'vq',        'm/s')
-id_vqint   = register_diag_field(mod_name, 'vqint',   (/id_lon,id_lat/), time, 'vqint', 'm^2/s')
-id_vdse   = register_diag_field(mod_name, 'vdse',   axes_3d, time, 'v DSE',        'm/s J/kg')
+id_uv   = register_diag_field(mod_name, 'uv',   axes_3d, time, &
+   'zonal wind times meridional wind, weighted by ps/p00', 'm2/s2')
+id_vq   = register_diag_field(mod_name, 'vq',   axes_3d, time, &
+   'meridional wind times specific humidity, weighted by ps/p00', 'm/s kg/kg')
+id_vqint   = register_diag_field(mod_name, 'vqint',   (/id_lon,id_lat/), time, &
+   'vertically integrated meridional moisture flux', 'kg/m/s')
+id_vdse   = register_diag_field(mod_name, 'vdse',   axes_3d, time, &
+   'meridional wind times dry static energy, weighted by ps/p00', 'm/s J/kg')
 id_wu  = register_diag_field(mod_name, 'wu',   axes_3d, time, 'omega u',        'Pa/s m/s')
 id_wv  = register_diag_field(mod_name, 'wv',   axes_3d, time, 'omega v',        'Pa/s m/s')
-id_wq  = register_diag_field(mod_name, 'wq',   axes_3d, time, 'omega q',        'Pa/s')
+id_wq  = register_diag_field(mod_name, 'wq',   axes_3d, time, 'omega q',        'Pa/s kg/kg')
 id_wdse  = register_diag_field(mod_name, 'wdse',   axes_3d, time, 'omega DSE',        'Pa/s J/kg')
-id_wup  = register_diag_field(mod_name, 'wup',   axes_3d, time, 'omega u pressure weighted',        'Pa/s m/s')
-id_wvp  = register_diag_field(mod_name, 'wvp',   axes_3d, time, 'omega v pressure weighted',        'Pa/s m/s')
-id_wqp  = register_diag_field(mod_name, 'wqp',   axes_3d, time, 'omega q pressure weighted',        'Pa/s')
-id_wdsep  = register_diag_field(mod_name, 'wdsep',   axes_3d, time, 'omega DSE pressure weighted',        'Pa/s J/kg')
-id_wp  = register_diag_field(mod_name, 'omegap',   axes_3d, time, 'dp/dt vertical velocity, pressure weighted',  'Pa/sec')
-id_wsubt  = register_diag_field(mod_name, 'wsubt',   axes_3d, time, 'kappa omega T/p, pressure weighted',  'K')
-id_wsubtv  = register_diag_field(mod_name, 'wsubtv',   axes_3d, time, 'kappa omega Tv/p, pressure weighted',  'K')
-id_kegen  = register_diag_field(mod_name, 'kegen',   axes_3d, time, 'kappa omega T/p, pressure weighted',  'K')
-id_kegenq  = register_diag_field(mod_name, 'kegenq',   axes_3d, time, 'kappa omega T q/p, pressure weighted',  'K')
-id_kegenqtinv  = register_diag_field(mod_name, 'kegenqtinv',   axes_3d, time, 'kappa omega q/p, pressure weighted',  'K')
+id_wup  = register_diag_field(mod_name, 'wup',   axes_3d, time, 'omega u, weighted by ps/p00',        'Pa/s m/s')
+id_wvp  = register_diag_field(mod_name, 'wvp',   axes_3d, time, 'omega v, weighted by ps/p00',        'Pa/s m/s')
+id_wqp  = register_diag_field(mod_name, 'wqp',   axes_3d, time, 'omega q, weighted by ps/p00',        'Pa/s kg/kg')
+id_wdsep  = register_diag_field(mod_name, 'wdsep',   axes_3d, time, 'omega DSE, weighted by ps/p00',        'Pa/s J/kg')
+id_wp  = register_diag_field(mod_name, 'omegap',   axes_3d, time, 'dp/dt vertical velocity, weighted by ps/p00',  'Pa/s')
+id_wsubt  = register_diag_field(mod_name, 'wsubt',   axes_3d, time, 'kappa omega T/p, weighted by ps/p00',  'K/s')
+id_wsubtv  = register_diag_field(mod_name, 'wsubtv',   axes_3d, time, 'kappa omega Tv/p, weighted by ps/p00',  'K/s')
+id_kegen  = register_diag_field(mod_name, 'kegen',   axes_3d, time, &
+   'kappa omega T/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00',  'K/s')
+id_kegenq  = register_diag_field(mod_name, 'kegenq',   axes_3d, time, &
+   'kappa omega T q/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00',  'K/s kg/kg')
+id_kegenqtinv  = register_diag_field(mod_name, 'kegenqtinv',   axes_3d, time, &
+   'kappa omega q/p from the dynamical core, weighted by ps/p00',  'kg/kg/s')
 id_drystaten =  register_diag_field(mod_name, 'dry_stat_en',  axes_3d, time, 'dry static energy',      'J/kg')
 id_moiststaten =  register_diag_field(mod_name, 'moist_stat_en',  axes_3d, time, 'moist static energy',      'J/kg')
-id_udt_damp =  register_diag_field(mod_name, 'udt_damp',  axes_3d, time, 'Zonal wind tend from horiz diff',      'm/s**2')
-id_vdt_damp =  register_diag_field(mod_name, 'vdt_damp',  axes_3d, time, 'Merid wind tend from horiz diff',      'm/s**2')
-id_tdt_damp =  register_diag_field(mod_name, 'tdt_damp',  axes_3d, time, 'Temperature tend from horiz diff',      'm/s**2')
+id_udt_damp =  register_diag_field(mod_name, 'udt_damp',  axes_3d, time, 'Zonal wind tend from horiz diff',      'm/s2')
+id_vdt_damp =  register_diag_field(mod_name, 'vdt_damp',  axes_3d, time, 'Merid wind tend from horiz diff',      'm/s2')
+id_tdt_damp =  register_diag_field(mod_name, 'tdt_damp',  axes_3d, time, 'Temperature tend from horiz diff',      'K/s')
 id_entrop_dampuv =  register_diag_field(mod_name, 'entrop_dampuv', &
    axes_3d, time, 'Entropy prod from horiz diff of vel',   '1/s')
 id_entrop_dampt =  register_diag_field(mod_name, 'entrop_dampt',   &
@@ -144,16 +151,18 @@ id_tdt_dampuv =  register_diag_field(mod_name, 'tdt_dampuv',  &
 id_tdt_tempcor =  register_diag_field(mod_name, 'tdt_tempcor',  &
    axes_3d, time, 'Temp tend due to dynamics temp correction',  'K/s')
 id_qdt_watercor =  register_diag_field(mod_name, 'qdt_watercor',  &
-   axes_3d, time, 'Humidity tend due to dynamics water correction',  '1/s')
+   axes_3d, time, 'Humidity tend due to dynamics water correction',  'kg/kg/s')
 id_entrop_tempcor =  register_diag_field(mod_name, 'entrop_tempcor',  &
    axes_3d, time, 'Entropy tend due to hor diff temp corr',  '1/s')
 
 !mj
-id_upvp     = register_diag_field(mod_name, 'upvp'    , axes_3d, time, 'meridional eddy momentum flux', 'm^2/s^2')
+id_upvp     = register_diag_field(mod_name, 'upvp'    , axes_3d, time, 'meridional eddy momentum flux', 'm2/s2')
 id_upwp     = register_diag_field(mod_name, 'upwp'    , axes_3d, time, 'vertical eddy momentum flux'  , 'm/s Pa/s')
 id_vpTp     = register_diag_field(mod_name, 'vpTp'    , axes_3d, time, 'meridional eddy heat flux'    , 'm/s K')
-id_psi_dwc  = register_diag_field(mod_name, 'psi_dwc' , axes_zm, time, 'residual mean streamfunction' , 'm/s Pa')
-id_psi_star = register_diag_field(mod_name, 'psi_star', axes_zm, time, 'residual mean streamfunction' , 'm/s Pa')
+id_psi_dwc  = register_diag_field(mod_name, 'psi_dwc' , axes_zm, time, &
+   'residual mean streamfunction from downward control (EP flux divergence)' , 'm/s Pa')
+id_psi_star = register_diag_field(mod_name, 'psi_star', axes_zm, time, &
+   'residual mean streamfunction (Eulerian mean minus eddy heat flux term)' , 'm/s Pa')
 !jm
 
 call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
@@ -162,9 +171,11 @@ do ntr=1,num_tracers
   call get_tracer_names(MODEL_ATMOS, ntr, tname, longname, units)
   id_tr(ntr) = register_diag_field(mod_name, trim(tname)//'_every', axes_3d, Time, longname, units)
   id_dt_hadv(ntr) = register_diag_field(mod_name,trim(tname)//'_hadv', axes_3d, Time, & ! New name=sphum_hadv XXX
-                    'Humidity production due to horizontal advection', trim(units)//' * kg_air/(sec*m^2)')
+                    'Global mean column integrated '//trim(longname)//' tendency due to horizontal advection', &
+                    trim(units)//' kg/m2/s')
   id_dt_vadv(ntr) = register_diag_field(mod_name,trim(tname)//'_vadv', axes_3d, Time, & ! New name=sphum_vadv XXX
-                    'Humidity production due to vertical advection',   trim(units)//' * kg_air/(sec*m^2)')
+                    'Global mean column integrated '//trim(longname)//' tendency due to vertical advection', &
+                    trim(units)//' kg/m2/s')
 enddo
 nsphum = get_tracer_index(MODEL_ATMOS,'sphum')
 
@@ -183,14 +194,14 @@ two_dt_v  = 0.
 two_dt_t  = 0.
 two_dt_tr = 0.
 
-two_dt_id_ps = register_static_field(mod_name, '2dt_ps', axes_2d, 'Amplitude of 2*dt wave in surface pressure', 'pascals')
-two_dt_id_u  = register_static_field(mod_name, '2dt_u',  axes_3d, 'Amplitude of 2*dt wave in zonal wind', 'm/sec')
-two_dt_id_v  = register_static_field(mod_name, '2dt_v',  axes_3d, 'Amplitude of 2*dt wave in meridional wind', 'm/sec')
-two_dt_id_t  = register_static_field(mod_name, '2dt_t',  axes_3d, 'Amplitude of 2*dt wave in temperature', 'deg_k')
+two_dt_id_ps = register_static_field(mod_name, '2dt_ps', axes_2d, 'Amplitude of 2*dt wave in surface pressure', 'Pa')
+two_dt_id_u  = register_static_field(mod_name, '2dt_u',  axes_3d, 'Amplitude of 2*dt wave in zonal wind', 'm/s')
+two_dt_id_v  = register_static_field(mod_name, '2dt_v',  axes_3d, 'Amplitude of 2*dt wave in meridional wind', 'm/s')
+two_dt_id_t  = register_static_field(mod_name, '2dt_t',  axes_3d, 'Amplitude of 2*dt wave in temperature', 'K')
 do ntr=1,num_tracers
   call get_tracer_names(MODEL_ATMOS, ntr, tname, longname, units)
   two_dt_id_tr(ntr) = &
-       register_static_field(mod_name, '2dt_'//trim(tname), axes_3d, 'Amplitude of 2*dt wave in '//longname, units)
+       register_static_field(mod_name, '2dt_'//trim(tname), axes_3d, 'Amplitude of 2*dt wave in '//trim(longname), units)
 enddo
 iwt = 1
 num_time_steps = 0

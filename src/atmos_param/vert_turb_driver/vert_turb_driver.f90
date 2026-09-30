@@ -281,22 +281,22 @@ subroutine vert_turb_driver_init (axes, Time)
 !----- initialize diagnostic fields -----
 
    id_uwnd = register_diag_field ( mod_name, 'uwnd', axes(full), Time, &
-        'zonal wind on mass grid', 'meters/second' ,                   &
+        'zonal wind on mass grid', 'm/s' ,                   &
          missing_value=missing_value    )
 
    id_vwnd = register_diag_field ( mod_name, 'vwnd', axes(full), Time, &
-        'meridional wind on mass grid', 'meters/second' ,              &
+        'meridional wind on mass grid', 'm/s' ,              &
         missing_value=missing_value    )
 
    id_z_full = &
    register_diag_field ( mod_name, 'z_full', axes(full), Time,    &
         'geopotential height relative to surface at full levels', &
-         'meters' , missing_value=missing_value    )
+         'm' , missing_value=missing_value    )
 
    id_z_half = &
    register_diag_field ( mod_name, 'z_half', axes(half), Time,    &
         'geopotential height relative to surface at half levels', &
-        'meters' , missing_value=missing_value    )
+        'm' , missing_value=missing_value    )
 
    id_z_pbl = &
    register_diag_field ( mod_name, 'z_pbl', axes(1:2), Time,       &

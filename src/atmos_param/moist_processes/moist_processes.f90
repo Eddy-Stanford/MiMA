@@ -1369,11 +1369,11 @@ if (do_bm) then
    id_bmflag = register_diag_field (mod_name, &
       'bmflag', axes(1:2), Time, &
       'Betts-Miller flag', &
-      'no units', missing_value=missing_value            )
+      '1', missing_value=missing_value            )
    id_klzbs  = register_diag_field  (mod_name, &
       'klzbs', axes(1:2), Time, &
-      'klzb', &
-      'no units', missing_value=missing_value            )
+      'Betts-Miller level of zero buoyancy (model level index)', &
+      '1', missing_value=missing_value            )
 endif
 
 if ( do_bm ) then
@@ -1389,7 +1389,7 @@ end if  ! if ( do_bm )
 
    id_tdt_conv = register_diag_field ( mod_name, &
      'tdt_conv', axes(1:3), Time, &
-     'Temperature tendency',    'deg_K/s',  &
+     'Temperature tendency',    'K/s',  &
                         missing_value=missing_value               )
 
    id_qdt_conv = register_diag_field ( mod_name, &
@@ -1415,7 +1415,7 @@ end if  ! if ( do_bm )
 
    id_gust_conv = register_diag_field ( mod_name, &
      'gust_conv', axes(1:2), Time, &
-    'Gustiness from deep convection ',       'm/s' )
+    'Gustiness from deep convection',       'm/s' )
 
 
 if ( do_lsc ) then
@@ -1427,7 +1427,7 @@ if ( do_lsc ) then
 
    id_tdt_ls = register_diag_field ( mod_name, &
      'tdt_ls', axes(1:3), Time, &
-       'Temperature tendency from large-scale cond',   'deg_K/s',  &
+       'Temperature tendency from large-scale cond',   'K/s',  &
                         missing_value=missing_value               )
 
    id_qdt_ls = register_diag_field ( mod_name, &
@@ -1455,11 +1455,11 @@ endif
 
    id_cape = register_diag_field ( mod_name, &
      'cape', axes(1:2), Time, &
-     'Convectively available potential energy',      'J/Kg')
+     'Convectively available potential energy',      'J/kg')
 
    id_cin = register_diag_field ( mod_name, &
      'cin', axes(1:2), Time, &
-     'Convective inhibition',                        'J/Kg')
+     'Convective inhibition',                        'J/kg')
 
    id_precip = register_diag_field ( mod_name, &
      'precip', axes(1:2), Time, &
@@ -1476,7 +1476,7 @@ endif
 
    id_rhsurf = register_diag_field ( mod_name, &
      'rhsurf', axes(1:2), Time, &
-         'Surface relative humidity',                     'percent',  &
+         'Relative humidity at the lowest model level',   'percent',  &
                         missing_value=missing_value               )
 
 !-----------------------------------------------------------------------
@@ -1508,7 +1508,7 @@ endif
                          register_diag_field ( mod_name, &
                          TRIM(tracer_name)//'dt_conv_col', &
                          axes(1:2), Time, trim(diaglname), &
-                         TRIM(tracer_units)//'/s',   &
+                         TRIM(tracer_units)//' kg/m2/s',   &
                          missing_value=missing_value)
          endif
 
@@ -1519,12 +1519,12 @@ endif
                         axes(1:3), Time, trim(diaglname), &
                         TRIM(tracer_units)      ,  &
                         missing_value=missing_value)
-         diaglname =  ' column integrated' // trim(tracer_name)
+         diaglname = 'column integrated ' // trim(tracer_name)
          id_conv_tracer_col(n) =  &
                         register_diag_field ( mod_name, &
                         TRIM(tracer_name)//'_col', &
                         axes(1:2), Time, trim(diaglname), &
-                        TRIM(tracer_units)      ,   &
+                        TRIM(tracer_units)//' kg/m2',   &
                         missing_value=missing_value)
       end do
 

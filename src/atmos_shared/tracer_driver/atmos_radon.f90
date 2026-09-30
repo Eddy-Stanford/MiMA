@@ -32,8 +32,7 @@ use              fms_mod, only : &
                                  FATAL,WARNING, NOTE, &
                                  stdlog
 use     time_manager_mod, only : time_type
-use     diag_manager_mod, only : send_data,            &
-                                 register_static_field
+use     diag_manager_mod, only : send_data
 use   tracer_manager_mod, only : get_tracer_index
 use    field_manager_mod, only : MODEL_ATMOS
 use atmos_tracer_utilities_mod, only : wet_deposition,       &
@@ -59,10 +58,6 @@ namelist /atmos_radon_nml/  &
 !--- Arrays to help calculate tracer sources/sinks ---
 
 character(len=6), parameter :: module_name = 'tracer'
-
-!--- identification numbers for  diagnostic fields and axes ----
-
-integer :: id_emiss
 
 logical :: module_is_initialized=.FALSE.
 
@@ -295,11 +290,6 @@ integer :: n
 
   30        format (A,' was initialized as tracer number ',i2)
 !
-
-! Register a static field for the emissions of your tracer
-     id_emiss = register_static_field ( 'tracers',                    &
-                     'rnemiss', axes(1:2),       &
-                     'rnemiss', 'g/m2/s')
 
       module_is_initialized = .TRUE.
 

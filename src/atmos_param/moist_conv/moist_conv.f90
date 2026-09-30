@@ -550,7 +550,7 @@ subroutine moist_conv_init (axes, Time, tracers_in_mca)
 
    id_tdt_conv = register_diag_field ( mod_name, &
      'tdt_conv', axes(1:3), Time, &
-     'Temperature tendency from moist conv adj',     'deg_K/s',  &
+     'Temperature tendency from moist conv adj',     'K/s',  &
                         missing_value=missing_value               )
 
    id_qdt_conv = register_diag_field ( mod_name, &
@@ -625,11 +625,11 @@ subroutine moist_conv_init (axes, Time, tracers_in_mca)
 !    will be the name of the tracer followed by 'dt_MCA_col'. the long-
 !    name will be the name of the tracer followed by ' path tendency
 !    from MCA'. units are the supplied units of the tracer multiplied
-!    by m**2 /kg divided by seconds.
+!    by kg/m2 divided by seconds.
 !----------------------------------------------------------------------
       diagname = trim(name)//'dt_MCA_col'
       diaglname = trim(name)//' path tendency from MCA'
-      tendunits = trim(units)//'m2/kg/s'
+      tendunits = trim(units)//' kg/m2/s'
       id_tracer_conv_col(nn) = register_diag_field ( mod_name, &
                                  trim(diagname), axes(1:2), Time, &
                                  trim(diaglname), trim(tendunits),  &

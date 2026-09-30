@@ -375,7 +375,7 @@ integer :: ie, je
    id_tdt_vdif = &
    register_diag_field ( mod_name, 'tdt_vdif', axes(1:3), Time, &
                         'Temperature tendency from vert diff',  &
-                        'deg_K/s', missing_value=missing_value  )
+                        'K/s', missing_value=missing_value  )
 
    id_qdt_vdif = &
    register_diag_field ( mod_name, 'qdt_vdif', axes(1:3), Time, &
@@ -404,7 +404,7 @@ integer :: ie, je
 
    id_tdt_diss_vdif = &
    register_diag_field ( mod_name, 'tdt_diss_vdif', axes(1:3), Time,  &
-                        'Dissipative heating from vert_diff', 'deg_K/s', &
+                        'Dissipative heating from vert diff', 'K/s', &
                          missing_value=missing_value  ) 
 
    id_diss_heat_vdif = &
