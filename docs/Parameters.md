@@ -288,13 +288,13 @@ Prescribed ocean heat fluxes (Q-fluxes) (`atmos_param/qflux/qflux.f90`), used wi
  `warmpool_k` | `1.66666` | zonal wave number of the warm pool
  `warmpool_phase` | `140.` | [deg] longitude phase of the warm pool
  `warmpool_localization_choice` | `3` | 1: cosine in longitude; 2: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and tropical Atlantic terms; 3: the localized patterns of Garfinkel et al. (2020). Which of the regional amplitudes below are used depends on this choice (see `qflux.f90`).
- `gulf_k` | `4` | zonal wave number of the Gulf Stream perturbation
- `gulf_phase` | `310.` | [deg] longitude phase of the Gulf Stream perturbation
- `gulf_amp` | `70.` | [W/m2] Gulf Stream amplitude
- `kuroshio_amp` | `40.` | [W/m2] Kuroshio amplitude
- `trop_atlantic_amp` | `50.` | [W/m2] tropical Atlantic amplitude
+ `gulf_k` | `4` | zonal wave number of the Gulf Stream perturbation (choice 2 only)
+ `gulf_phase` | `310.` | [deg] longitude phase of the Gulf Stream perturbation (choice 2 only)
+ `gulf_amp` | `70.` | [W/m2] Gulf Stream amplitude (choices 2 and 3; with choice 3 it scales a fixed, localized Gulf Stream pattern, and the tropical Atlantic term is only applied if `gulf_amp` > 0)
+ `kuroshio_amp` | `40.` | [W/m2] Kuroshio amplitude (choices 2 and 3)
+ `trop_atlantic_amp` | `50.` | [W/m2] tropical Atlantic amplitude (choices 2 and 3)
  `Hawaiiextra` | `30.0` | [W/m2] extra flux near Hawaii
- `north_sea_heat` | `0.` | [W/m2] moves heat from Canada to the North Sea
+ `north_sea_heat` | `0.` | [1] factor on `gulf_amp` for moving heat from Canada to the North Sea (choice 2 only)
  `Pac_ITCZextra` | `0.` | [W/m2] extra flux in the tropical South Pacific (strengthens the local ITCZ)
  `Pac_SPCZextra` | `0.` | [W/m2] extra flux in the subtropical Pacific (modulates the SPCZ)
  `Africaextra` | `0.` | [W/m2] extra flux near the Agulhas current
