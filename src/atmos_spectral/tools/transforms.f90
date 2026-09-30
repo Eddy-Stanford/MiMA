@@ -3,7 +3,7 @@ module transforms_mod
 use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, stdlog, close_file, &
                    open_namelist_file, check_nml_error
 
-use mpp_mod, only: mpp_chksum, mpp_error, mpp_npes, mpp_sum, mpp_sync, mpp_sync_self, mpp_transmit
+use mpp_mod, only: mpp_error, mpp_npes, mpp_sum, mpp_sync, mpp_sync_self, mpp_transmit
 
 use mpp_domains_mod, only: mpp_get_compute_domain, mpp_get_compute_domains, mpp_get_domain_components, mpp_get_layout, &
                            mpp_get_pelist, mpp_update_domains, domain1D, XUPDATE, mpp_global_field
@@ -12,6 +12,8 @@ use spec_mpp_mod,  only: spec_mpp_init, spec_mpp_end, get_grid_domain, get_spec_
                          grid_domain, spectral_domain, global_spectral_domain
 
 use constants_mod, only: pi
+
+use, intrinsic :: iso_c_binding, only: c_loc, c_f_pointer
 
 
 use spherical_fourier_mod, only: spherical_fourier_init, spherical_fourier_end, &
@@ -176,7 +178,6 @@ logical :: module_is_initialized = .false.
 integer :: npes
 integer, dimension(2) :: grid_layout, spectral_layout
 integer :: xmaxsize, ymaxsize   !used for dimensioning in transpose routines
-logical :: debug=.FALSE.
 integer :: ms, me, ns, ne, is, ie, js, je
 
 real, allocatable, dimension(:) :: lat_boundaries_global, lon_boundaries_global
@@ -344,10 +345,10 @@ real, intent(out), dimension (is:,:,:) :: grid
 real, dimension(num_lon,size(grid,2),size(grid,3)) :: grid_xglobal
 
 integer :: j,k
-integer(kind=kind(spherical)) :: c1, c2, c3
 
 complex, dimension (0:num_lon/2,          js:je, size(grid,3)) :: fourier_g
-complex, dimension (ms:me, je-js+1, size(grid,3), grid_layout(2)) :: fourier_s
+complex, dimension (ms:me, je-js+1, size(grid,3), grid_layout(2)), target :: fourier_s
+real, pointer :: fourier_s_real(:)
 logical :: grid_x_is_global, spectral_y_is_global
 type(domain1D) :: spectral_domain_y
 integer, allocatable :: pelist(:)
@@ -377,7 +378,9 @@ if( .NOT.spectral_y_is_global )then
     allocate( pelist(spectral_layout(2)) )
     call mpp_get_domain_components( spectral_domain, y=spectral_domain_y )
     call mpp_get_pelist( spectral_domain_y, pelist )
-    call mpp_sum( fourier_s          , size(fourier_s(:,:,:,:)), pelist )
+    ! mpp_sum takes real data: sum the complex values as (real, imaginary) pairs
+    call c_f_pointer( c_loc(fourier_s), fourier_s_real, [2*size(fourier_s)] )
+    call mpp_sum( fourier_s_real, size(fourier_s_real), pelist )
 end if
 
 call reverse_transpose_fourier( fourier_s, fourier_g )
@@ -390,14 +393,6 @@ if( .NOT.grid_x_is_global )then
 else
     grid = trans_fourier_to_grid(fourier_g)
 endif
-
-if( debug )then
-    c1 = mpp_chksum(spherical)
-    c2 = mpp_chksum(fourier_g)
-    c3 = mpp_chksum(grid)
-    write(  0,'(a,i2,3z18,28i4)' )'S2G: ', mpp_pe(), c1, c2, c3, lbound(spherical), ubound(spherical), &
-         lbound(fourier_s), ubound(fourier_s), lbound(fourier_g), ubound(fourier_g), lbound(grid), ubound(grid)
-end if
 
 return
 end subroutine trans_spherical_to_grid_3d
@@ -432,8 +427,6 @@ integer :: j,k
 logical :: do_truncation_local, grid_x_is_global
 complex, dimension (0:num_lon/2,          js:je, size(grid,3)) :: fourier_g
 complex, dimension (ms:me, je-js+1, size(grid,3), grid_layout(2)) :: fourier_s
-
-integer(kind=kind(spherical)) :: c1, c2, c3
 
 if(.not.module_is_initialized) then
   call error_mesg('trans_grid_to_spherical','transforms module is not initialized', FATAL)
@@ -480,15 +473,6 @@ if(do_truncation_local) then
   else
     call rhomboidal_truncation(spherical)
   end if
-end if
-
-if( debug )then
-    c1 = mpp_chksum(spherical)
-    c2 = mpp_chksum(fourier_g)
-    c3 = mpp_chksum(grid)
-    write(  0,'(a,i2,3z18,28i4)' )'G2S: ', mpp_pe(), c1, c2, c3, lbound(spherical), ubound(spherical), &
-         lbound(fourier_s), ubound(fourier_s), lbound(fourier_g), ubound(fourier_g), lbound(grid), ubound(grid)
-    call mpp_error( FATAL )
 end if
 
 return
@@ -931,9 +915,11 @@ end subroutine get_grid_boundaries
 !-------------------------------------------------------------------------
 subroutine reverse_transpose_fourier( fourier_s, fourier_g )
 !-------------------------------------------------------------------------
-  complex, intent(in)  :: fourier_s(:,:,:,0:)
+  complex, intent(in), contiguous, target :: fourier_s(:,:,:,0:)
   complex, intent(out) :: fourier_g(0:,:,:)
-  complex, dimension(xmaxsize*ymaxsize*size(fourier_s,3)) :: get_data
+  ! mpp_transmit takes real data: complex values are sent as (real, imaginary) pairs
+  real, dimension(2*xmaxsize*ymaxsize*size(fourier_s,3)) :: get_data
+  real, pointer :: fourier_s_real(:)
   integer :: i,j,k, jj, jp, jm, pp, pm, nput, nget, jpos
   type(domain1D) :: spectral_domain_x, grid_domain_y
   integer, dimension(0:grid_layout(2)-1) :: pelist, ygridsize, xspecsize, xsbegin, xsend
@@ -947,6 +933,7 @@ subroutine reverse_transpose_fourier( fourier_s, fourier_g )
   call mpp_get_pelist( grid_domain_y, pelist, jpos )
   call mpp_get_compute_domains( grid_domain_y, size=ygridsize )
   call mpp_get_compute_domains( spectral_domain_x, xsbegin, xsend, xspecsize )
+  call c_f_pointer( c_loc(fourier_s), fourier_s_real, [2*size(fourier_s)] )
   nput = size(fourier_s,1)*size(fourier_s,2)*size(fourier_s,3)
   fourier_g(ms:me,:,:) = fourier_s(:,:,:,jpos)
   do jj = 1,grid_layout(2)-1
@@ -956,14 +943,14 @@ subroutine reverse_transpose_fourier( fourier_s, fourier_g )
      pm = pelist(jm)
      nget = xspecsize(jm)*ygridsize(jm)*size(fourier_s,3)
      ! Force use of "scalar", integer pointer mpp interface
-     call mpp_transmit( put_data=fourier_s(1,1,1,jp), plen=nput, to_pe=pp, &
-                        get_data=get_data(1), glen=nget, from_pe=pm )
+     call mpp_transmit( put_data=fourier_s_real(2*nput*jp+1), plen=2*nput, to_pe=pp, &
+                        get_data=get_data(1), glen=2*nget, from_pe=pm )
      nget = 0
      do k = 1,size(fourier_g,3)
         do j = 1,size(fourier_g,2)
            do i = xsbegin(jm),xsend(jm)
               nget = nget + 1
-              fourier_g(i,j,k) = get_data(nget)
+              fourier_g(i,j,k) = cmplx(get_data(2*nget-1), get_data(2*nget), kind=kind(fourier_g))
            end do
         end do
      end do
@@ -976,8 +963,10 @@ end subroutine reverse_transpose_fourier
 subroutine transpose_fourier( fourier_g, fourier_s )
 !-------------------------------------------------------------------------
   complex, intent(in)   :: fourier_g(0:,:,:)
-  complex, intent(out)  :: fourier_s(:,:,:,0:)
-  complex, dimension(xmaxsize*ymaxsize*size(fourier_s,3)) :: put_data
+  complex, intent(out), contiguous, target :: fourier_s(:,:,:,0:)
+  ! mpp_transmit takes real data: complex values are sent as (real, imaginary) pairs
+  real, dimension(2*xmaxsize*ymaxsize*size(fourier_s,3)) :: put_data
+  real, pointer :: fourier_s_real(:)
   integer :: i,j,k, ii, ip, im, pp, pm, nput, nget, ipos, jp
   type(domain1D) :: spectral_domain_x, grid_domain_y
   integer, dimension(0:spectral_layout(1)-1) :: pelist, ygridsize, xspecsize, xsbegin, xsend
@@ -990,6 +979,7 @@ subroutine transpose_fourier( fourier_g, fourier_s )
   call mpp_get_domain_components( spectral_domain, x=spectral_domain_x )
   call mpp_get_compute_domains( grid_domain_y, size=ygridsize )
   call mpp_get_compute_domains( spectral_domain_x, xsbegin, xsend, xspecsize )
+  call c_f_pointer( c_loc(fourier_s), fourier_s_real, [2*size(fourier_s)] )
   nget = size(fourier_s,1)*size(fourier_s,2)*size(fourier_s,3)
   call mpp_get_pelist( grid_domain_y, pelist, jp )
   fourier_s(:,:,:,jp) = fourier_g(ms:me,:,:)
@@ -1005,13 +995,14 @@ subroutine transpose_fourier( fourier_g, fourier_s )
         do j = 1,size(fourier_g,2)
            do i = xsbegin(ip),xsend(ip)
               nput = nput + 1
-              put_data(nput) = fourier_g(i,j,k)
+              put_data(2*nput-1) = real(fourier_g(i,j,k))
+              put_data(2*nput)   = aimag(fourier_g(i,j,k))
            end do
         end do
      end do
      ! Force use of "scalar", integer pointer mpp interface
-     call mpp_transmit( put_data=put_data(1), plen=nput, to_pe=pp, &
-                        get_data=fourier_s(1,1,1,im), glen=nget, from_pe=pm )
+     call mpp_transmit( put_data=put_data(1), plen=2*nput, to_pe=pp, &
+                        get_data=fourier_s_real(2*nget*im+1), glen=2*nget, from_pe=pm )
   end do
   call mpp_sync()
   return

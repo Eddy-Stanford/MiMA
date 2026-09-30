@@ -3,7 +3,6 @@ module spectral_init_cond_mod
 use               fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, field_size, stdlog, file_exist, &
                                  write_version_number, close_file, check_nml_error, read_data, open_namelist_file
 
-use               mpp_mod, only: mpp_chksum
 
 use       mpp_domains_mod, only: mpp_get_global_domain
 
@@ -224,46 +223,5 @@ endif
 
 return
 end subroutine get_topography
-!=======================================================================================================
-subroutine print_chksum(text, vors, divs, ts, ln_ps, ug, vg, tg, psg, vorg, divg, surf_geopotential)
-character(len=*), intent(in) :: text
-complex, intent(in), dimension(:,:,:) :: vors, divs, ts
-complex, intent(in), dimension(:,:  ) :: ln_ps
-real,    intent(in), dimension(:,:,:) :: ug, vg, tg, vorg, divg
-real,    intent(in), dimension(:,:  ) :: psg, surf_geopotential
-
-integer(kind=kind(ug)) :: chksum_vors, chksum_divs, chksum_ts, chksum_ln_ps, chksum_ug, chksum_vg
-integer(kind=kind(ug)) :: chksum_tg, chksum_psg, chksum_vorg, chksum_divg, chksum_wg_full, chksum_surf_geo
-
-if (mpp_pe() == mpp_root_pe()) print '(/,a)',text
-
-chksum_vors    = mpp_chksum(vors)
-chksum_divs    = mpp_chksum(divs)
-chksum_ts      = mpp_chksum(ts)
-chksum_ln_ps   = mpp_chksum(ln_ps)
-chksum_ug      = mpp_chksum(ug)
-chksum_vg      = mpp_chksum(vg)
-chksum_tg      = mpp_chksum(tg)
-chksum_psg     = mpp_chksum(psg)
-chksum_vorg    = mpp_chksum(vorg)
-chksum_divg    = mpp_chksum(divg)
-chksum_surf_geo = mpp_chksum(surf_geopotential)
-
-if (mpp_pe() == mpp_root_pe()) then
-  print '("mpp_chksum(vors   )=",z17)',chksum_vors
-  print '("mpp_chksum(divs   )=",z17)',chksum_divs
-  print '("mpp_chksum(ts     )=",z17)',chksum_ts
-  print '("mpp_chksum(ln_ps  )=",z17)',chksum_ln_ps
-  print '("mpp_chksum(ug     )=",z17)',chksum_ug
-  print '("mpp_chksum(vg     )=",z17)',chksum_vg
-  print '("mpp_chksum(tg     )=",z17)',chksum_tg
-  print '("mpp_chksum(psg    )=",z17)',chksum_psg
-  print '("mpp_chksum(vorg   )=",z17)',chksum_vorg
-  print '("mpp_chksum(divg   )=",z17)',chksum_divg
-  print '("mpp_chksum(surf_geopotential)=",z17)',chksum_surf_geo
-endif
-
-return
-end subroutine print_chksum
 !================================================================================
 end module spectral_init_cond_mod
