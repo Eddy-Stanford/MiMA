@@ -6,6 +6,7 @@ This page explains how to compile MiMA and run the test case that ships with the
 
 * [Downloading the source](#downloading-the-source)
 * [Dependencies](#dependencies)
+  * [FMS](#fms)
   * [Installing FRE-NCtools](#installing-fre-nctools)
 * [Compiling](#compiling)
 * [Running the test case](#running-the-test-case)
@@ -29,10 +30,10 @@ Tagged releases are listed on the [releases page](https://github.com/Eddy-Stanfo
 MiMA needs:
 
 * a Fortran and a C compiler: GNU (`gfortran`/`gcc`/`clang`) or Intel oneAPI (`ifx`/`icx`, or the classic `ifort`)
-* an MPI library (e.g. Open MPI, MPICH, Intel MPI)
+* an MPI library (e.g. Open MPI, MPICH, Intel MPI) with the Fortran `mpi_f08` module
 * netCDF, **both** the C library and the Fortran library (`netcdf-c` and `netcdf-fortran`)
-* CMake ≥ 3.16
-* OpenMP support in the Fortran compiler
+* CMake ≥ 3.22
+* the [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.02 or later. You don't need to install it: CMake downloads and builds it if it can't find it (see [FMS](#fms)).
 
 To combine the per-processor output files you will also need `mppnccombine` from FRE-NCtools, which is installed separately (see [Installing FRE-NCtools](#installing-fre-nctools)).
 
@@ -45,6 +46,26 @@ Typical ways to install them:
 | HPC cluster | load the equivalent modules, e.g. `module load gcc openmpi netcdf-c netcdf-fortran cmake` (names vary between systems) |
 
 CMake finds netCDF using `nc-config`/`nf-config` on your `PATH`. If netCDF is installed somewhere non-standard, point CMake at it by setting `NetCDF_ROOT` (or `NetCDF_C_ROOT` and `NetCDF_Fortran_ROOT` if they are installed separately), either as an environment variable or with `-DNetCDF_ROOT=/path/to/netcdf`.
+
+### FMS
+
+MiMA is built on NOAA-GFDL's Flexible Modeling System (FMS) library, which provides the parallel infrastructure, I/O, diagnostics and time management. CMake looks for an installed FMS 2026.02 or later that was built with 8-byte reals (FMS's `-D64BIT=ON`, which provides the `FMS::fms_r8` target). To use one, point CMake at its install prefix:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/fms
+```
+
+(or set `FMS_ROOT=/path/to/fms`). If none is found, CMake downloads the FMS 2026.02 source from GitHub during the configure step and builds it with MiMA. This needs network access the first time. Where there is none, e.g. on some HPC compute nodes, download [FMS 2026.02](https://github.com/NOAA-GFDL/FMS/archive/refs/tags/2026.02.tar.gz) elsewhere, unpack it, and pass its location:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_FMS=/path/to/FMS-2026.02
+```
+
+A downloaded FMS is built with OpenMP only if `MIMA_OPENMP` is on (see [Compiling](#compiling)), and it is not installed by `cmake --install`.
+
+An installed FMS must also use FMS's default GFDL physical constants (`-DCONSTANTS=GFDL`, the default; Spack: `constants=GFDL`). MiMA checks this when it starts and stops if, for example, the GFS constants were chosen. It also needs `do_simple = .true.` in `&sat_vapor_pres_nml` (set in the shipped `input.nml`), and stops if it is missing.
+
+With the Intel compilers, a downloaded FMS is compiled with FMS's own Intel flags, not MiMA's, so answers will not match builds that used MiMA's old bundled FMS.
 
 ### Installing FRE-NCtools
 
@@ -92,6 +113,7 @@ The CMake options are:
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | `Debug` | Use `Release` for production runs (enables compiler optimisation). `Debug` builds are much slower. |
 | `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
+| `MIMA_OPENMP` | `OFF` on macOS, `ON` elsewhere | Compile with OpenMP. MiMA itself has no OpenMP code, so this matters only for a downloaded FMS, which then needs OpenMP for both C and Fortran (Apple's `clang` has none). |
 
 ### Choosing the compiler
 

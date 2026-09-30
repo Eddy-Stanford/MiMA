@@ -6,7 +6,7 @@ Full documentation is in the [`docs/`](docs/) folder and online at <https://eddy
 
 ## Quick start
 
-You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries), CMake ≥ 3.16, and OpenMP. To combine the output you also need [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools). See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
+You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries) and CMake ≥ 3.22. MiMA uses the [FMS](https://github.com/NOAA-GFDL/FMS) library, which CMake downloads and builds automatically if it can't find an installed copy. To combine the output you also need [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools). See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
 
 Compile, and create a ready-to-run test case in `exec/`:
 
