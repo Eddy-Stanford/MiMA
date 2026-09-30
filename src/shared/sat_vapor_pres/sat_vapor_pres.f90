@@ -40,13 +40,19 @@ module sat_vapor_pres_mod
 
 ! <DESCRIPTION>
 !   This module contains routines for determining the saturation vapor
-!   pressure (<TT>ES</TT>) from lookup tables constructed using equations given
-!   in the Smithsonian tables.  The <TT>ES</TT> lookup tables are valid between
-!   -160C and +100C (approx 113K to 373K).
+!   pressure (<TT>ES</TT>) from lookup tables built from a simple
+!   Clausius-Clapeyron relation (constant latent heat HLV, over liquid
+!   only):
+!<PRE>
+!      es(T) = ES0*610.78*exp(-HLV/RVGAS*(1/T - 1/TFREEZE))
+!</PRE>
+!   The tables, their range and resolution, and the lookup arithmetic
+!   reproduce, bit for bit, the table that modern FMS sat_vapor_pres_mod
+!   builds with <TT>do_simple=.true.</TT>: valid from -173C to +350C
+!   (approx 100K to 623K) at 1/10 degree resolution.
 
-!   The values of <TT>ES</TT> are computed over ice from -160C to -20C,
-!   over water from 0C to 100C, and a blended value (over water and ice)
-!   from -20C to 0C.
+!   compute_es (Smithsonian tables, over ice/water) is NOT used to build
+!   the tables; it is retained only as a public utility.
 
 !   This version was written for non-vector machines.
 !   See the <LINK SRC="#NOTES">notes</LINK> section for details on vectorization.
@@ -94,7 +100,7 @@ private
 !   </OUT>
 !   <ERROR MSG="table overflow, nbad=##" STATUS="FATAL">
 !     Temperature(s) provided to the saturation vapor pressure lookup
-!          are outside the valid range of the lookup table (-160 to 100 deg C).
+!          are outside the valid range of the lookup table (-173 to 350 deg C).
 !          This may be due to a numerical instability in the model.
 !          Information should have been printed to standard output to help
 !          determine where the instability may have occurred.
@@ -181,13 +187,11 @@ character(len=128) :: tagname = '$Name:  $'
 
 !-----------------------------------------------------------------------
 !  parameters for table size and resolution
+!  (these are the values FMS sat_vapor_pres_mod uses with do_simple=.true.)
 
-!integer, parameter :: tcmin = -160  ! minimum temperature (degC) in lookup table
-!integer, parameter :: tcmax =  100  ! maximum temperature (degC) in lookup table
-!integer, parameter :: esres =  10   ! table resolution (increments per degree)
- integer, parameter :: tcmin = -200  ! minimum temperature (degC) in lookup table
- integer, parameter :: tcmax =  250  ! maximum temperature (degC) in lookup table
- integer, parameter :: esres =  5    ! table resolution (increments per degree)
+ integer, parameter :: tcmin = -173  ! minimum temperature (degC) in lookup table
+ integer, parameter :: tcmax =  350  ! maximum temperature (degC) in lookup table
+ integer, parameter :: esres =  10   ! table resolution (increments per degree)
  integer, parameter :: nsize = (tcmax-tcmin)*esres+1    !  lookup table size
  integer, parameter :: nlim  = nsize-1
 
@@ -223,11 +227,12 @@ contains
 
    tmp = temp-tmin
    ind = int(dtinv*(tmp+teps))
-   del = tmp-dtres*real(ind)
-   esat = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
-!!!esat = TABLE(ind+1) + del*DTABLE(ind+1)
-
-     if (ind < 0 .or. ind > nlim) call temp_check ( 1, temp )
+   if (ind < 0 .or. ind > nlim) then
+     call temp_check ( 1, temp )
+   else
+     del = tmp-dtres*real(ind)
+     esat = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
+   endif
 
 !-----------------------------------------------
 
@@ -254,10 +259,12 @@ contains
    do i = 1, size(temp,1)
      tmp = temp(i)-tmin
      ind = int(dtinv*(tmp+teps))
-     del = tmp-dtres*real(ind)
-     esat(i) = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
-!!!!!esat(i) = TABLE(ind+1) + del*DTABLE(ind+1)
-     if (ind < 0 .or. ind > nlim) n = n+1
+     if (ind < 0 .or. ind > nlim) then
+       n = n+1
+     else
+       del = tmp-dtres*real(ind)
+       esat(i) = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
+     endif
    enddo
 
    if ( n > 0 ) call temp_check ( n, temp )
@@ -288,10 +295,12 @@ contains
    do i = 1, size(temp,1)
      tmp = temp(i,j)-tmin
      ind = int(dtinv*(tmp+teps))
-     del = tmp-dtres*real(ind)
-     esat(i,j) = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
-!!!!!esat(i,j) = TABLE(ind+1) + del*DTABLE(ind+1)
-     if (ind < 0 .or. ind > nlim) n = n+1
+     if (ind < 0 .or. ind > nlim) then
+       n = n+1
+     else
+       del = tmp-dtres*real(ind)
+       esat(i,j) = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
+     endif
    enddo
    enddo
 
@@ -324,10 +333,12 @@ contains
    do i = 1, size(temp,1)
      tmp = temp(i,j,k)-tmin
      ind = int(dtinv*(tmp+teps))
-     del = tmp-dtres*real(ind)
-     esat(i,j,k) = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
-!!!!!esat(i,j,k) = TABLE(ind+1) + del*DTABLE(ind+1)
-     if (ind < 0 .or. ind > nlim) n = n+1
+     if (ind < 0 .or. ind > nlim) then
+       n = n+1
+     else
+       del = tmp-dtres*real(ind)
+       esat(i,j,k) = TABLE(ind+1) + del*(DTABLE(ind+1) + del*D2TABLE(ind+1))
+     endif
    enddo
    enddo
    enddo
@@ -359,10 +370,12 @@ contains
 
    tmp = temp-tmin
    ind = int(dtinv*(tmp+teps))
-   del = tmp-dtres*real(ind)
-   desat = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
-
-   if (ind < 0 .or. ind > nlim) call temp_check ( 1, temp )
+   if (ind < 0 .or. ind > nlim) then
+     call temp_check ( 1, temp )
+   else
+     del = tmp-dtres*real(ind)
+     desat = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
+   endif
 
 !-----------------------------------------------
 
@@ -389,9 +402,12 @@ contains
    do i = 1, size(temp,1)
      tmp = temp(i)-tmin
      ind = int(dtinv*(tmp+teps))
-     del = tmp-dtres*real(ind)
-     desat(i) = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
-     if (ind < 0 .or. ind > nlim) n = n+1
+     if (ind < 0 .or. ind > nlim) then
+       n = n+1
+     else
+       del = tmp-dtres*real(ind)
+       desat(i) = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
+     endif
    enddo
 
    if ( n > 0 ) call temp_check ( n, temp )
@@ -422,9 +438,12 @@ contains
    do i = 1, size(temp,1)
      tmp = temp(i,j)-tmin
      ind = int(dtinv*(tmp+teps))
-     del = tmp-dtres*real(ind)
-     desat(i,j) = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
-     if (ind < 0 .or. ind > nlim) n = n+1
+     if (ind < 0 .or. ind > nlim) then
+       n = n+1
+     else
+       del = tmp-dtres*real(ind)
+       desat(i,j) = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
+     endif
    enddo
    enddo
 
@@ -456,9 +475,12 @@ contains
    do i = 1, size(temp,1)
      tmp = temp(i,j,k)-tmin
      ind = int(dtinv*(tmp+teps))
-     del = tmp-dtres*real(ind)
-     desat(i,j,k) = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
-     if (ind < 0 .or. ind > nlim) n = n+1
+     if (ind < 0 .or. ind > nlim) then
+       n = n+1
+     else
+       del = tmp-dtres*real(ind)
+       desat(i,j,k) = DTABLE(ind+1) + 2.*del*D2TABLE(ind+1)
+     endif
    enddo
    enddo
    enddo
@@ -495,24 +517,17 @@ contains
 !  +                                                               +
 !  +             construction of the es table                      +
 !  +                                                               +
-!  + this table is constructed from es equations from the          +
-!  + smithsonian tables.  the es input is computed from values     +
-!  + (in one-tenth of a degree increments) of es over ice          +
-!  + from -153c to 0c and values of es over water from 0c to 102c. +
-!  + output table contains these data interleaved with their       +
-!  + derivatives with respect to temperature except between -20c   +
-!  + and 0c where blended (over water and over ice) es values and  +
-!  + derivatives are calculated.                                   +
+!  + this table reproduces, bit for bit, the table built by FMS    +
+!  + sat_vapor_pres_k_mod (sat_vapor_pres_init_k) with             +
+!  + do_simple=.true.: es from a simple Clausius-Clapeyron         +
+!  + relation, its analytic derivative, and one-half the second    +
+!  + derivative by centred differences of the derivative table.    +
+!  + the operation order below must match FMS exactly.             +
 !  +   note: all es computation is done in pascals                 +
 !  =================================================================
 
-!real, dimension(nsize) :: establ
- real    :: tem(3), es(3), hdtinv
- integer :: i, n
-
-! increment used to generate derivative table
-  real, parameter :: tinrc = .01           
-  real, parameter :: tfact = 1./(2.*tinrc)
+ real    :: tem
+ integer :: i
 
 ! return silently if this routine has already been called
       if (module_is_initialized) return
@@ -521,79 +536,19 @@ contains
       call write_version_number (version, tagname)
 
 ! global variables
-      tmin = real(tcmin)+TFREEZE   ! minimum valid temp in table
-      tmax = real(tcmax)+TFREEZE   ! maximum valid temp in table
-      dtinv = real(esres)
-      dtres = 1./dtinv
-      teps = 1./real(2*esres)
-! local variables
-      hdtinv = dtinv*0.5
+      dtres = (real(tcmax)-real(tcmin))/real(nsize-1)
+      tmin  = real(tcmin)+TFREEZE   ! minimum valid temp in table
+      tmax  = real(tcmax)+TFREEZE   ! maximum valid temp in table
+      dtinv = 1./dtres
+      teps  = 0.5*dtres
 
 ! compute es tables from tcmin to tcmax
-! estimate es derivative with small +/- difference
-
-!      data establ /      6.4876769e-03,   7.7642650e-03,   9.2730105e-03, & ! XXX Too many continuation lines.
-!        1.1052629e-02,   1.3147696e-02,   1.5609446e-02,   1.8496657e-02, & ! XXX Fortran standard allows up to 39 continuation lines.
-!        2.1876647e-02,   2.5826384e-02,   3.0433719e-02,   3.5798760e-02, &
-!        4.2035399e-02,   4.9272997e-02,   5.7658264e-02,   6.7357319e-02, &
-!        7.8557979e-02,   9.1472273e-02,   1.0633921e-01,   1.2342784e-01, &
-!        1.4304057e-01,   1.6551683e-01,   1.9123713e-01,   2.2062738e-01, &
-!        2.5416374e-01,   2.9237778e-01,   3.3586224e-01,   3.8527718e-01, &
-!        4.4135673e-01,   5.0491638e-01,   5.7686092e-01,   6.5819298e-01, &
-!        7.5002239e-01,   8.5357615e-01,   9.7020925e-01,   1.1014164e+00, &
-!        1.2488446e+00,   1.4143067e+00,   1.5997959e+00,   1.8075013e+00, &
-!        2.0398249e+00,   2.2993996e+00,   2.5891082e+00,   2.9121041e+00, &
-!        3.2718336e+00,   3.6720588e+00,   4.1168837e+00,   4.6107798e+00, &
-!        5.1586157e+00,   5.7656865e+00,   6.4377468e+00,   7.1810447e+00, &
-!        8.0023579e+00,   8.9090329e+00,   9.9090255e+00,   1.1010944e+01, &
-!        1.2224096e+01,   1.3558536e+01,   1.5025116e+01,   1.6635542e+01, &
-!        1.8402429e+01,   2.0339361e+01,   2.2460955e+01,   2.4782931e+01, &
-!        2.7322176e+01,   3.0096824e+01,   3.3126327e+01,   3.6431545e+01, &
-!        4.0034823e+01,   4.3960087e+01,   4.8232935e+01,   5.2880735e+01, &
-!        5.7932732e+01,   6.3420149e+01,   6.9376307e+01,   7.5836738e+01, &
-!        8.2839310e+01,   9.0424352e+01,   9.8634795e+01,   1.0751630e+02, &
-!        1.1711742e+02,   1.2748974e+02,   1.3868802e+02,   1.5077039e+02, &
-!        1.6379851e+02,   1.7783773e+02,   1.9295728e+02,   2.0923048e+02, &
-!        2.2673493e+02,   2.4555268e+02,   2.6577049e+02,   2.8748004e+02, &
-!        3.1077813e+02,   3.3576694e+02,   3.6255429e+02,   3.9125382e+02, &
-!        4.2198536e+02,   4.5487511e+02,   4.9005594e+02,   5.2766770e+02, &
-!        5.6785749e+02,   6.1078000e+02,   6.5659776e+02,   7.0548154e+02, &
-!        7.5761062e+02,   8.1317317e+02,   8.7236659e+02,   9.3539788e+02, &
-!        1.0024840e+03,   1.0738523e+03,   1.1497408e+03,   1.2303987e+03, &
-!        1.3160868e+03,   1.4070779e+03,   1.5036572e+03,   1.6061228e+03, &
-!        1.7147860e+03,   1.8299721e+03,   1.9520206e+03,   2.0812857e+03, &
-!        2.2181372e+03,   2.3629602e+03,   2.5161565e+03,   2.6781448e+03, &
-!        2.8493609e+03,   3.0302589e+03,   3.2213112e+03,   3.4230097e+03, &
-!        3.6358656e+03,   3.8604109e+03,   4.0971982e+03,   4.3468019e+03, &
-!        4.6098188e+03,   4.8868684e+03,   5.1785938e+03,   5.4856626e+03, &
-!        5.8087673e+03,   6.1486259e+03,   6.5059830e+03,   6.8816104e+03, &
-!        7.2763077e+03,   7.6909031e+03,   8.1262545e+03,   8.5832496e+03, &
-!        9.0628075e+03,   9.5658788e+03,   1.0093447e+04,   1.0646529e+04, &
-!        1.1226176e+04,   1.1833474e+04,   1.2469546e+04,   1.3135552e+04, &
-!        1.3832687e+04,   1.4562188e+04,   1.5325331e+04,   1.6123432e+04, &
-!        1.6957848e+04,   1.7829980e+04,   1.8741270e+04,   1.9693207e+04, &
-!        2.0687323e+04,   2.1725199e+04,   2.2808462e+04,   2.3938786e+04, &
-!        2.5117897e+04,   2.6347569e+04,   2.7629630e+04,   2.8965959e+04, &
-!        3.0358489e+04,   3.1809206e+04,   3.3320155e+04,   3.4893436e+04, &
-!        3.6531207e+04,   3.8235686e+04,   4.0009150e+04,   4.1853937e+04, &
-!        4.3772450e+04,   4.5767153e+04,   4.7840576e+04,   4.9995315e+04, &
-!        5.2234033e+04,   5.4559461e+04,   5.6974400e+04,   5.9481721e+04, &
-!        6.2084368e+04,   6.4785356e+04,   6.7587777e+04,   7.0494797e+04, &
-!        7.3509658e+04,   7.6635682e+04,   7.9876268e+04,   8.3234898e+04, &
-!        8.6715133e+04,   9.0320619e+04,   9.4055085e+04,   9.7922346e+04, &
-!        1.0192630e+05,   1.0607095e+05,   1.1036035e+05,   1.1479870e+05, &
-!        1.1939023e+05,   1.2413932e+05/
+! es from Clausius-Clapeyron, des analytically
 
       do i = 1, nsize
-         tem(1) = tmin + dtres*real(i-1)
-!        tem(2) = tem(1)-tinrc
-!        tem(3) = tem(1)+tinrc
-!        es = compute_es (tem)
-!         TABLE(i) = es(1)
-!        DTABLE(i) = (es(3)-es(2))*tfact
-!         TABLE(i) = ES0*establ(i)
-          TABLE(i) = ES0*610.78*exp(-hlv/rvgas*(1./tem(1) - 1./tfreeze))
-         DTABLE(i) = hlv*TABLE(i)/rvgas/tem(1)**2.
+         tem = tmin + dtres*real(i-1)
+          TABLE(i) = ES0*610.78*exp(-HLV/RVGAS*(1./tem - 1./TFREEZE))
+         DTABLE(i) = HLV*TABLE(i)/RVGAS/tem**2.
       enddo
 
 ! compute one-half second derivative using centered differences
@@ -850,19 +805,17 @@ end module sat_vapor_pres_mod
 !    with the same size and order as input array temp.
 !
 !     2. <B>Construction of the <TT>ES</TT> tables</B><BR/>
-!         The tables are constructed using the saturation vapor pressure (<TT>ES</TT>)
-!    equations in the Smithsonian tables. The tables are valid between
-!    -160C to +100C with increments at 1/10 degree. Between -160C and -20C
-!    values of <TT>ES</TT> over ice are used, between 0C and 100C values of<TT> ES</TT>
-!    over water are used, between -20C and 0C blended values of <TT>ES</TT>
-!    (over water and over ice) are used.
+!         The tables reproduce, bit for bit, those of FMS sat_vapor_pres_mod
+!    with do_simple=.true. They are valid between -173C and +350C with
+!    increments of 1/10 degree. <TT>ES</TT> is computed from the simple
+!    Clausius-Clapeyron relation
+!    ES = ES0*610.78*exp(-HLV/RVGAS*(1/T - 1/TFREEZE)) (over liquid only).
 !
-!    There are three tables constructed: <TT>ES</TT>, first derivative 
+!    There are three tables constructed: <TT>ES</TT>, first derivative
 !       (<TT>ES'</TT>), and
-!    second derivative (<TT>ES</TT>'').  The ES table is constructed directly from
-!    the equations in the Smithsonian tables. The <TT>ES</TT>' table is constructed
-!    by bracketing temperature values at +/- 0.01 degrees. The <TT>ES</TT>'' table
-!    is estimated by using centered differencing of the <TT>ES</TT>' table.
+!    one-half the second derivative (<TT>ES</TT>''/2).  <TT>ES</TT>' is the
+!    analytic derivative HLV*ES/(RVGAS*T**2). <TT>ES</TT>''/2 is estimated by
+!    centered differencing of the <TT>ES</TT>' table (one-sided at the ends).
 !
 !     3. <B>Determination of <TT>es</TT> and <TT>es'</TT> from lookup tables</B><BR/>
 !         Values of the saturation vapor pressure (<TT>es</TT>) and the 
@@ -878,14 +831,17 @@ end module sat_vapor_pres_mod
 !</PRE>
 !
 !     4. Internal (private) parameters<BR/>
-!       These parameters can be modified to increase/decrease the size/range
-!    of the lookup tables.
+!       These parameters set the size/range of the lookup tables; changing
+!    them breaks bitwise agreement with FMS do_simple=.true.
 !<PRE>
 !!    tcmin   The minimum temperature (in deg C) in the lookup tables.
-!!              [integer, default: tcmin = -160]
+!!              [integer, default: tcmin = -173]
 !!
 !!    tcmax   The maximum temperature (in deg C) in the lookup tables.
-!!              [integer, default: tcmin = +100]
+!!              [integer, default: tcmax = +350]
+!!
+!!    esres   The table resolution (increments per degree).
+!!              [integer, default: esres = 10]
 !!</PRE>
 !!   </NOTE>
 !
