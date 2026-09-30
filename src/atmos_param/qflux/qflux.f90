@@ -52,8 +52,8 @@ module qflux_mod
           Hawaiiextra = 30.0 !! [W/m2] extra flux near Hawaii (choice 3 only)
 
   integer :: warmpool_localization_choice = 3
-  !! 1: cosine in longitude; 2: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and
-  !! tropical Atlantic terms; 3: the localized patterns of Garfinkel et al. (2020). Which of the
+  !! `1`: cosine in longitude; `2`: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and
+  !! tropical Atlantic terms; `3`: the localized patterns of Garfinkel et al. (2020). Which of the
   !! regional amplitudes below are used depends on this choice (see `qflux.f90`).
   logical :: qflux_initialized = .false.
 

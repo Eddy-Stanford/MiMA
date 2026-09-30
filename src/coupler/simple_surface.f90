@@ -126,15 +126,15 @@ module simple_surface_mod
 
   integer :: surface_choice = 1  !! 1: slab mixed layer (interactive SST); 2: SST fixed at its initial value
   integer :: roughness_choice = 4
-  !! 1: `const_roughness` everywhere; 3: over land, momentum and moisture roughness
-  !! multiplied by `mom_roughness_land` and `q_roughness_land`; 4: as 3, with larger moisture
+  !! `1`: `const_roughness` everywhere; `3`: over land, momentum and moisture roughness
+  !! multiplied by `mom_roughness_land` and `q_roughness_land`; `4`: as 3, with larger moisture
   !! roughness over tropical and midlatitude land than over subtropical land. 3 and 4 need
   !! `land_option = 'interpolated'` or `'oceanmaskpole'`.
   integer :: albedo_choice = 7
-  !! 1: `const_albedo`; 2: `higher_albedo` poleward of `lat_glacier` in one hemisphere (NH if
-  !! `lat_glacier` > 0); 3: `higher_albedo` poleward of `lat_glacier` in both hemispheres; 4:
-  !! increase as `(lat/90)^albedo_exp`; 5: tanh increase centred at `albedo_cntrNH`,
-  !! `albedo_cntrSH` with width `albedo_wdth`; 6: sin^2 increase from equator to pole; 7: as
+  !! `1`: `const_albedo`; `2`: `higher_albedo` poleward of `lat_glacier` in one hemisphere (NH if
+  !! `lat_glacier` > 0); `3`: `higher_albedo` poleward of `lat_glacier` in both hemispheres; `4`:
+  !! increase as `(lat/90)^albedo_exp`; `5`: tanh increase centred at `albedo_cntrNH`,
+  !! `albedo_cntrSH` with width `albedo_wdth`; `6`: sin^2 increase from equator to pole; `7`: as
   !! 5, plus `albedo_desert` over the Sahara, Gobi and Australian deserts
   logical :: do_qflux = .true. !! add the meridional ocean heat flux of `qflux_nml`
   logical :: do_warmpool = .true. !! add the zonally asymmetric ocean heat fluxes of `qflux_nml`

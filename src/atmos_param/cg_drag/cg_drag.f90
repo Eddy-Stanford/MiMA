@@ -99,7 +99,7 @@ module cg_drag_mod
 !   wave spectrum parameters.
 !---------------------------------------------------------------------
 
-  integer    :: flag = 0  !! 1: spectrum peaks at c = 0; 0: at c - u = 0 (always 0 in the
+  integer    :: flag = 0  !! `1`: spectrum peaks at c = 0; `0`: at c - u = 0 (always 0 in the
                           !! tropical band)
   real       :: Bw = 0.4  !! [m2/s2] amplitude of the wide part of the phase-speed spectrum
   ! ~ u'w'

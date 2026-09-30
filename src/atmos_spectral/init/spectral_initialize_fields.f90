@@ -52,8 +52,8 @@ contains
     real, intent(in) :: reference_sea_level_press  !! initial surface pressure where the surface height is 0 [Pa]
     logical, intent(in) :: triang_trunc  !! triangular (`.true.`) or rhomboidal truncation
     integer, intent(in) :: choice_of_init
-    !! 1: add 1 K to the temperature of the first grid column; 2: small vorticity perturbation
-    !! in the lowest three levels; 3: read `ucomp`, `vcomp`, `temp` and `ps` from
+    !! `1`: add 1 K to the temperature of the first grid column; `2`: small vorticity perturbation
+    !! in the lowest three levels; `3`: read `ucomp`, `vcomp`, `temp` and `ps` from
     !! `INPUT/initial_conditions.nc`
     real, intent(in) :: initial_temperature  !! temperature of the isothermal atmosphere [K]
 
