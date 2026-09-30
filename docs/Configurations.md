@@ -21,6 +21,41 @@ The radiation scheme is chosen with `radiation_scheme` in `radiation_nml`:
 * `'gray'`: the gray radiation scheme of Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)), configured with `gray_radiation_nml`.
 * `'none'`: no radiative heating and no radiative surface fluxes.
 
+## Held-Suarez forcing
+
+MiMA can run the [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994)075<1825:APFTIO>2.0.CO;2) idealized forcing: Newtonian relaxation of temperature towards a zonally symmetric equilibrium profile, and Rayleigh friction of the winds in the boundary layer. It is switched on in `physics_driver_nml`, and its parameters are set in `held_suarez_nml` (the defaults are the HS94 values):
+
+ Variable | Default | Meaning
+ :--- | :---: | :---
+ `t_zero`, `t_strat` | 315, 200 K | surface equilibrium temperature at the equator, minimum equilibrium temperature
+ `delh`, `delv` | 60, 10 K | equator-to-pole temperature difference, vertical potential temperature difference
+ `sigma_b` | 0.7 | top of the frictional boundary layer (sigma)
+ `ka`, `ks`, `kf` | 40, 4, 1 days | free-atmosphere and surface relaxation times, boundary-layer friction time
+ `do_rayleigh_friction` | `.true.` | apply the boundary-layer friction
+ `do_conserve_energy` | `.false.` | heat the air by the frictional dissipation
+
+The forcing depends only on latitude and sigma, so it works at any horizontal resolution and with any vertical levels.
+
+For the standard **dry** benchmark, switch off radiation, moist physics and the boundary layer, which also leaves the surface state unchanged. A complete example (T42, 20 evenly spaced sigma levels, flat topography) is in `input/examples/held_suarez/`; it needs no input data files:
+
+```fortran
+&radiation_nml
+    radiation_scheme = 'none' /
+
+&physics_driver_nml
+    do_held_suarez    = .true.,
+    do_boundary_layer = .false.,
+    do_moist_physics  = .false.,
+    do_damping        = .false. /
+```
+
+The model always carries a humidity tracer (`sphum` in the field table); in the dry setup it stays zero. Also set `use_virtual_temperature = .false.` and `do_water_correction = .false.` in `spectral_dynamics_nml`.
+
+The HS forcing can be combined with other parts of the model:
+* `do_damping = .true.` with `damping_driver_nml` enables the Rayleigh sponge (`do_rayleigh`) and/or the convective gravity-wave drag (`do_cg_drag`).
+* Non-flat topography through `topography_option` in `spectral_dynamics_nml`.
+* **Moist variants:** with `do_moist_physics = .true.` and `do_boundary_layer = .true.` (and `do_rayleigh_friction = .false.`), the HS temperature relaxation replaces radiation while MiMA's moist physics, boundary layer and surface fluxes stay active. This is similar in spirit to the moist Held-Suarez test of [Thatcher and Jablonowski (2016)](https://doi.org/10.5194/gmd-9-1263-2016), but uses MiMA's own boundary-layer and surface schemes.
+
 ## Specified initial conditions
 
 Without restart files, MiMA starts from an isothermal atmosphere at rest with a small vorticity perturbation. To start from your own initial state instead, set this flag in `spectral_dynamics_nml`:

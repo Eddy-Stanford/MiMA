@@ -1,0 +1,11 @@
+"MiMA Held-Suarez"
+0001 1 1 0 0 0
+"atmos_daily", 24, "hours", 1, "days", "time",
+ "dynamics",    "ps",     "ps",     "atmos_daily", "all", .true., "none", 2,
+ "dynamics",    "ucomp",  "ucomp",  "atmos_daily", "all", .true., "none", 2,
+ "dynamics",    "vcomp",  "vcomp",  "atmos_daily", "all", .true., "none", 2,
+ "dynamics",    "temp",   "temp",   "atmos_daily", "all", .true., "none", 2,
+ "dynamics",    "omega",  "omega",  "atmos_daily", "all", .true., "none", 2,
+ "held_suarez", "teq",    "teq",    "atmos_daily", "all", .true., "none", 2,
+ "held_suarez", "tdt_hs", "tdt_hs", "atmos_daily", "all", .true., "none", 2,
+ "held_suarez", "udt_hs", "udt_hs", "atmos_daily", "all", .true., "none", 2,

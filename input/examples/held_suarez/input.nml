@@ -1,0 +1,56 @@
+! Dry Held and Suarez (1994) benchmark: T42 with 20 evenly spaced sigma
+! levels, flat topography, no radiation, moisture or surface fluxes.
+! The forcing is set in held_suarez_nml; it depends only on latitude and
+! sigma, so the resolution and levels below can be changed freely.
+! The sphum tracer (field_table) is required but stays zero.
+
+ &coupler_nml
+    days     = 1200,
+    dt_atmos = 1200 /
+
+ &spectral_dynamics_nml
+    lon_max           = 128,
+    lat_max           = 64,
+    num_fourier       = 42,
+    num_spherical     = 43,
+    num_levels        = 20,
+    vert_coord_option = 'even_sigma',
+    topography_option = 'flat',
+    initial_sphum     = 0.,
+    use_virtual_temperature = .false.,
+    do_water_correction     = .false. /
+
+ &radiation_nml
+    radiation_scheme = 'none' /
+
+ &physics_driver_nml
+    do_held_suarez    = .true.,
+    do_boundary_layer = .false.,
+    do_moist_physics  = .false.,
+    do_damping        = .false. /
+
+ &simple_surface_nml
+    ! the surface is not coupled; this only avoids reading land-mask files
+    land_option = 'none',
+    do_qflux    = .false.,
+    do_warmpool = .false.,
+    albedo_choice = 1,
+    roughness_choice = 1 /
+
+ &held_suarez_nml
+    ! HS94 values (the defaults), listed for reference
+    t_zero  = 315.,
+    t_strat = 200.,
+    delh    = 60.,
+    delv    = 10.,
+    sigma_b = 0.7,
+    ka      = 40.,
+    ks      = 4.,
+    kf      = 1. /
+
+ &fms_nml
+    domains_stack_size = 600000 /
+
+ &fms_io_nml
+    threading_write = 'single',
+    fileset_write   = 'single' /
