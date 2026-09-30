@@ -78,8 +78,8 @@ public ice_atmos_boundary_type
      real, pointer, dimension(:,:) :: gust     => NULL() ! gustiness factor
      real, pointer, dimension(:,:) :: flux_sw  => NULL() ! net shortwave flux (W/m2) at the surface
      real, pointer, dimension(:,:) :: flux_lw  => NULL() ! net longwave flux (W/m2) at the surface
-     real, pointer, dimension(:,:) :: lprec    => NULL() ! mass of liquid precipitation since last time step (Kg/m2)
-     real, pointer, dimension(:,:) :: fprec    => NULL() ! ass of frozen precipitation since last time step (Kg/m2)
+     real, pointer, dimension(:,:) :: lprec    => NULL() ! liquid precipitation rate over the last time step (kg/m2/s)
+     real, pointer, dimension(:,:) :: fprec    => NULL() ! frozen precipitation rate over the last time step (kg/m2/s)
      type (surf_diff_type)         :: Surf_diff          ! store data needed by the multi-step version of the diffusion algorithm
      type (time_type)              :: Time               ! current time
      type (time_type)              :: Time_step          ! atmospheric time step.
@@ -307,8 +307,7 @@ type (atmos_data_type), intent(inout) :: Atmos
 type (time_type), intent(in) :: Time_init, Time, Time_step
 
   integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
-  integer :: mlon, mlat, nlon, nlat, sec, day, dt
-  real    :: dto
+  integer :: mlon, mlat, nlon, nlat
   integer :: ierr, io
   type(restart_file_type) :: rst
 !-----------------------------------------------------------------------
@@ -402,7 +401,7 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    if ( open_restart_read(rst, 'INPUT/atmos_coupled.res.nc', Atmos%domain) ) then
        if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
                    'Reading netCDF formatted restart file: INPUT/atmos_coupled.res.nc', NOTE)
-       call read_restart_field(rst, 'dt', dto)
+       ! lprec and fprec are rates, so a change of time step needs no conversion
        call read_restart_field(rst, 'lprec', Atmos % lprec)
        call read_restart_field(rst, 'fprec', Atmos % fprec)
        call read_restart_field(rst, 'gust', Atmos % gust)
@@ -412,18 +411,6 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
           call read_restart_field(rst, 'q_bot', Atmos%q_bot)
        endif
        call close_restart(rst)
-
-       !---- if the time step has changed then convert ----
-       !        tendency to conserve mass of water
-       call get_time (Atmos % Time_step, sec, day)
-       dt = sec + 86400*day  ! integer seconds
-       if (nint(dto) /= dt) then
-          Atmos % lprec = Atmos % lprec * dto/real(dt)
-          Atmos % fprec = Atmos % fprec * dto/real(dt)
-          if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
- 50       format (/,'The model time step changed .... &
-                   &modifying precipitation tendencies')
-       endif
    else
         Atmos % lprec = 0.0
         Atmos % fprec = 0.0
@@ -486,7 +473,7 @@ type(restart_file_type) :: rst
      call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
   endif
   call open_restart_write(rst, 'RESTART/atmos_coupled.res.nc', Atmos%domain)
-  call write_restart_field(rst, 'dt', real(dt))
+  call write_restart_field(rst, 'dt', real(dt))   ! not read any more; kept for older versions
   call write_restart_field(rst, 'lprec', Atmos%lprec)
   call write_restart_field(rst, 'fprec', Atmos%fprec)
   call write_restart_field(rst, 'gust', Atmos%gust)
