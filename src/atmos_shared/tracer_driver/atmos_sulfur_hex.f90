@@ -1,44 +1,25 @@
 
+!> Sulfur hexafluoride (SF6) tracer.
+!>
+!> SF6 is emitted into the lowest model level with the GEIA spatial distribution, read from
+!> `distribution.grid` (0.5 degree grid), times a time-dependent global emission rate, read
+!> from `monthly.emissions`. It has no sinks.
+!>
+!> `monthly.emissions` contains the estimated global emission rate of SF6 in Gg/yr for 62
+!> months between December 1988 and January 1994, inclusive. These are based on the annual
+!> estimates of Levin and Hesshaimer, and have been linearly interpolated to monthly values.
+!> The last half of 1993 has been extrapolated using the trend for the previous 12 months. The
+!> dates are shifted to start in December 1981. Before the first date the emission is zero;
+!> after the last date the last rate is used.
+!>
+!> References:
+!>
+!> * Levin, I., and V. Hesshaimer: Refining of atmospheric transport model entries by the
+!>   globally observed passive tracer distributions of 85Krypton and sulfur hexafluoride
+!>   (SF6). Submitted to J. Geophys. Res.
+!>
+!> Original authors: Jeff Greenblatt.
 module atmos_sulfur_hex_mod
-! <CONTACT EMAIL="Jeffrey.Greenblatt@noaa.gov">
-!   Jeff Greenblatt
-! </CONTACT>
-
-! <REVIEWER EMAIL="William.Cooke@noaa.gov">
-!   William Cooke
-! </REVIEWER>
-
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-
-! <OVERVIEW>
-!     This code allows the implementation of sulfur hexafluoride
-!     tracer in the FMS framework.
-! </OVERVIEW>
-
-! <DESCRIPTION>
-
-! </DESCRIPTION>
-
-! <DATASET NAME="Sulfur hexaflouride emissions">
-!
-! Monthly.emissions contains the estimated global emission rate of SF6 in
-! Gg/yr for 62 months between December 1988 and January 1994, inclusive.
-! These are based on the annual estimates of Levin and Hesshaimer
-! (submitted), and have been linearly interpolated to monthly values. The
-! last half of 1993 has been extrapolated using the trend for the previous 12
-! months.
-!
-!   The dataset can be obtained from the contact person above.
-! </DATASET>
-! <INFO>
-
-!   <REFERENCE>
-!Levin, I. and V. Hessahimer: Refining of atmospheric
-! transport model entries by the globally observed passive tracer
-! distributions of 85Krypton and Sulfur Hexafluoride (SF6). Submitted to the
-! Journal of Geophysical Research.
-! </REFERENCE>
-!</INFO>
 
   use fms_mod, only: &
     !                                 open_file,            &
@@ -108,57 +89,19 @@ module atmos_sulfur_hex_mod
 contains
 
 !#######################################################################
-!<SUBROUTINE NAME="atmos_sf6_sourcesink">
-!<OVERVIEW>
-! A routine to calculate the sources and sinks of sulfur hexafluoride.
-!</OVERVIEW>
-!<DESCRIPTION>
-! A routine to calculate the sources and sinks of sulfur hexafluoride.
-!</DESCRIPTION>
-!<TEMPLATE>
-!call atmos_sf6_sourcesink (lon, lat, land, pwt, sf6, sf6_dt,
-!        Time, is, ie, js, je, kbot)
-!
-!</TEMPLATE>
-!   <IN NAME="lon" TYPE="real" DIM="(:,:)">
-!     Longitude of the centre of the model gridcells.
-!   </IN>
-!   <IN NAME="lat" TYPE="real" DIM="(:,:)">
-!     Latitude of the centre of the model gridcells.
-!   </IN>
-!   <IN NAME="land" TYPE="real" DIM="(:,:)">
-!     Land/sea mask.
-!   </IN>
-!   <IN NAME="pwt" TYPE="real" DIM="(:,:,:)">
-!     The pressure weighting array. = dP/grav
-!   </IN>
-!   <IN NAME="sf6" TYPE="real" DIM="(:,:,:)">
-!     The array of the sulfur hexafluoride mixing ratio.
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-!   <IN NAME="is, ie, js, je" TYPE="integer">
-!     Local domain boundaries.
-!   </IN>
-!   <IN NAME="kbot" TYPE="integer, optional" DIM="(:,:)">
-!     Integer array describing which model layer intercepts the surface.
-!   </IN>
-
-!   <OUT NAME="sf6_dt" TYPE="real" DIM="(:,:,:)">
-!     The array of the tendency of the sulfur hexafluoride mixing ratio.
-!   </OUT>
-!
+  !> Computes the tendency of SF6 due to its emission into the lowest model level.
   subroutine atmos_sf6_sourcesink(lon, lat, land, pwt, sf6, sf6_dt, &
                                   Time, is, ie, js, je, kbot)
 !-----------------------------------------------------------------------
     real, intent(in), dimension(:, :)   :: lon, lat
-    real, intent(in), dimension(:, :)   :: land
+    !! longitude and latitude of the centres of the grid cells [rad]
+    real, intent(in), dimension(:, :)   :: land  !! land fraction
     real, intent(in), dimension(:, :, :) :: pwt, sf6
-    real, intent(out), dimension(:, :, :) :: sf6_dt
-    type(time_type), intent(in) :: Time
-    integer, intent(in), dimension(:, :), optional :: kbot
-    integer, intent(in)                    :: is, ie, js, je
+    !! `pwt`: pressure weight dp/grav [kg/m2]; `sf6`: SF6 mixing ratio
+    real, intent(out), dimension(:, :, :) :: sf6_dt  !! tendency of the SF6 mixing ratio
+    type(time_type), intent(in) :: Time  !! model time
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level above the surface
+    integer, intent(in)                    :: is, ie, js, je  !! local domain boundaries
 !-----------------------------------------------------------------------
     real, dimension(size(sf6, 1), size(sf6, 2), size(sf6, 3)) :: &
       source, sink
@@ -206,56 +149,19 @@ contains
     sf6_dt = source + sink
 
   end subroutine atmos_sf6_sourcesink
-!</SUBROUTINE>
 
 !#######################################################################
-!<SUBROUTINE NAME="atmos_sulfur_hex_init">
-!<OVERVIEW>
-! The constructor routine for the sulfur hexafluoride module.
-!</OVERVIEW>
-!<DESCRIPTION>
-! A routine to initialize the sulfur hexafluoride module.
-!</DESCRIPTION>
-!<TEMPLATE>
-!call atmos_sulfur_hex_init (lonb, latb, r, axes, Time, mask)
-!</TEMPLATE>
-!   <IN NAME="lonb" TYPE="real" DIM="(:)">
-!     The longitudes for the local domain.
-!   </IN>
-!   <IN NAME="latb" TYPE="real" DIM="(:)">
-!     The latitudes for the local domain.
-!   </IN>
-!   <INOUT NAME="r" TYPE="real" DIM="(:,:,:,:)">
-!     Tracer fields dimensioned as (nlon,nlat,nlev,ntrace).
-!   </INOUT>
-!   <IN NAME="mask" TYPE="real, optional" DIM="(:,:,:)">
-!      optional mask (0. or 1.) that designates which grid points
-!           are above (=1.) or below (=0.) the ground dimensioned as
-!           (nlon,nlat,nlev).
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-!   <IN NAME="axes" TYPE="integer" DIM="(4)">
-!     The axes relating to the tracer array dimensioned as
-!      (nlon, nlat, nlev, ntime)
-!   </IN>
-
+  !> Initializes the SF6 module: finds the `sf6` tracer, registers the emission diagnostic
+  !> and reads the emission files.
   subroutine atmos_sulfur_hex_init(lonb, latb, r, axes, Time, mask)
 
 !-----------------------------------------------------------------------
-!
-!   r    = tracer fields dimensioned as (nlon,nlat,nlev,ntrace)
-!   mask = optional mask (0. or 1.) that designates which grid points
-!          are above (=1.) or below (=0.) the ground dimensioned as
-!          (nlon,nlat,nlev).
-!
-!-----------------------------------------------------------------------
-    real, intent(in), dimension(:)               :: lonb, latb
-    real, intent(inout), dimension(:, :, :, :)         :: r
+    real, intent(in), dimension(:)               :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
+    real, intent(inout), dimension(:, :, :, :)         :: r  !! tracer fields (nlon, nlat, nlev, ntrace)
     real, intent(in), dimension(:, :, :), optional :: mask
-    type(time_type), intent(in)                                :: Time
-    integer, intent(in)                                :: axes(4)
+    !! 1. above the ground, 0. below (nlon, nlat, nlev)
+    type(time_type), intent(in)                                :: Time  !! model time
+    integer, intent(in)                                :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
 
     logical :: flag
     integer :: n
@@ -304,10 +210,11 @@ contains
     module_is_initialized = .true.
 !-----------------------------------------------------------------------
   end subroutine atmos_sulfur_hex_init
-!</SUBROUTINE>
 
 !######################################################################
 
+  !> Reads the emission distribution `distribution.grid` and the emission rate table
+  !> `monthly.emissions`, and sends the static emission diagnostic.
   subroutine sf6_init(Time)
     type(time_type), intent(in) :: Time
 !-------------------------------------------------
@@ -409,23 +316,12 @@ contains
   end subroutine sf6_init
 
 !######################################################################
-!<SUBROUTINE NAME="sulfur_hex_end">
-!<OVERVIEW>
-!  The destructor routine for the sulfur hexafluoride module.
-!</OVERVIEW>
-! <DESCRIPTION>
-! This subroutine is the exit routine for the sulfur hexafluoride module.
-! </DESCRIPTION>
-!<TEMPLATE>
-! call atmos_sulfur_hex_end
-!</TEMPLATE>
-
+  !> Terminates the SF6 module.
   subroutine atmos_sulfur_hex_end
 
     module_is_initialized = .false.
 
   end subroutine atmos_sulfur_hex_end
-!</SUBROUTINE>
 
 end module atmos_sulfur_hex_mod
 

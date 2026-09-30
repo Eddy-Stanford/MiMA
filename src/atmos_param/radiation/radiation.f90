@@ -1,16 +1,19 @@
+!> Radiation driver: selects the radiation scheme and forwards the physics driver calls to it.
+!>
+!> `radiation_scheme` chooses between RRTMG clear-sky radiation (`rrtm_radiation`, configured
+!> with `rrtm_radiation_nml` and `astro_nml`), the gray radiation of Frierson et al. (2006)
+!> (`gray_radiation_mod`, configured with `gray_radiation_nml`), and no radiation at all.
+!> See [radiation options](https://eddy-stanford.github.io/MiMA/Configurations/#radiation-options).
+!>
+!> Namelist: `radiation_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#radiation_nml)).
+!>
+!> References:
+!>
+!> * Frierson, D. M. W., I. M. Held, and P. Zurita-Gotor, 2006: A gray-radiation aquaplanet
+!>   moist GCM. Part I: Static stability and eddy scale. J. Atmos. Sci., 63, 2548-2566,
+!>   https://doi.org/10.1175/JAS3753.1.
 module radiation_mod
-
-!-----------------------------------------------------------------------
-!
-!   Radiation driver: selects the radiation scheme and forwards the
-!   physics_driver calls to it.
-!
-!   radiation_nml:
-!     radiation_scheme = 'rrtm'  RRTMG clear-sky radiation (default)
-!                        'gray'  gray radiation (Frierson et al. 2006)
-!                        'none'  no radiative heating or surface fluxes
-!
-!-----------------------------------------------------------------------
 
   use fms_mod, only: input_nml_file, check_nml_error, &
                      mpp_pe, mpp_root_pe, stdlog, &
@@ -34,7 +37,10 @@ module radiation_mod
 
 !-------------------- namelist -----------------------------------------
 
-  character(len=16) :: radiation_scheme = 'rrtm'   ! 'rrtm', 'gray' or 'none'
+  character(len=16) :: radiation_scheme = 'rrtm'   !! `'rrtm'`: RRTMG clear-sky radiation
+  !! (`rrtm_radiation_nml`, `astro_nml`); `'gray'`: gray radiation (`gray_radiation_nml`); `'none'`:
+  !! no radiative heating and no radiative surface fluxes. See
+  !! [radiation options](Configurations.md#radiation-options).
 
   namelist /radiation_nml/ radiation_scheme
 
@@ -44,13 +50,14 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `radiation_nml` and initializes the selected scheme.
   subroutine radiation_init(axes, Time, id, jd, kd, lonb, latb, domain)
 
-    integer, intent(in), dimension(4) :: axes
-    type(time_type), intent(in)               :: Time
-    integer, intent(in)               :: id, jd, kd
-    real, intent(in), dimension(:) :: lonb, latb
-    type(domain2d), intent(in)               :: domain   ! grid domain, for restart files
+    integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)               :: Time  !! current time
+    integer, intent(in)               :: id, jd, kd  !! numbers of longitudes, latitudes and levels on this processor
+    real, intent(in), dimension(:) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
+    type(domain2d), intent(in)               :: domain   !! grid domain, for restart files
 
     integer :: unit, ierr, io
 
@@ -81,22 +88,26 @@ contains
 
 !#######################################################################
 
+  !> Adds the radiative heating to `tdt` and returns the net shortwave and downward
+  !> longwave fluxes at the surface.
+  !>
+  !> `flux_sw` and `flux_lw` must be set by the caller beforehand; they are left unchanged
+  !> by `radiation_scheme = 'none'`.
   subroutine radiation_down(is, js, Time, Time_next, lat, lon, p_full, p_half, z_full, z_half, &
                             t, q, t_surf_rad, albedo, tdt, flux_sw, flux_lw)
 
-!-----------------------------------------------------------------------
-!   Adds the radiative heating to tdt and returns the net shortwave and
-!   downward longwave fluxes at the surface. flux_sw and flux_lw must be
-!   set by the caller beforehand; they are left unchanged by
-!   radiation_scheme = 'none'.
-!-----------------------------------------------------------------------
-
-    integer, intent(in)                     :: is, js
+    integer, intent(in)                     :: is, js  !! indices of the first point of the physics window in the processor domain
     type(time_type), intent(in)                     :: Time, Time_next
+    !! `Time`: current time; `Time_next`: time at the end of the step, at which the diagnostics are sent
     real, intent(in), dimension(:, :)  :: lat, lon, t_surf_rad, albedo
+    !! `lat`, `lon`: latitudes and longitudes [rad]; `t_surf_rad`: surface temperature for the
+    !! radiation [K]; `albedo`: surface albedo
     real, intent(in), dimension(:, :, :):: p_full, p_half, z_full, z_half, t, q
-    real, intent(inout), dimension(:, :, :):: tdt
+    !! `p_full`, `p_half`: pressure at full and half levels [Pa]; `z_full`, `z_half`: height at
+    !! full and half levels [m]; `t`: temperature [K]; `q`: specific humidity [kg/kg]
+    real, intent(inout), dimension(:, :, :):: tdt  !! temperature tendency, to which the radiative heating is added [K/s]
     real, intent(inout), dimension(:, :)  :: flux_sw, flux_lw
+    !! net downward shortwave and downward longwave flux at the surface [W/m2]
 
     real, dimension(size(albedo, 1), size(albedo, 2)) :: coszen
 
@@ -115,16 +126,12 @@ contains
 
 !#######################################################################
 
+  !> Records where it precipitated on this step, for the optional precipitation-dependent
+  !> albedo of RRTM (`do_precip_albedo` in `rrtm_radiation_nml`).
   subroutine radiation_precip_accum(precip, rain, snow)
 
-!-----------------------------------------------------------------------
-!   Records where it precipitated on this step, for RRTM's optional
-!   precipitation-dependent albedo (rrtm_radiation_nml do_precip_albedo).
-!   precip is the total precipitation; rain and snow are the large-scale
-!   parts.
-!-----------------------------------------------------------------------
-
     real, intent(in), dimension(:, :) :: precip, rain, snow
+    !! `precip`: total precipitation; `rain`, `snow`: large-scale rain and snow [kg/m2/s]
 
     if (trim(radiation_scheme) == 'rrtm') call rrtm_precip_accum(precip, rain, snow)
 
@@ -132,6 +139,7 @@ contains
 
 !#######################################################################
 
+  !> Finalizes the selected scheme (RRTM writes its restart file).
   subroutine radiation_end
 
     select case (trim(radiation_scheme))

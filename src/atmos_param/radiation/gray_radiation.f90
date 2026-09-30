@@ -1,3 +1,22 @@
+!> Gray radiation of Frierson, Held and Zurita-Gotor (2006).
+!>
+!> Longwave radiation is a two-stream gray scheme with a surface optical depth that varies
+!> from `ir_tau_eq` at the equator to `ir_tau_pole` at the poles as `sin(lat)**2`; the
+!> optical depth varies with pressure as `linear_tau * p/p00 + (1 - linear_tau) * (p/p00)**4`,
+!> with `p00` = 1000 hPa. The insolation is annual-mean and zonally symmetric,
+!> `solar_constant/4 * (1 + del_sol*P2(lat) + del_sw*sin(lat))`, plus two optional localized
+!> perturbations; it is absorbed with the optical depth
+!> `atm_abs * (1 - sw_diff*sin(lat)**2) * (p/p00)**4`, and the part reflected by the surface
+!> leaves the atmosphere without absorption.
+!>
+!> Namelist: `gray_radiation_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#gray_radiation_nml)).
+!>
+!> References:
+!>
+!> * Frierson, D. M. W., I. M. Held, and P. Zurita-Gotor, 2006: A gray-radiation aquaplanet
+!>   moist GCM. Part I: Static stability and eddy scale. J. Atmos. Sci., 63, 2548-2566,
+!>   https://doi.org/10.1175/JAS3753.1.
 module gray_radiation_mod
 
 ! ==================================================================================
@@ -46,24 +65,24 @@ module gray_radiation_mod
   logical :: initialized = .false.
   real, parameter :: p00 = 1000.e2
 
-  real    :: solar_constant = 1360.0
-  real    :: del_sol = 0.0
+  real    :: solar_constant = 1360.0  !! [W/m2] solar constant
+  real    :: del_sol = 0.0  !! amplitude of the second Legendre polynomial in the insolation (equator-to-pole contrast)
 ! modif omp: winter/summer hemisphere
-  real    :: del_sw = 0.0
-  real    :: ir_tau_eq = 4.0
-  real    :: ir_tau_pole = 4.0
-  real    :: atm_abs = 0.2
-  real    :: sw_diff = 0.0
-  real    :: long_pert = 180.
-  real    :: del_long = 30.
-  real    :: size_pert = 0.
-  real    :: linear_tau = 0.1
+  real    :: del_sw = 0.0  !! amplitude of a hemispherically asymmetric insolation term (winter/summer hemisphere)
+  real    :: ir_tau_eq = 4.0  !! longwave optical depth at the surface at the equator
+  real    :: ir_tau_pole = 4.0  !! longwave optical depth at the surface at the poles
+  real    :: atm_abs = 0.2  !! shortwave optical depth of the atmosphere
+  real    :: sw_diff = 0.0  !! equator-to-pole reduction of the shortwave optical depth
+  real    :: long_pert = 180.  !! [deg] longitude of the zonally localized insolation perturbation
+  real    :: del_long = 30.  !! [deg] width of the zonally localized insolation perturbation
+  real    :: size_pert = 0.  !! [W/m2] amplitude of a zonally localized insolation perturbation
+  real    :: linear_tau = 0.1  !! fraction of the longwave optical depth that is linear in pressure (the rest goes as p<sup>4</sup>)
 
-  real    :: lat_pert = 0.0
-  real    :: lon_pert = 180.0
-  real    :: del_lat = 30.0
-  real    :: del_lon = 90.0
-  real    :: fcng_pert = 0.0
+  real    :: lat_pert = 0.0  !! [deg] latitude of the centre of the localized (Walker-type) insolation perturbation
+  real    :: lon_pert = 180.0  !! [deg] longitude of the centre of the localized (Walker-type) insolation perturbation
+  real    :: del_lat = 30.0  !! [deg] latitudinal half-width of the localized (Walker-type) insolation perturbation
+  real    :: del_lon = 90.0  !! [deg] longitudinal half-width of the localized (Walker-type) insolation perturbation
+  real    :: fcng_pert = 0.0  !! [W/m2] amplitude of a localized (Walker-type) insolation perturbation
 
   real, save :: pi, deg_to_rad, rad_to_deg
 
@@ -89,11 +108,12 @@ contains
 ! ==================================================================================
 ! ==================================================================================
 
+  !> Initializes the module: reads `gray_radiation_nml` and registers the diagnostics.
   subroutine gray_radiation_init(axes, Time)
 
 !-------------------------------------------------------------------------------------
-    integer, intent(in), dimension(4) :: axes
-    type(time_type), intent(in)       :: Time
+    integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)       :: Time  !! current time
 !-------------------------------------------------------------------------------------
     integer, dimension(3) :: half = (/1, 2, 4/)
     integer :: ierr, io, unit
@@ -188,15 +208,19 @@ contains
 
 ! ==================================================================================
 
+  !> Computes the gray radiative fluxes and heating, adds the heating to `tdt`, returns the
+  !> surface fluxes and sends the diagnostics.
   subroutine gray_radiation(is, js, Time_diag, lat, lon, p_half, albedo, t_surf, t, tdt, net_surf_sw_down, surf_lw_down)
 
-    integer, intent(in)                 :: is, js
-    type(time_type), intent(in)         :: Time_diag
+    integer, intent(in)                 :: is, js  !! indices of the first point of the physics window in the processor domain
+    type(time_type), intent(in)         :: Time_diag  !! time at which the diagnostics are sent
     real, intent(in), dimension(:, :)   :: lat, lon, albedo
-    real, intent(in), dimension(:, :)   :: t_surf
-    real, intent(in), dimension(:, :, :) :: t, p_half
-    real, intent(inout), dimension(:, :, :) :: tdt
+    !! `lat`, `lon`: latitudes and longitudes [rad]; `albedo`: surface albedo
+    real, intent(in), dimension(:, :)   :: t_surf  !! surface temperature [K]
+    real, intent(in), dimension(:, :, :) :: t, p_half  !! `t`: temperature [K]; `p_half`: pressure at half levels [Pa]
+    real, intent(inout), dimension(:, :, :) :: tdt  !! temperature tendency, to which the radiative heating is added [K/s]
     real, intent(out), dimension(:, :)   :: net_surf_sw_down, surf_lw_down
+    !! net downward shortwave and downward longwave flux at the surface [W/m2]
 
     real, dimension(size(t, 2)) :: ss, ss2, ss4, ss6, ss8, solar, tau_0, solar_tau_0, p2
     real, dimension(size(t, 1), size(t, 2))              :: b_surf
@@ -382,6 +406,7 @@ contains
 
 ! ==================================================================================
 
+  !> Finalizes the module (nothing to do).
   subroutine gray_radiation_end()
   end subroutine gray_radiation_end
 

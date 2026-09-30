@@ -1,26 +1,15 @@
 
+!> Utility routines for atmospheric tracers: wet and dry deposition, and interpolation of
+!> emission fields.
+!>
+!> The deposition schemes provide consistent removal mechanisms for the tracers; they are
+!> selected per tracer with `dry_deposition` and `wet_deposition` methods in the
+!> `field_table`. The deposition fluxes are available as diagnostics of the module
+!> `tracers`: the tracer name followed by `ddep` (dry deposition), and by `wdep_ls` and
+!> `wdep_cv` (wet deposition by large-scale condensation and by convection).
+!>
+!> Original authors: William Cooke.
 module atmos_tracer_utilities_mod
-! <CONTACT EMAIL="William.Cooke@noaa.gov">
-!   William Cooke
-! </CONTACT>
-
-! <REVIEWER EMAIL="Bruce.Wyman@noaa.gov">
-!   Bruce Wyman
-! </REVIEWER>
-
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-
-! <OVERVIEW>
-!     This code provides some utility routines for atmospheric tracers in the FMS framework.
-! </OVERVIEW>
-! <DESCRIPTION>
-!    This module gives utility routines which can be used to provide
-!    consistent removal mechanisms for atmospheric tracers.
-!
-!    In particular it provides schemes for wet and dry deposiiton that
-!    can be easily utilized.
-!
-! </DESCRIPTION>
 
   use fms_mod, only: lowercase, &
                      write_version_number, &
@@ -85,41 +74,17 @@ contains
 !
 ! ######################################################################
 !
-!<SUBROUTINE NAME="atmos_tracer_utilities_init">
-!<OVERVIEW>
-! This is a routine to create and register the dry and wet deposition
-! fields of the tracers.
-!</OVERVIEW>
-!<DESCRIPTION>
-!  This routine creates diagnostic names for dry and wet deposition fields of the tracers.
-!  It takes the tracer name and appends "ddep" for the dry deposition field and "wdep" for
-!  the wet deposition field. This names can then be entered in the diag_table for
-!  diagnostic output of the tracer dry and wet deposition. The module name associated with
-!  these fields in "tracers". The units of the deposition fields are assumed to be kg/m2/s.
-!</DESCRIPTION>
-!<TEMPLATE>
-! call atmos_tracer_utilities_init(lonb,latb, mass_axes, Time)
-!</TEMPLATE>
-!   <IN NAME="lonb" TYPE="real" DIM="(:)">
-!     The longitudes for the local domain.
-!   </IN>
-!   <IN NAME="latb" TYPE="real" DIM="(:)">
-!     The latitudes for the local domain.
-!   </IN>
-!   <IN NAME="mass_axes" TYPE="integer" DIM="(3)">
-!     The axes relating to the tracer array.
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-
+  !> Initializes the module: registers the dry and wet deposition diagnostics of the tracers.
+  !>
+  !> The diagnostic names are the tracer name followed by `ddep` for the dry deposition and
+  !> `wdep_ls`, `wdep_cv` for the wet deposition; they can be entered in the `diag_table`
+  !> under the module name `tracers`. The units of the deposition fields are kg/m2/s for
+  !> tracers in `mmr` or `kg/kg`, and mole/m2/s for tracers in `vmr`, `mol/mol` or `mole/mole`.
   subroutine atmos_tracer_utilities_init(lonb, latb, mass_axes, Time)
 
-! Routine to initialize the tracer identification numbers.
-! This registers the 2D fields for the wet and dry deposition.
-    real, dimension(:), intent(in) :: lonb, latb
-    integer, dimension(3), intent(in) :: mass_axes
-    type(time_type), intent(in) :: Time
+    real, dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
+    integer, dimension(3), intent(in) :: mass_axes  !! diagnostic axes (lon, lat, pfull)
+    type(time_type), intent(in) :: Time  !! model time
 
     integer :: ntrace
     character(len=20) :: units = ''
@@ -202,10 +167,10 @@ contains
     module_is_initialized = .true.
 
   end subroutine atmos_tracer_utilities_init
-!</SUBROUTINE>
 !
 !#######################################################################
 !
+  !> Writes the names, long names and units of the deposition diagnostics to the log file.
   subroutine write_namelist_values(unit, ntrace)
     integer, intent(in) :: unit, ntrace
     integer :: n
@@ -229,93 +194,39 @@ contains
 !
 !#######################################################################
 !
-!<SUBROUTINE NAME = "dry_deposition">
+  !> Computes the tendency of a tracer in the lowest model level due to dry deposition, and
+  !> sends the dry deposition flux diagnostic.
+  !>
+  !> Two types of dry deposition are coded:
+  !>
+  !> 1. Wind-driven dry deposition velocity. The deposition is modelled as a resistance
+  !>    problem: the total resistance is `R = Ra + Rb`, with the aerodynamic resistance
+  !>    `Ra = |u|/u_star**2` and the surface resistance `Rb = surfr/u_star` (laminar layer plus
+  !>    uptake; `u_star` is at least 0.1 m/s), and the deposition velocity is `Vd = 1/R`.
+  !> 2. Fixed dry deposition velocity. The deposition velocity does not change, but the
+  !>    variation of the depth of the surface layer implies that there is variation in the
+  !>    amount deposited.
+  !>
+  !> To use it, add one of the following as a method for the tracer in the field table:
+  !>
+  !> * `"dry_deposition","wind_driven","surfr=XXX"`, where XXX is the surface resistance
+  !>   coefficient (default 500);
+  !> * `"dry_deposition","fixed","land=XXX, sea=YYY"`, where XXX and YYY are the dry
+  !>   deposition velocities [m/s] over land and over sea.
   subroutine dry_deposition(n, is, js, u, v, T, pwt, pfull, &
                             u_star, landmask, dsinku, tracer, Time)!, dry)
-!
-!<OVERVIEW>
-! Routine to calculate the fraction of tracer to be removed by dry
-! deposition.
-!</OVERVIEW>
-!<DESCRIPTION>
-! There are two types of dry deposition coded.
-!
-! 1) Wind driven derived dry deposition velocity.
-!
-! 2) Fixed dry deposition velocity.
-!
-! The theory behind the wind driven dry deposition velocity calculation
-! assumes that the deposition can be modeled as a parallel resistance type
-! problem.
-!
-!  Total resistance to HNO3-type dry deposition,
-!<PRE>       R = Ra + Rb
-!  resisa = aerodynamic resistance
-!  resisb = surface resistance (laminar layer + uptake)
-!         = 5/u*  [s/cm]        for neutral stability
-!      Vd = 1/R
-!</PRE>
-! For the fixed dry deposition velocity, there is no change in the
-! deposition velocity but the variation of the depth of the surface
-! layer implies that there is variation in the amount deposited.
-!
-! To utilize this section of code add one of the following lines as
-! a method for the tracer of interest in the field table.
-!<PRE>
-! "dry_deposition","wind_driven","surfr=XXX"
-!     where XXX is the total resistance defined above.
-!
-! "dry_deposition","fixed","land=XXX, sea=YYY"
-!     where XXX is the dry deposition velocity (m/s) over land
-!       and YYY is the dry deposition velocity (m/s) over sea.
-!</PRE>
-!</DESCRIPTION>
-!<TEMPLATE>
-! call dry_deposition( n, is, js, u, v, T, pwt, pfull,
-!                           u_star, landmask, dsinku, tracer, Time, dry)
-!</TEMPLATE>
-!
-!  <IN NAME="n" TYPE="integer">
-!    The tracer number.
-!  </IN>
-!  <IN NAME="is, js" TYPE="integer">
-!    Start indices for array (computational indices).
-!  </IN>
-!  <IN NAME="u" TYPE="real" DIM="(:,:)">
-!    U wind field.
-!  </IN>
-!  <IN NAME="v" TYPE="real" DIM="(:,:)">
-!    V wind field.
-!  </IN>
-!  <IN NAME="T" TYPE="real" DIM="(:,:)">
-!    Temperature.
-!  </IN>
-!  <IN NAME="pwt" TYPE="real" DIM="(:,:)">
-!     Pressure differential of half levels.
-!  </IN>
-!  <IN NAME="pfull" TYPE="real" DIM="(:,:)">
-!     Full pressure levels.
-!  </IN>
-!  <IN NAME="u_star" TYPE="real" DIM="(:,:)">
-!     Friction velocity.
-!  </IN>
-!  <IN NAME="landmask" TYPE="logical">
-!     Land - sea mask.
-!  </IN>
-!  <INOUT NAME="dry" TYPE="interpolate_type">
-!     ????.
-!  </INOUT>
-!
-!  <OUT NAME="dsinku" TYPE="real" DIM="(:,:)">
-!    The amount of tracer in the surface layer which is dry deposited per second.
-!  </OUT>
-!
     integer, intent(in)                 :: n, is, js
+    !! `n`: tracer number; `is`, `js`: start indices of the arrays in the processor domain
     real, intent(in), dimension(:, :)    :: u, v, T, pwt, pfull, u_star, tracer
-    logical, intent(in), dimension(:, :) :: landmask
-    type(time_type), intent(in)         :: Time
+    !! in the lowest model level: `u`, `v`: zonal and meridional wind [m/s]; `T`: temperature
+    !! [K]; `pwt`: pressure weight dp/grav [kg/m2]; `pfull`: pressure [Pa]; `u_star`: friction
+    !! velocity [m/s]; `tracer`: tracer mixing ratio
+    logical, intent(in), dimension(:, :) :: landmask  !! true over land
+    type(time_type), intent(in)         :: Time  !! model time, for the diagnostic
 !type(interpolate_type), intent(inout) :: dry
     real, intent(out), dimension(:, :)   :: dsinku
+    !! amount of tracer in the lowest model level which is dry deposited per second (tracer
+    !! mixing ratio per second)
 
     real, dimension(size(u, 1), size(u, 2)) :: hwindv, frictv, resisa, xxfm, dz, dry_data
     integer :: i, j, flagsr
@@ -418,92 +329,43 @@ contains
 
     end if
   end subroutine dry_deposition
-!</SUBROUTINE>
 !
 !#######################################################################
 !
-!<SUBROUTINE NAME = "wet_deposition">
-!<TEMPLATE>
-!CALL wet_deposition(n, T, pfull, phalf, rain, snow, qdt, tracer, tracer_dt, Time, cloud_param, is, js)
-!</TEMPLATE>
+  !> Computes the tendency of a tracer due to wet deposition, and sends the wet deposition
+  !> flux diagnostic.
+  !>
+  !> Schemes allowed here are:
+  !>
+  !> 1. `fraction`: the tracer is removed in the same fractional amount as the modelled
+  !>    precipitation rate is to a standardized precipitation rate. This scheme assumes that a
+  !>    fractional area of the grid box (at most 0.5) is affected by precipitation and that
+  !>    this precipitation is due to a cloud of standardized cloud liquid water content. The
+  !>    removal is constant throughout the column where the specific humidity is reduced.
+  !> 2. `henry`: removal according to Henry's law, which states that the ratio of the
+  !>    concentration in cloud water and the partial pressure in the interstitial air is a
+  !>    constant. Here the units of Henry's constant are kg/L/Pa (normally they are M/L/Pa).
+  !>
+  !> To use it, add one of the following as a method for the tracer in the field table:
+  !>
+  !> * `"wet_deposition","henry","henry=XXX, dependence=YYY"`, where XXX is Henry's constant
+  !>   for the tracer and YYY is the temperature dependence of Henry's constant;
+  !> * `"wet_deposition","fraction","lslwc=XXX, convlwc=YYY"`, where XXX and YYY are the
+  !>   liquid water contents [kg/m3] of a standard large-scale cloud (default 0.5e-3) and of
+  !>   a standard convective cloud (default 2.0e-3).
   subroutine wet_deposition(n, T, pfull, phalf, rain, snow, qdt, tracer, tracer_dt, Time, cloud_param, is, js, dt)
-!
-!<OVERVIEW>
-! Routine to calculate the fraction of tracer removed by wet deposition
-!</OVERVIEW>
-!
-!<IN NAME="n" TYPE="integer">
-!   Tracer number
-!</IN>
-!<IN NAME="is, js" TYPE="integer">
-!   start indices for array (computational indices)
-!</IN>
-!<IN NAME="T" TYPE="real" DIM="(:,:,:)">
-!   Temperature
-!</IN>
-!<IN NAME="pfull" TYPE="real" DIM="(:,:,:)">
-!   Full level pressure field
-!</IN>
-!<IN NAME="phalf" TYPE="real" DIM="(:,:,:)">
-!   Half level pressure field
-!</IN>
-!<IN NAME="rain" TYPE="real" DIM="(:,:)">
-!   Precipitation in the form of rain
-!</IN>
-!<IN NAME="snow" TYPE="real" DIM="(:,:)">
-!   Precipitation in the form of snow
-!</IN>
-!<IN NAME="qdt" TYPE="real" DIM="(:,:,:)">
-!   The tendency of the specific humidity due to the cloud parametrization
-!</IN>
-!<IN NAME="tracer" TYPE="real" DIM="(:,:,:)">
-!   The tracer field
-!</IN>
-!<IN NAME="Time" TYPE="type(time_type)">
-!   The time structure for submitting wet deposition as a diagnostic
-!</IN>
-!<IN NAME="cloud_param" TYPE="character">
-!   Is this a convective (convect) or large scale (lscale) cloud parametrization?
-!</IN>
-!  <OUT NAME="tracer_dt" TYPE="real" DIM="(:,:,:)">
-!  The tendency of the tracer field due to wet deposition.
-! </OUT>
-!<DESCRIPTION>
-! Schemes allowed here are
-!
-! 1) Deposition removed in the same fractional amount as the modeled precipitation rate is to
-!    a standardized precipitation rate.
-!    Basically this scheme assumes that a fractional area of the gridbox is affected by
-!    precipitation and that this precipitation rate is due to a cloud of standardized cloud
-!    liquid water content. Removal is constant throughout the column where precipitation is occuring.
-!
-! 2) Removal according to Henry's Law. This law states that the ratio of the concentation in
-!    cloud water and the partial pressure in the interstitial air is a constant. In this
-!    instance, the units for Henry's constant are kg/L/Pa (normally it is M/L/Pa)
-!    Parameters for a large number of species can be found at
-!    http://www.mpch-mainz.mpg.de/~sander/res/henry.html
-
-! To utilize this section of code add one of the following lines as
-! a method for the tracer of interest in the field table.
-!<PRE>
-! "wet_deposition","henry","henry=XXX, dependence=YYY"
-!     where XXX is the Henry's constant for the tracer in question
-!       and YYY is the temperature dependence of the Henry's Law constant.
-!
-! "wet_deposition","fraction","lslwc=XXX, convlwc=YYY"
-!     where XXX is the liquid water content of a standard large scale cloud
-!       and YYY is the liquid water content of a standard convective cloud.
-!</PRE>
-
-!</DESCRIPTION>
-!
     integer, intent(in)                 :: n, is, js
+    !! `n`: tracer number; `is`, `js`: start indices of the arrays in the processor domain
     real, intent(in), dimension(:, :, :)  :: T, pfull, phalf, qdt, tracer
-    real, intent(in), dimension(:, :)    :: rain, snow
+    !! `T`: temperature [K]; `pfull`, `phalf`: pressure at full and half levels [Pa]; `qdt`:
+    !! tendency of the specific humidity due to the cloud parametrization [kg/kg/s]; `tracer`:
+    !! tracer mixing ratio
+    real, intent(in), dimension(:, :)    :: rain, snow  !! rain and snow reaching the surface [kg/m2/s]
     character(len=*), intent(in)         :: cloud_param
-    type(time_type), intent(in)      :: Time
-    real, intent(out), dimension(:, :, :) :: tracer_dt
-    real, intent(in)                    :: dt
+    !! cloud parametrization: convective (`'convect'`) or large-scale (`'lscale'`)
+    type(time_type), intent(in)      :: Time  !! model time, for the diagnostic
+    real, intent(out), dimension(:, :, :) :: tracer_dt  !! tendency of the tracer due to wet deposition
+    real, intent(in)                    :: dt  !! time step [s]
 !
     real, dimension(size(T, 1), size(T, 2), size(pfull, 3))   :: wsinku
     real, dimension(size(T, 1), size(T, 2)) :: Htemp, dz, washout, scav_factor, sum_wdep
@@ -668,7 +530,6 @@ contains
       end if
     end if
   end subroutine wet_deposition
-!</SUBROUTINE>
 !
 !#######################################################################
 !
@@ -766,53 +627,15 @@ contains
 !
 !#######################################################################
 !
-!<SUBROUTINE NAME="interp_emiss">
+  !> Interpolates an emission field (or any 2D field) of arbitrary resolution to the model
+  !> grid, and returns the part of the global field on the local processor.
   subroutine interp_emiss(global_source, start_lon, start_lat, &
                           lon_resol, lat_resol, data_out)
-!
-!<OVERVIEW>
-! A routine to interpolate emission fields of arbitrary resolution onto the
-! resolution of the model.
-!</OVERVIEW>
-!<DESCRIPTION>
-! Routine to interpolate emission fields (or any 2D field) to the model
-! resolution. The local section of the global field is returned to the
-! local processor.
-!</DESCRIPTION>
-!
-!<TEMPLATE>
-! call interp_emiss(global_source, start_lon, start_lat, &
-!                        lon_resol, lat_resol, data_out)
-!</TEMPLATE>
-! INTENT IN
-!<IN NAME="global_source" TYPE="real" DIM="(:,:)">
-!  Global emission field.
-!</IN>
-!<IN NAME="start_lon" TYPE="real">
-!  Longitude of starting point of emission field
-!  (in radians). This is the westernmost boundary of the
-!  global field.
-!</IN>
-!<IN NAME="start_lat" TYPE="real">
-!  Latitude of starting point of emission field
-!  (in radians). This is the southern boundary of the
-!  global field.
-!</IN>
-!<IN NAME="lon_resol" TYPE="real">
-!  Longitudinal resolution of the emission data (in radians).
-!</IN>
-!<IN NAME="lat_resol" TYPE="real">
-!  Latitudinal resolution of the emission data (in radians).
-!</IN>
-!
-! INTENT OUT
-!<OUT NAME="data_out" TYPE="real" DIM="(:,:)">
-!  Interpolated emission field on the local PE.
-!</OUT>
-
-    real, intent(in)  :: global_source(:, :)
+    real, intent(in)  :: global_source(:, :)  !! global emission field
     real, intent(in)  :: start_lon, start_lat, lon_resol, lat_resol
-    real, intent(out) :: data_out(:, :)
+    !! `start_lon`, `start_lat`: western and southern boundaries of the global field [rad];
+    !! `lon_resol`, `lat_resol`: longitudinal and latitudinal resolution of the field [rad]
+    real, intent(out) :: data_out(:, :)  !! interpolated field on the local processor
 
     real :: modydeg, modxdeg, tpi
     integer :: i, j, nlon_in, nlat_in
@@ -841,24 +664,15 @@ contains
                       blon_out, blat_out, data_out)
 
   end subroutine interp_emiss
-!</SUBROUTINE>
 !
 !######################################################################
-!<SUBROUTINE NAME="tracer_utilities_end">
-!<OVERVIEW>
-!  The destructor routine for the tracer utilities module.
-!</OVERVIEW>
-! <DESCRIPTION>
-! This subroutine writes the version name to logfile and exits.
-! </DESCRIPTION>
-
+  !> Terminates the tracer utilities module.
   subroutine atmos_tracer_utilities_end
 
     deallocate (blon_out, blat_out)
     module_is_initialized = .false.
 
   end subroutine atmos_tracer_utilities_end
-!</SUBROUTINE>
 
 ! ######################################################################
 !

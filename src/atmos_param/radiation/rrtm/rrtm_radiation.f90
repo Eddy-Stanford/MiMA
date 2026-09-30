@@ -1,3 +1,32 @@
+!> Interface between MiMA and the RRTMG longwave and shortwave radiation codes.
+!>
+!> Prepares the RRTMG inputs (clear sky, no aerosols, black-body surface), calls RRTMG and
+!> returns the radiative heating and the surface fluxes. Radiation is computed every `dt_rad`
+!> seconds at every `lonstep`-th longitude and interpolated linearly in longitude back to the
+!> model grid; in between, the heating and surface fluxes are held fixed
+!> (`store_intermediate_rad`). Ozone is read from `INPUT/<ozone_file>.nc` or set to `o3_val`;
+!> CO2 and the optional secondary gases are constant. The zenith angle and the solar constant
+!> come from `rrtm_astro` (`astro_nml`). Options: zonal-mean absorbers or radiation, a slower
+!> or faster seasonal cycle, and a precipitation-dependent surface albedo. The fields kept
+!> between radiation steps are saved in the restart file `RESTART/rrtm_radiation.res.nc`.
+!>
+!> Namelist: `rrtm_radiation_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#rrtm_radiation_nml)).
+!>
+!> References:
+!>
+!> * Jucker, M., and E. P. Gerber, 2017: Untangling the annual cycle of the tropical
+!>   tropopause layer with an idealized moist model. J. Climate, 30, 7339-7358,
+!>   https://doi.org/10.1175/JCLI-D-17-0127.1.
+!> * Mlawer, E. J., S. J. Taubman, P. D. Brown, M. J. Iacono, and S. A. Clough, 1997:
+!>   Radiative transfer for inhomogeneous atmospheres: RRTM, a validated correlated-k model
+!>   for the longwave. J. Geophys. Res., 102, 16663-16682, https://doi.org/10.1029/97JD00237.
+!> * Iacono, M. J., J. S. Delamere, E. J. Mlawer, M. W. Shephard, S. A. Clough, and
+!>   W. D. Collins, 2008: Radiative forcing by long-lived greenhouse gases: Calculations with
+!>   the AER radiative transfer models. J. Geophys. Res., 113, D13103,
+!>   https://doi.org/10.1029/2008JD009944.
+!>
+!> Original authors: Martin Jucker.
 module rrtm_radiation
 !
 !    Modeling an idealized Moist Atmosphere (MiMA)
@@ -18,12 +47,6 @@ module rrtm_radiation
 !    You should have received a copy of the GNU General Public License
 !    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 !
-!
-!   RRTM_VARS:
-!   Contains all variables needed to
-!   run the RRTM code, version for GCMs (hence the 'G'),
-!   other than astronomy, i.e. all variables needed
-!   for radiation that are not within astro.f90
 !
 !   external modules
   use parkind, only: im => kind_im, rb => kind_rb
@@ -124,52 +147,49 @@ module rrtm_radiation
 !---------------------------------------------------------------------------------------------------------------
 ! input files: file names are always given without '.nc', which is always assumed
 !  the field to be read within the file needs to have the same name as the file
-  logical            :: do_read_ozone = .true.           ! read ozone from an external file?
-  !  this is the only way to get ozone into the model
-  character(len=256) :: ozone_file = 'ozone_1990'              !  file name of ozone file to read
-  real(kind=rb)      :: scale_ozone = 1.0               ! scale the ozone values in the file by this factor
-  real(kind=rb)      :: o3_val = 0.0                    ! if do_read_ozone = .false., give ozone this constant value
+  logical            :: do_read_ozone = .true.           !! read ozone from `ozone_file` (the only way to have
+                                                         !! non-constant ozone)
+  character(len=256) :: ozone_file = 'ozone_1990'              !! ozone file (in `input/INPUT/`)
+  real(kind=rb)      :: scale_ozone = 1.0               !! factor applied to the ozone from the file
+  real(kind=rb)      :: o3_val = 0.0                    !! constant ozone used if `do_read_ozone = .false.`
 ! secondary gases (CH4,N2O,O2,CFC11,CFC12,CFC22,CCL4)
-  logical            :: include_secondary_gases = .false. ! non-zero values for above listed secondary gases?
-  real(kind=rb)      :: ch4_val = 0.                   !  if .true., value for CH4
-  real(kind=rb)      :: n2o_val = 0.                   !                       N2O
-  real(kind=rb)      :: o2_val = 0.                   !                       O2
-  real(kind=rb)      :: cfc11_val = 0.                   !                       CFC11
-  real(kind=rb)      :: cfc12_val = 0.                   !                       CFC12
-  real(kind=rb)      :: cfc22_val = 0.                   !                       CFC22
-  real(kind=rb)      :: ccl4_val = 0.                   !                       CCL4
+  logical            :: include_secondary_gases = .false. !! use the following values for CH<sub>4</sub>, N<sub>2</sub>O,
+  !! O<sub>2</sub>, CFC-11, CFC-12, CFC-22 and CCl<sub>4</sub> (otherwise they are zero)
+  real(kind=rb)      :: ch4_val = 0.                   !! CH<sub>4</sub> volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: n2o_val = 0.                   !! N<sub>2</sub>O volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: o2_val = 0.                   !! O<sub>2</sub> volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: cfc11_val = 0.                   !! CFC-11 volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: cfc12_val = 0.                   !! CFC-12 volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: cfc22_val = 0.                   !! CFC-22 volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: ccl4_val = 0.                   !! CCl<sub>4</sub> volume mixing ratio if `include_secondary_gases`
 ! some safety boundaries
-  real(kind=rb)      :: h2o_lower_limit = 2.e-7         ! never use smaller than this in radiative scheme
-  real(kind=rb)      :: temp_lower_limit = 100.         ! never go below this in radiative scheme
-  real(kind=rb)      :: temp_upper_limit = 370.         ! never go above this in radiative scheme
+  real(kind=rb)      :: h2o_lower_limit = 2.e-7         !! [kg/kg] smallest specific humidity passed to RRTM
+  real(kind=rb)      :: temp_lower_limit = 100.         !! [K] lower temperature limit applied before calling RRTM
+  real(kind=rb)      :: temp_upper_limit = 370.         !! [K] upper temperature limit applied before calling RRTM
 ! primary gases: CO2 and H2O
-  real(kind=rb)      :: co2ppmv = 390.                    ! CO2 ppmv concentration
-  logical            :: do_zm_tracers = .false.           ! Feed only the zonal mean of tracers to radiation
+  real(kind=rb)      :: co2ppmv = 390.                    !! [ppmv] CO<sub>2</sub> concentration
+  logical            :: do_zm_tracers = .false.           !! pass only the zonal mean of the absorbers to RRTM
 
 ! radiation time stepping and spatial sampling
-  integer(kind=im)   :: dt_rad = 4500                        ! Radiation time step - every step if dt_rad<dt_atmos
-  logical            :: store_intermediate_rad = .true.  ! Keep rad constant over entire dt_rad?
-  ! Else only heat radiatively at every dt_rad
-  logical            :: do_rad_time_avg = .true.         ! Average coszen for SW radiation over dt_rad?
-  integer(kind=im)   :: dt_rad_avg = 4500             ! If averaging, over what time?
-  !  no averaging if dt_rad_avg = 0. (equivalent to do_rad_time_avg=.false.)
-  !  dt_rad_avg=dt_rad if dt_rad_avg < 0
-  !  Default is to average over the whole day, i.e. remove diurnal  cycle.
-  !  This seems safest as the diurnal cycle has been observed
-  !  to create strong atmospheric tides with topography.
-  integer(kind=im)   :: lonstep = 4                       ! Subsample fields along longitude
-  !  for faster radiation calculation
+  integer(kind=im)   :: dt_rad = 4500                        !! [s] radiation time step; radiation is computed every step
+                                                             !! if `dt_rad` < `dt_atmos`
+  logical            :: store_intermediate_rad = .true.  !! keep the radiative heating constant between radiation steps
+                                                         !! (`.false.`: heat only on radiation steps)
+  logical            :: do_rad_time_avg = .true.         !! average the solar zenith angle over `dt_rad_avg`
+  integer(kind=im)   :: dt_rad_avg = 4500             !! [s] averaging interval for the zenith angle; 0: no averaging;
+                                                      !! < 0: `dt_rad`. 86400 removes the diurnal cycle.
+  !  The diurnal cycle has been observed to create strong atmospheric tides with topography.
+  integer(kind=im)   :: lonstep = 4                       !! compute radiation only at every `lonstep`-th longitude and
+                                                          !! interpolate
 ! some fancy radiation tweaks
-  real(kind=rb)      :: slowdown_rad = 1.0              ! factor do simulate slower seasonal cycle: >1 means faster, <1 slower
-  logical            :: do_zm_rad = .false.               ! Only compute zonal mean radiation
-  logical            :: do_precip_albedo = .false.        ! Modify albedo depending on large scale
-  !  precipitation (crude cloud parameterization)
-  real(kind=rb)      :: precip_albedo = 0.35              ! If so, what's the cloud albedo?
-  real(kind=rb)      :: precip_lat = 0.0                ! If so, poleward of which latitude should it be applied?
-  character(len=14)  :: precip_albedo_mode = 'full'     ! If so, use
-  !  full precipitation ('full')
-  !  only large scale condensation ('lscale')
-  !  only convection ('conv')
+  real(kind=rb)      :: slowdown_rad = 1.0              !! factor on the speed of the seasonal cycle (> 1 faster, < 1 slower)
+  logical            :: do_zm_rad = .false.               !! compute radiation for the zonal mean only
+  logical            :: do_precip_albedo = .false.        !! increase the surface albedo where it rains (a crude cloud
+                                                          !! effect)
+  real(kind=rb)      :: precip_albedo = 0.35              !! if so, the albedo of a fully precipitating grid box
+  real(kind=rb)      :: precip_lat = 0.0                !! [deg] if so, apply only poleward of this latitude
+  character(len=14)  :: precip_albedo_mode = 'full'     !! if so, use total (`'full'`), large-scale (`'lscale'`) or
+                                                        !! convective (`'conv'`) precipitation
 !---------------------------------------------------------------------------------------------------------------
 !
 !-------------------- diagnostics fields -------------------------------
@@ -193,9 +213,10 @@ module rrtm_radiation
 contains
 
 !*****************************************************************************************
+  !> Initializes the module: reads `rrtm_radiation_nml`, registers the diagnostics, allocates
+  !> the arrays, opens the ozone file, reads `INPUT/rrtm_radiation.res.nc` if it exists and
+  !> initializes `rrtm_astro`.
   subroutine rrtm_radiation_init(axes, Time, ncols, nlay, lonb, latb, domain_in)
-!
-! Initialize diagnostics, allocate variables, set constants
 !
 ! Modules
     use rrtm_astro, only: astro_init, solday
@@ -212,11 +233,12 @@ contains
 ! Local variables
     implicit none
 
-    integer, intent(in), dimension(4) :: axes
-    type(time_type), intent(in)       :: Time
+    integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)       :: Time  !! current time
     integer(kind=im), intent(in)       :: ncols, nlay
-    real(kind=rb), dimension(:), intent(in) :: lonb, latb
-    type(domain2d), intent(in)         :: domain_in   ! domain decomposition of the model grid
+    !! `ncols`: number of columns on this processor (longitudes times latitudes); `nlay`: number of levels
+    real(kind=rb), dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
+    type(domain2d), intent(in)         :: domain_in   !! domain decomposition of the model grid
 
     integer :: i, k, seconds
 
@@ -382,11 +404,16 @@ contains
 
   end subroutine rrtm_radiation_init
 !*****************************************************************************************
+  !> Computes the temperature at half levels, needed by RRTM, and stores it in the module.
+  !>
+  !> The temperature is interpolated linearly in height between full levels, extrapolated
+  !> linearly to the top half level, and set to `t_surf_rad` at the surface.
   subroutine interp_temp(z_full, z_half, t_surf_rad, t)
     implicit none
 
     real(kind=rb), dimension(:, :, :), intent(in)  :: z_full, z_half, t
-    real(kind=rb), dimension(:, :), intent(in)  :: t_surf_rad
+    !! `z_full`, `z_half`: height at full and half levels [m]; `t`: temperature [K]
+    real(kind=rb), dimension(:, :), intent(in)  :: t_surf_rad  !! surface temperature [K]
 
     integer i, j, k, kend
     real dzk, dzk1, dzk2
@@ -410,10 +437,10 @@ contains
         !top: use full points, and distance is 1.5 from k=2
         t_half(i, j, 1) = 0.5*(3*t(i, j, 1) - t(i, j, 2))
         !bottom: z=0 => distance is -z_full(kend-1)/(z_full(kend)-z_full(kend-1))
-!!$                t_half(i,j,kend+1) = t(i,j,kend-1) &
-!!$                     + (z_half(i,j,kend+1) - z_full(i,j,kend-1))&
-!!$                     * (t     (i,j,kend  ) - t     (i,j,kend-1))&
-!!$                     / (z_full(i,j,kend  ) - z_full(i,j,kend-1))
+!                  t_half(i,j,kend+1) = t(i,j,kend-1) &
+!                       + (z_half(i,j,kend+1) - z_full(i,j,kend-1))&
+!                       * (t     (i,j,kend  ) - t     (i,j,kend-1))&
+!                       / (z_full(i,j,kend  ) - z_full(i,j,kend-1))
         !bottom: t_half = t_surf
         t_half(i, j, kend + 1) = t_surf_rad(i, j)
       end do
@@ -422,11 +449,13 @@ contains
   end subroutine interp_temp
 !*****************************************************************************************
 !*****************************************************************************************
+  !> Adds the RRTMG radiative heating to `tdt` and returns the surface fluxes.
+  !>
+  !> On a radiation step (every `dt_rad` seconds) it computes the zenith angle, prepares the
+  !> inputs, calls the RRTMG shortwave and longwave schemes and interpolates the results back
+  !> to the model grid; on the other steps it returns the stored heating and fluxes (or zero
+  !> if `store_intermediate_rad = .false.`). It sends the diagnostics on every step.
   subroutine run_rrtmg(is, js, Time, Time_diag, lat, lon, p_full, p_half, albedo, q, t, t_surf_rad, tdt, coszen, flux_sw, flux_lw)
-!
-! Driver for RRTMG radiation scheme.
-! Prepares all inputs, calls SW and LW radiation schemes,
-!  transforms outputs back into FMS form
 !
 ! Modules
     use fms_mod, only: error_mesg, FATAL
@@ -441,29 +470,23 @@ contains
 ! In/Out variables
     implicit none
 
-    integer, intent(in)                               :: is, js          ! index range for each CPU
-    type(time_type), intent(in)                        :: Time            ! global time in calendar
-    type(time_type), intent(in)                        :: Time_diag       ! time the diagnostics are sent at
-    ! (Time_next, as for the other physics)
-    real(kind=rb), dimension(:, :, :), intent(in)         :: p_full, p_half   ! pressure, full and half levels
-    ! dimension (lat x lon x p*)
-    real(kind=rb), dimension(:, :, :), intent(in)         :: q               ! water vapor mixing ratio [g/g]
-    ! dimension (lat x lon x pfull)
-    real(kind=rb), dimension(:, :, :), intent(in)         :: t               ! temperature [K]
-    ! dimension (lat x lon x pfull)
-    real(kind=rb), dimension(:, :), intent(in)           :: lat, lon         ! latitude, longitude
-    ! dimension (lat x lon)
-    real(kind=rb), dimension(:, :), intent(in)           :: albedo          ! surface albedo
-    ! dimension (lat x lon)
-    real(kind=rb), dimension(:, :), intent(in)           :: t_surf_rad      ! surface temperature [K]
-    ! dimension (lat x lon)
-    real(kind=rb), dimension(:, :, :), intent(inout)      :: tdt             ! heating rate [K/s]
-    ! dimension (lat x lon x pfull)
-    real(kind=rb), dimension(:, :), intent(out)          :: coszen          ! cosine of zenith angle
-    ! dimension (lat x lon)
-    real(kind=rb), dimension(:, :), intent(out), optional :: flux_sw, flux_lw ! surface fluxes [W/m2]
-    ! dimension (lat x lon)
-    ! need to have both or none!
+    integer, intent(in)                               :: is, js          !! indices of the first point of the
+                                                                         !! physics window in the processor domain
+    type(time_type), intent(in)                        :: Time            !! current time
+    type(time_type), intent(in)                        :: Time_diag       !! time the diagnostics are sent at
+    !! (`Time_next`, as for the other physics)
+    real(kind=rb), dimension(:, :, :), intent(in)         :: p_full, p_half   !! pressure at full and half levels [Pa]
+    real(kind=rb), dimension(:, :, :), intent(in)         :: q               !! specific humidity [kg/kg]
+    real(kind=rb), dimension(:, :, :), intent(in)         :: t               !! temperature [K]
+    real(kind=rb), dimension(:, :), intent(in)           :: lat, lon         !! latitude, longitude [rad]
+    real(kind=rb), dimension(:, :), intent(in)           :: albedo          !! surface albedo
+    real(kind=rb), dimension(:, :), intent(in)           :: t_surf_rad      !! surface temperature [K]
+    real(kind=rb), dimension(:, :, :), intent(inout)      :: tdt             !! temperature tendency, to which the
+                                                                             !! radiative heating is added [K/s]
+    real(kind=rb), dimension(:, :), intent(out)          :: coszen          !! cosine of the zenith angle (set on
+                                                                             !! radiation steps only)
+    real(kind=rb), dimension(:, :), intent(out), optional :: flux_sw, flux_lw !! net downward shortwave and downward
+    !! longwave flux at the surface [W/m2]; pass both or none
 !---------------------------------------------------------------------------------------------------------------
 ! Local variables
     integer k, j, i, ij, j1, i1, ij1, kend, dyofyr, seconds, days
@@ -749,10 +772,8 @@ contains
 
 !*****************************************************************************************
 !*****************************************************************************************
+  !> Sends the diagnostics.
   subroutine write_diag_rrtm(Time, is, js, ozone, thalf, albedo_loc)
-!
-! write out diagnostics fields
-!
 ! Modules
     use diag_manager_mod, only: register_diag_field, send_data
     use time_manager_mod, only: time_type
@@ -820,13 +841,12 @@ contains
   end subroutine write_diag_rrtm
 !*****************************************************************************************
 
+  !> Counts where it precipitates (according to `precip_albedo_mode`), for the
+  !> precipitation-dependent albedo (`do_precip_albedo`).
   subroutine rrtm_precip_accum(precip, rain, snow)
-!
-! Count where it precipitates, for the precipitation-dependent albedo.
-! precip is the total precipitation; rain and snow the large-scale parts.
-!
     implicit none
     real(kind=rb), dimension(:, :), intent(in) :: precip, rain, snow
+    !! `precip`: total precipitation; `rain`, `snow`: large-scale rain and snow [kg/m2/s]
 
     if (do_precip_albedo) then
       if (trim(precip_albedo_mode) .eq. 'full') then
@@ -841,6 +861,8 @@ contains
   end subroutine rrtm_precip_accum
 !*****************************************************************************************
 
+  !> Closes the ozone file, writes the restart file `RESTART/rrtm_radiation.res.nc` and
+  !> deallocates the arrays.
   subroutine rrtm_radiation_end
     use mima_interpolator_mod, only: interpolator_end
     implicit none
@@ -868,12 +890,11 @@ contains
   end subroutine rrtm_radiation_end
 
 !*****************************************************************************************
+  !> Reads the state kept between radiation steps, if `INPUT/rrtm_radiation.res.nc` exists.
+  !>
+  !> If a field in use is missing (e.g. a diagnostic was added), radiation is recomputed at
+  !> the first step, as without a restart file.
   subroutine read_restart_rrtm
-!
-! Read the state kept between radiation steps, if INPUT/rrtm_radiation.res.nc exists.
-! If a field in use is missing (e.g. a diagnostic was added), recompute radiation at
-! the first step, as without a restart file.
-!
     use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE
     implicit none
     type(restart_file_type) :: rst
@@ -912,6 +933,7 @@ contains
 
   end subroutine read_restart_rrtm
 
+  !> Reads field `name` from the restart file, or sets `found` to `.false.` if it is not there.
   subroutine read_saved_2d(rst, name, data, found)
     implicit none
     type(restart_file_type), intent(inout)    :: rst
@@ -926,6 +948,7 @@ contains
     end if
   end subroutine read_saved_2d
 
+  !> Reads field `name` from the restart file, or sets `found` to `.false.` if it is not there.
   subroutine read_saved_3d(rst, name, data, found)
     implicit none
     type(restart_file_type), intent(inout)      :: rst
@@ -941,10 +964,9 @@ contains
   end subroutine read_saved_3d
 !*****************************************************************************************
 
+  !> Writes the state kept between radiation steps (only the fields in use) to
+  !> `RESTART/rrtm_radiation.res.nc`.
   subroutine write_restart_rrtm
-!
-! Write the state kept between radiation steps (only the fields in use).
-!
     use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE
     implicit none
     type(restart_file_type) :: rst

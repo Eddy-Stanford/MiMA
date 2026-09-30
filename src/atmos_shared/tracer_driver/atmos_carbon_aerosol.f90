@@ -1,59 +1,27 @@
+!> Black and organic carbon aerosol tracers, after Cooke et al. (1999, 2002).
+!>
+!> In its present implementation the black and organic carbon tracers are from the
+!> combustion of fossil fuel. The annual-mean emissions are read from `INPUT/r30.bc.ann` and
+!> `INPUT/r30.oc.ann` (the datasets derived in Cooke et al. 1999, on a 3.6 x 3 degree R30
+!> grid) and interpolated to the model grid. The tracers are `bcphob`, `bcphil`, `ocphob` and
+!> `ocphil` in the `field_table`.
+!>
+!> While the code should provide insights into the carbonaceous aerosol cycle, it is provided
+!> more as an example of how to implement a tracer module. The parameters should be checked
+!> and set to the values of previous works if a user wishes to reproduce those works.
+!>
+!> References:
+!>
+!> * Cooke, W. F., and J. J. N. Wilson, 1996: A global black carbon aerosol model.
+!>   J. Geophys. Res., 101, 19395-19409.
+!> * Cooke, W. F., C. Liousse, H. Cachier, and J. Feichter, 1999: Construction of a 1 x 1
+!>   fossil fuel emission dataset for carbonaceous aerosol and implementation and radiative
+!>   impact in the ECHAM-4 model. J. Geophys. Res., 104, 22137-22162.
+!> * Cooke, W. F., V. Ramaswamy, and P. Kasibhatla, 2002: A GCM study of the global
+!>   carbonaceous aerosol distribution. J. Geophys. Res., 107.
+!>
+!> Original authors: William Cooke.
 module atmos_carbon_aerosol_mod
-! <CONTACT EMAIL="William.Cooke@noaa.gov">
-!   William Cooke
-! </CONTACT>
-
-! <REVIEWER EMAIL="Larry.Horowitz@noaa.gov">
-!   Larry Horowitz
-! </REVIEWER>
-
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-
-! <OVERVIEW>
-!     This code allows the implementation of black and organic carbon
-!     tracers in the FMS framework.
-! </OVERVIEW>
-
-! <DESCRIPTION>
-!   This module presents the method of Cooke et al. (1999, 2002)
-
-!   In its present implementation the black and organic carbon tracers
-!   are from the combustion of fossil fuel.
-
-!   While the code here should provide insights into the carbonaceous
-!   aerosol cycle it is provided here more as an example of how to implement
-!   a tracer module in the FMS infrastructure. The parameters of the model
-!   should be checked and set to values corresponding to previous works if
-!   a user wishes to try to reproduce those works.
-! </DESCRIPTION>
-
-! <DATASET NAME="Black carbon emissions">
-!   The black carbon emission dataset is that derived in Cooke et al. (1999)
-!   The dataset can be obtained from the contact person above.
-! </DATASET>
-
-! <DATASET NAME="Organic carbon emissions">
-!   The organic carbon emission dataset is that derived in Cooke et al. (1999)
-!   The dataset can be obtained from the contact person above.
-! </DATASET>
-
-! <INFO>
-
-!   <REFERENCE>
-!Cooke, W. F. and J. J. N. Wilson,  A global black carbon aerosol model,
-!J. Geophys. Res., 101, 19395-19409, 1996.
-! </REFERENCE>
-!   <REFERENCE>
-!Cooke, W. F., C. Liousse, H. Cachier and J. Feichter,
-!Construction of a 1 x 1 fossil fuel emission dataset for carbonaceous
-!aerosol and implementation and radiative impact in the ECHAM-4 model,
-!J. Geophys. Res., 104, 22137-22162, 1999 </REFERENCE>
-!   <REFERENCE>
-! Cooke, W.F., V. Ramaswamy and P. Kasibathla,
-! A GCM study of the global carbonaceous aerosol distribution.
-!J. Geophys. Res., 107, accepted, 2002
-! </REFERENCE>
-! </INFO>
   use fms_mod, only: &
     mpp_pe, &
     mpp_root_pe, &
@@ -121,83 +89,15 @@ contains
 
 !#######################################################################
 
-!<SUBROUTINE NAME ="atmos_blackc_sourcesink">
-!<OVERVIEW>
-!  A subroutine to calculate the source and sinks of black carbon aerosol.
-!</OVERVIEW>
-!
-!<DESCRIPTION>
-!
-! This routine calculates the source and sink terms for black carbon.
-! Simply put, the hydrophobic aerosol has sources from emissions and
-! sinks from dry deposition and transformation into hydrophilic aerosol.
-! The hydrophilic aerosol also has emission sources and has sinks of wet
-! and dry deposition.
-!
-! The following schematic shows how the black carbon scheme
-! is implemented.
-
-!<PRE>
-! +------------+  Trans-   +------------+
-! |  Hydro-    | formation |  Hydro-    |
-! |  phobic    |           |  philic    |
-! |  black     |---------->|  black     |
-! |  carbon    |           |  carbon    |
-! |            |           |            |
-! +------------+           +------------+
-!    ^      |                ^    |   |
-!    |      |                |    |   |
-!    |      =                |    =   =
-!  Source  Dry            Source Dry Wet
-!          Dep.                  Dep Dep
-!
-!</PRE>
-
-! The transformation time used here is 1 day, which corresponds to an
-! e-folding time of 1.44 days. This can be varied as necessary.
-
-!</DESCRIPTION>
-!<TEMPLATE>
-!call atmos_blackc_sourcesink (lon, lat, land, pwt, &
-!                         black_cphob, black_cphob_dt,  &
-!                         black_cphil, black_cphil_dt,  &
-!                         Time, is, ie, js, je, kbot)
-!</TEMPLATE>
-!   <IN NAME="lon" TYPE="real" DIM="(:,:)">
-!     Longitude of the centre of the model gridcells
-!   </IN>
-!   <IN NAME="lat" TYPE="real" DIM="(:,:)">
-!     Latitude of the centre of the model gridcells
-!   </IN>
-!   <IN NAME="land" TYPE="real" DIM="(:,:)">
-!     Land/sea mask.
-!   </IN>
-!   <IN NAME="pwt" TYPE="real" DIM="(:,:,:)">
-!     The pressure weighting array. = dP/grav
-!   </IN>
-!   <IN NAME="black_cphob" TYPE="real" DIM="(:,:,:)">
-!     The array of the hydrophobic black carbon aerosol mixing ratio
-!   </IN>
-!   <IN NAME="black_cphil" TYPE="real" DIM="(:,:,:)">
-!     The array of the hydrophilic black carbon aerosol mixing ratio
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-!   <IN NAME="is, ie, js, je" TYPE="integer">
-!     Local domain boundaries.
-!   </IN>
-!   <IN NAME="kbot" TYPE="integer, optional" DIM="(:,:)">
-!     Integer array describing which model layer intercepts the surface.
-!   </IN>
-
-!   <OUT NAME="black_cphob_dt" TYPE="real" DIM="(:,:,:)">
-!     The array of the tendency of the hydrophobic black carbon aerosol mixing ratio.
-!   </OUT>
-!   <OUT NAME="black_cphil_dt" TYPE="real" DIM="(:,:,:)">
-!     The array of the tendency of the hydrophilic black carbon aerosol mixing ratio.
-!   </OUT>
-
+  !> Computes the tendencies of hydrophobic and hydrophilic black carbon due to emission
+  !> and transformation.
+  !>
+  !> The hydrophobic aerosol has sources from emissions (80%) and sinks from dry deposition
+  !> and transformation into hydrophilic aerosol. The hydrophilic aerosol also has emission
+  !> sources (20%) and has sinks of wet and dry deposition. The emissions go into the lowest
+  !> model level. The deposition is computed in `atmos_tracer_utilities_mod`, not here. The
+  !> transformation time used here is 1 day, which corresponds to an e-folding time of
+  !> 1.44 days.
   subroutine atmos_blackc_sourcesink(lon, lat, land, pwt, &
                                      black_cphob, black_cphob_dt, &
                                      black_cphil, black_cphil_dt, &
@@ -205,12 +105,16 @@ contains
 
 !-----------------------------------------------------------------------
     real, intent(in), dimension(:, :)   :: lon, lat
-    real, intent(in), dimension(:, :)   :: land
+    !! longitude and latitude of the centres of the grid cells [rad]
+    real, intent(in), dimension(:, :)   :: land  !! land fraction
     real, intent(in), dimension(:, :, :) :: pwt, black_cphob, black_cphil
+    !! `pwt`: pressure weight dp/grav [kg/m2]; `black_cphob`, `black_cphil`: hydrophobic and
+    !! hydrophilic black carbon mixing ratio
     real, intent(out), dimension(:, :, :) :: black_cphob_dt, black_cphil_dt
-    type(time_type), intent(in)            :: Time
-    integer, intent(in)                    :: is, ie, js, je
-    integer, intent(in), dimension(:, :), optional :: kbot
+    !! tendencies of the hydrophobic and hydrophilic black carbon mixing ratio
+    type(time_type), intent(in)            :: Time  !! model time
+    integer, intent(in)                    :: is, ie, js, je  !! local domain boundaries
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level above the surface
 !-----------------------------------------------------------------------
     real, dimension(size(black_cphob, 1), size(black_cphob, 2), size(black_cphob, 3)) :: &
       sourcephob, sinkphob, sourcephil, sinkphil
@@ -257,88 +161,30 @@ contains
 !-----------------------------------------------------------------------
 
   end subroutine atmos_blackc_sourcesink
-!</SUBROUTINE >
 
 !#######################################################################
 
-!<SUBROUTINE NAME ="atmos_organic_sourcesink">
-!<OVERVIEW>
-!  A subroutine to calculate the source and sinks of organic carbon aerosol.
-!</OVERVIEW>
-!<DESCRIPTION>
-
-! This routine calculates the source and sink terms for organic carbon.
-! Simply put, the hydrophobic aerosol has sources from emissions and
-! sinks from dry deposition and transformation into hydrophilic aerosol.
-! The hydrophilic aerosol also has emission sources and has sinks of wet
-! and dry deposition.
-!
-! The following schematic shows how the organic carbon scheme
-! is implemented.
-
-!<PRE>
-! +------------+  Trans-   +------------+
-! |  Hydro-    | formation |  Hydro-    |
-! |  phobic    |           |  philic    |
-! |  organic   |---------->|  organic   |
-! |  carbon    |           |  carbon    |
-! |            |           |            |
-! +------------+           +------------+
-!    ^      |                ^    |   |
-!    |      |                |    |   |
-!    |      =                |    =   =
-!  Source  Dry            Source Dry Wet
-!          Dep.                  Dep Dep
-!</PRE>
-!
-! The transformation time used here is 2 days, which corresponds to an
-! e-folding time of 2.88 days. This can be varied as necessary.
-!
-!</DESCRIPTION>
-!<TEMPLATE>
-!call atmos_organic_sourcesink (lon, lat, land, pwt, organic_carbon, organic_carbon_dt,  &
-!                              Time, is, ie, js, je, kbot)
-!</TEMPLATE>
-!   <IN NAME="lon" TYPE="real" DIM="(:,:)">
-!     Longitude of the centre of the model gridcells
-!   </IN>
-!   <IN NAME="lat" TYPE="real" DIM="(:,:)">
-!     Latitude of the centre of the model gridcells
-!   </IN>
-!   <IN NAME="land" TYPE="real" DIM="(:,:)">
-!     Land/sea mask.
-!   </IN>
-!   <IN NAME="pwt" TYPE="real" DIM="(:,:,:)">
-!     The pressure weighting array. = dP/grav
-!   </IN>
-!   <IN NAME="organic_carbon" TYPE="real" DIM="(:,:,:)">
-!     The array of the organic carbon aerosol mixing ratio
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-!   <IN NAME="is, ie, js, je" TYPE="integer">
-!     Local domain boundaries.
-!   </IN>
-!   <IN NAME="kbot" TYPE="integer, optional" DIM="(:,:)">
-!     Integer array describing which model layer intercepts the surface.
-!   </IN>
-
-!   <OUT NAME="organic_carbon_dt" TYPE="real" DIM="(:,:,:)">
-!     The array of the tendency of the organic carbon aerosol mixing ratio.
-!   </OUT>
-
+  !> Computes the tendency of organic carbon due to emission and transformation.
+  !>
+  !> The hydrophobic aerosol has sources from emissions and sinks from dry deposition and
+  !> transformation into hydrophilic aerosol. The hydrophilic aerosol also has emission
+  !> sources and has sinks of wet and dry deposition. The emissions go into the lowest model
+  !> level. The deposition is computed in `atmos_tracer_utilities_mod`, not here. The
+  !> transformation time used here is 2 days, which corresponds to an e-folding time of
+  !> 2.88 days.
   subroutine atmos_organic_sourcesink(lon, lat, land, pwt, organic_carbon, organic_carbon_dt, &
                                       Time, is, ie, js, je, kbot)
 
 !-----------------------------------------------------------------------
     real, intent(in), dimension(:, :)   :: lon, lat
-    real, intent(in), dimension(:, :)   :: land
+    !! longitude and latitude of the centres of the grid cells [rad]
+    real, intent(in), dimension(:, :)   :: land  !! land fraction
     real, intent(in), dimension(:, :, :) :: pwt, organic_carbon
-    real, intent(out), dimension(:, :, :) :: organic_carbon_dt
-    type(time_type), intent(in) :: Time
-    integer, intent(in)                    :: is, ie, js, je
-    integer, intent(in), dimension(:, :), optional :: kbot
+    !! `pwt`: pressure weight dp/grav [kg/m2]; `organic_carbon`: organic carbon mixing ratio
+    real, intent(out), dimension(:, :, :) :: organic_carbon_dt  !! tendency of the organic carbon mixing ratio
+    type(time_type), intent(in) :: Time  !! model time
+    integer, intent(in)                    :: is, ie, js, je  !! local domain boundaries
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level above the surface
 !-----------------------------------------------------------------------
     real, dimension(size(organic_carbon, 1), size(organic_carbon, 2), size(organic_carbon, 3)) :: &
       source, sink
@@ -388,61 +234,20 @@ contains
 !-----------------------------------------------------------------------
 
   end subroutine atmos_organic_sourcesink
-!</SUBROUTINE>
 
 !#######################################################################
 
-!<SUBROUTINE NAME ="atmos_carbon_aerosol_init">
-
-!<OVERVIEW>
-! Subroutine to initialize the carbon aerosol module.
-!</OVERVIEW>
-!<DESCRIPTION>
-! This subroutine querys the tracer manager to find the indices for the
-! various carbonaceous aerosol tracers. It also registers the emission
-! fields for diagnostic purposes.
-!
-!</DESCRIPTION>
-!<TEMPLATE>
-!call atmos_carbon_aerosol_init (lonb, latb, r, axes, Time, mask)
-!</TEMPLATE>
-!   <IN NAME="lonb" TYPE="real" DIM="(:)">
-!     The longitudes for the local domain.
-!   </IN>
-!   <IN NAME="latb" TYPE="real" DIM="(:)">
-!     The latitudes for the local domain.
-!   </IN>
-!   <INOUT NAME="r" TYPE="real" DIM="(:,:,:,:)">
-!     Tracer fields dimensioned as (nlon,nlat,nlev,ntrace).
-!   </INOUT>
-!   <IN NAME="mask" TYPE="real, optional" DIM="(:,:,:)">
-!      optional mask (0. or 1.) that designates which grid points
-!           are above (=1.) or below (=0.) the ground dimensioned as
-!           (nlon,nlat,nlev).
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-!   <IN NAME="axes" TYPE="integer" DIM="(4)">
-!     The axes relating to the tracer array dimensioned as
-!      (nlon, nlat, nlev, ntime)
-!   </IN>
-
+  !> Initializes the carbon aerosol module: finds the indices of the carbonaceous aerosol
+  !> tracers, registers the emission fields as diagnostics and reads the emissions.
   subroutine atmos_carbon_aerosol_init(lonb, latb, r, axes, Time, mask)
 
 !-----------------------------------------------------------------------
-!
-!   r    = tracer fields dimensioned as (nlon,nlat,nlev,ntrace)
-!   mask = optional mask (0. or 1.) that designates which grid points
-!          are above (=1.) or below (=0.) the ground dimensioned as
-!          (nlon,nlat,nlev).
-!
-!-----------------------------------------------------------------------
-    real, dimension(:), intent(in) :: lonb, latb
-    real, intent(inout), dimension(:, :, :, :) :: r
-    integer, intent(in)                        :: axes(4)
-    type(time_type), intent(in)                        :: Time
+    real, dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
+    real, intent(inout), dimension(:, :, :, :) :: r  !! tracer fields (nlon, nlat, nlev, ntrace)
+    integer, intent(in)                        :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)                        :: Time  !! model time
     real, intent(in), dimension(:, :, :), optional :: mask
+    !! 1. above the ground, 0. below (nlon, nlat, nlev)
 
     integer :: n
 
@@ -502,26 +307,16 @@ contains
 !-----------------------------------------------------------------------
 
   end subroutine atmos_carbon_aerosol_init
-!</SUBROUTINE>
 
-!<SUBROUTINE NAME ="atmos_carbon_aerosol_end">
-!<OVERVIEW>
-!  The destructor routine for the carbon aerosol module.
-!</OVERVIEW>
-! <DESCRIPTION>
-! This subroutine writes the version name to logfile and exits.
-! </DESCRIPTION>
-!<TEMPLATE>
-!call atmos_carbon_aerosol_end
-!</TEMPLATE>
+  !> Terminates the carbon aerosol module.
   subroutine atmos_carbon_aerosol_end
 
     module_is_initialized = .false.
 
   end subroutine atmos_carbon_aerosol_end
-!</SUBROUTINE>
 
 !#######################################################################
+  !> Reads the black and organic carbon emissions and interpolates them to the model grid.
   subroutine tracer_input(lonb, latb, Time)
     real, dimension(:), intent(in) :: lonb, latb
     type(time_type), intent(in) :: Time

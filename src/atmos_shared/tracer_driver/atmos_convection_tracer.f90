@@ -1,26 +1,15 @@
+!> An arbitrarily specified tracer for testing the convective transport of tracers.
+!>
+!> The tracer has no sources or sinks. Up to `ncopies_cnvct_trcr` copies (`cnvct_trcr`,
+!> `cnvct_trcr_2`, ...) are used if they are in the `field_table`; each is initialized with a
+!> profile that decreases exponentially from 1 at the lowest level to exp(-1) at the top,
+!> unless `INPUT/tracer_<name>.res` exists.
+!>
+!> Namelist: `atmos_convection_tracer_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#atmos_convection_tracer_nml)).
+!>
+!> Original authors: Richard Hemler.
 module atmos_convection_tracer_mod
-! <CONTACT EMAIL="rsh@gfdl.noaa.gov">
-!   Richard Hemler
-! </CONTACT>
-
-! <REVIEWER EMAIL="lwh@gfdl.noaa.gov">
-!
-! </REVIEWER>
-
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-
-! <OVERVIEW>
-!     This code allows the incorporation of an arbitrarily-specified
-!     tracer for testing within the donner_deep module.
-!
-!    This module is to serve as a testbed for assessing convective
-!    transport of tracers.
-! </OVERVIEW>
-
-! <DESCRIPTION>
-!   This module presents an implementation of an arbirary tracer,
-!   including its convective transport by the donner_deep module.
-! </DESCRIPTION>
 
 !-----------------------------------------------------------------------
 
@@ -49,7 +38,8 @@ module atmos_convection_tracer_mod
 !-----------------------------------------------------------------------
 !----------- namelist -------------------
 
-  integer  :: ncopies_cnvct_trcr = 9
+  integer  :: ncopies_cnvct_trcr = 9  !! number of copies of the convection tracer looked for in the field table;
+                                     !! at most 9
 
   namelist /atmos_convection_tracer_nml/ &
     ncopies_cnvct_trcr
@@ -70,49 +60,8 @@ module atmos_convection_tracer_mod
 contains
 
 !#######################################################################
-!<SUBROUTINE NAME="atmos_cnvct_tracer_sourcesink">
-!<OVERVIEW>
-! The routine that calculate the sources and sinks of the
-! convection tracer.
-!</OVERVIEW>
-!<DESCRIPTION>
-! This is an implementation of an arbitrarily-specified tracer.
-! At this time it is assumed to have no source or sink.
-!
-!</DESCRIPTION>
-!<TEMPLATE>
-!call atmos_cnvct_tracer_sourcesink (lon, lat, land, pwt, convtr,
-!                                         convtr_dt, Time, is, ie,
-!                                         js, je, kbot)
-!</TEMPLATE>
-!   <IN NAME="lon" TYPE="real" DIM="(:,:)">
-!     Longitude of the centre of the model gridcells
-!   </IN>
-!   <IN NAME="lat" TYPE="real" DIM="(:,:)">
-!     Latitude of the centre of the model gridcells
-!   </IN>
-!   <IN NAME="land" TYPE="real" DIM="(:,:)">
-!     Land/sea mask.
-!   </IN>
-!   <IN NAME="pwt" TYPE="real" DIM="(:,:,:)">
-!     The pressure weighting array. = dP/grav
-!   </IN>
-!   <IN NAME="convtr" TYPE="real" DIM="(:,:,:)">
-!     The array of the convection tracer mixing ratio.
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-!   <IN NAME="is, ie, js, je" TYPE="integer">
-!     Local domain boundaries.
-!   </IN>
-!   <IN NAME="kbot" TYPE="integer, optional" DIM="(:,:)">
-!     Integer array describing which model layer intercepts the surface.
-!   </IN>
-
-!   <OUT NAME="convtr_dt" TYPE="real" DIM="(:,:,:)">
-!     The array of the tendency of the convection tracer mixing ratio.
-!   </OUT>
+  !> Returns the tendency of the convection tracer due to its sources and sinks, which is
+  !> zero: the tracer is assumed to have no source or sink.
   subroutine atmos_cnvct_tracer_sourcesink(lon, lat, land, pwt, &
                                            convtr, convtr_dt, &
                                            Time, is, ie, js, je, &
@@ -120,12 +69,14 @@ contains
 
 !-----------------------------------------------------------------------
     real, intent(in), dimension(:, :)   :: lon, lat
-    real, intent(in), dimension(:, :)   :: land
+    !! longitude and latitude of the centres of the grid cells [rad]
+    real, intent(in), dimension(:, :)   :: land  !! land fraction
     real, intent(in), dimension(:, :, :) :: pwt, convtr
-    real, intent(out), dimension(:, :, :) :: convtr_dt
-    type(time_type), intent(in) :: Time
-    integer, intent(in)       :: is, ie, js, je
-    integer, intent(in), dimension(:, :), optional :: kbot
+    !! `pwt`: pressure weight dp/grav [kg/m2]; `convtr`: convection tracer mixing ratio
+    real, intent(out), dimension(:, :, :) :: convtr_dt  !! tendency of the convection tracer mixing ratio [1/s]
+    type(time_type), intent(in) :: Time  !! model time
+    integer, intent(in)       :: is, ie, js, je  !! local domain boundaries
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level above the surface
 !-----------------------------------------------------------------------
     real, dimension(size(convtr, 1), size(convtr, 2), size(convtr, 3)) :: &
       source, sink
@@ -146,55 +97,23 @@ contains
 !-----------------------------------------------------------------------
 
   end subroutine atmos_cnvct_tracer_sourcesink
-!</SUBROUTINE>
 
 !#######################################################################
 
-!<SUBROUTINE NAME="atmos_convection_tracer_init">
-!<OVERVIEW>
-! The constructor routine for the convection tracer module.
-!</OVERVIEW>
-!<DESCRIPTION>
-! A routine to initialize the convection tracer module.
-!</DESCRIPTION>
-!<TEMPLATE>
-!call convection_tracer_init (r, phalf, mask, axes, Time)
-!</TEMPLATE>
-!   <INOUT NAME="r" TYPE="real" DIM="(:,:,:,:)">
-!     Tracer fields dimensioned as (nlon,nlat,nlev,ntrace).
-!   </INOUT>
-!   <IN NAME="phalf" TYPE="real" DIM="(:,:,:)">
-!      pressure at model interface levels
-!   </IN>
-!   <IN NAME="mask" TYPE="real, optional" DIM="(:,:,:)">
-!      optional mask (0. or 1.) that designates which grid points
-!           are above (=1.) or below (=0.) the ground dimensioned as
-!           (nlon,nlat,nlev).
-!   </IN>
-!   <IN NAME="Time" TYPE="type(time_type)">
-!     Model time.
-!   </IN>
-!   <IN NAME="axes" TYPE="integer" DIM="(4)">
-!     The axes relating to the tracer array dimensioned as
-!      (nlon, nlat, nlev, ntime)
-!   </IN>
+  !> Initializes the convection tracer module: finds the convection tracers in the field
+  !> table and sets their initial profile if there is no restart file for them.
   subroutine atmos_convection_tracer_init(r, phalf, axes, Time, &
                                           nconvect, mask)
 
 !-----------------------------------------------------------------------
-!
-!   r    = tracer fields dimensioned as (nlon,nlat,nlev,ntrace)
-!   mask = optional mask (0. or 1.) that designates which grid points
-!          are above (=1.) or below (=0.) the ground dimensioned as
-!          (nlon,nlat,nlev).
-!
-!-----------------------------------------------------------------------
-    real, intent(inout), dimension(:, :, :, :) :: r
-    real, intent(in), dimension(:, :, :)   :: phalf
-    type(time_type), intent(in)                        :: Time
-    integer, intent(in)                        :: axes(4)
+    real, intent(inout), dimension(:, :, :, :) :: r  !! tracer fields (nlon, nlat, nlev, ntrace)
+    real, intent(in), dimension(:, :, :)   :: phalf  !! pressure at half levels [Pa]
+    type(time_type), intent(in)                        :: Time  !! model time
+    integer, intent(in)                        :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
     integer, dimension(:), pointer                         :: nconvect
+    !! allocated here: tracer indices of the `ncopies_cnvct_trcr` copies (-1 if not in the field table)
     real, intent(in), dimension(:, :, :), optional        :: mask
+    !! 1. above the ground, 0. below (nlon, nlat, nlev)
 
     logical :: flag
     integer :: n
@@ -286,26 +205,15 @@ contains
 !-----------------------------------------------------------------------
 
   end subroutine atmos_convection_tracer_init
-!</SUBROUTINE>
 
 !#######################################################################
 
-!<SUBROUTINE NAME="atmos_convection_tracer_end">
-!<OVERVIEW>
-!  The destructor routine for the convection tracer module.
-!</OVERVIEW>
-! <DESCRIPTION>
-! This subroutine marks the module as uninitialized and exits.
-! </DESCRIPTION>
-!<TEMPLATE>
-! call atmos_convection_tracer_end
-!</TEMPLATE>
+  !> Terminates the convection tracer module.
   subroutine atmos_convection_tracer_end
 
     module_is_initialized = .false.
 
   end subroutine atmos_convection_tracer_end
-!</SUBROUTINE>
 
 end module atmos_convection_tracer_mod
 

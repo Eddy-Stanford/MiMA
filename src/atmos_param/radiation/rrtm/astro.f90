@@ -1,13 +1,17 @@
+!> Orbit, solar constant and solar zenith angle for the RRTM radiation.
+!>
+!> Holds the astronomical parameters used by `rrtm_radiation` and computes the cosine of the
+!> solar zenith angle, instantaneous, averaged over an interval, or as a daily mean. The
+!> orbit is circular; the declination follows from `obliq` and the day of the year relative
+!> to the March equinox (`equinox_day`).
+!>
+!> Namelist: `astro_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#astro_nml)).
+!>
+!> Original authors: Martin Jucker.
 module rrtm_astro
 !
 !   Martin Jucker, 2015, https://github.com/mjucker/MiMA.
-!
-!   Contains all variables needed to
-!   run the RRTM code, version for GCMs (hence the 'G'),
-!   related to astronomy, i.e. all variables needed
-!   for radiation that are not within rrtm_radiation.f90
-!
-!   Computes zenith angle necessary for SW radiation
 !
 ! Modules
   use parkind, only: im => kind_im, rb => kind_rb
@@ -15,25 +19,25 @@ module rrtm_astro
                      error_mesg, FATAL
 ! Variables
   implicit none
-  logical          :: astro_initialized = .false.
+  logical          :: astro_initialized = .false.  !! whether `astro_init` has been called
 !
 !---------------------------------------------------------------------------------------------------------------
 !                                namelist values
 !---------------------------------------------------------------------------------------------------------------
-  real(kind=rb)      :: obliq = 23.439             ! Earth's obliquity
-  logical            :: use_dyofyr = .false.            ! use day of the year to compute Earth-Sun distance?
-  !  this is done within RRTM, and assumes 365days/year!
-  real(kind=rb)      :: solr_cnst = 1370.              ! solar constant [W/m2]
-  real(kind=rb)      :: solrad = 1.0                      ! distance Earth-Sun [AU] if use_dyofyr=.false.
-  integer(kind=im)   :: solday = 0                        ! if >0, do perpetual run corresponding to
-  !  day of the year = solday \in [0,days per year]
-  real(kind=rb)      :: equinox_day = 0.25                ! fraction of the year defining March equinox \in [0,1]
+  real(kind=rb)      :: obliq = 23.439             !! [deg] obliquity
+  logical            :: use_dyofyr = .false.            !! let RRTM compute the Earth-Sun distance from the day of the year
+                                                        !! (assumes 365 days per year)
+  real(kind=rb)      :: solr_cnst = 1370.              !! [W/m2] solar constant
+  real(kind=rb)      :: solrad = 1.0                      !! Earth-Sun distance factor if `use_dyofyr = .false.`
+  integer(kind=im)   :: solday = 0                        !! if > 0, perpetual run at this day of the year
+  real(kind=rb)      :: equinox_day = 0.25                !! fraction of the year at which the March equinox occurs
 
   namelist /astro_nml/ obliq, use_dyofyr, solr_cnst, solrad, solday, equinox_day
 
 contains
 !--------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------
+  !> Initializes the module: reads `astro_nml`.
   subroutine astro_init
     implicit none
     integer :: unit, ierr, io
@@ -45,10 +49,12 @@ contains
 
   end subroutine astro_init
 !--------------------------------------------------------------------------------------
-! parts of this are taken from GFDL's astronomy.f90
+  !> Computes the cosine of the solar zenith angle for the RRTM shortwave radiation.
+  !>
+  !> If `0 < dt < 86400` the value is averaged over the interval from `Time` to `Time + dt`
+  !> (zero at night); if `dt >= 86400` it is the daily mean; otherwise it is the
+  !> instantaneous value. Parts of this are taken from GFDL's `astronomy.f90`.
   subroutine compute_zenith(Time, equinox_day, dt, lat, lon, cosz, dyofyr)
-!
-! Computes the zenith angle for RRTM SW radiation
 !
 ! Modules
     use time_manager_mod, only: time_type, get_time, length_of_year
@@ -57,12 +63,13 @@ contains
 ! Local variables
     implicit none
 ! Inputs
-    type(time_type), intent(in) :: Time        ! time of year, according to calendar
-    real(kind=rb), intent(in) :: equinox_day ! fraction of year for March equinox
-    integer(kind=im), intent(in) :: dt          ! time step over which to average (if > 0)
-    real(kind=rb), dimension(:, :), intent(in) :: lat, lon     ! lon/lat grid
-    real(kind=rb), dimension(:, :), intent(out):: cosz        ! cosine of zenith angle
-    integer(kind=im), intent(out):: dyofyr      ! day of the year to compute cosz at
+    type(time_type), intent(in) :: Time        !! time of year, according to calendar
+    real(kind=rb), intent(in) :: equinox_day !! fraction of the year at which the March equinox occurs
+    integer(kind=im), intent(in) :: dt          !! averaging interval (if > 0) [s]
+    real(kind=rb), dimension(:, :), intent(in) :: lat, lon     !! latitudes and longitudes [rad]
+    real(kind=rb), dimension(:, :), intent(out):: cosz        !! cosine of the zenith angle
+    integer(kind=im), intent(out):: dyofyr      !! day of the year, counted from the March equinox, at which
+                                                !! `cosz` is computed
 ! Locals
     real(kind=rb), dimension(size(lat, 1), size(lat, 2)) :: h, cos_h, &
                                                             lat_h
