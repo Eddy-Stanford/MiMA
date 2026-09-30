@@ -23,7 +23,7 @@ authors:
   - given-names: Robert C.
     family-names: King
 repository-code: 'https://github.com/Eddy-Stanford/MiMA'
-url: 'http://mjucker.github.io/MiMA/'
+url: 'https://eddy-stanford.github.io/MiMA/'
 keywords:
   - GCM
   - Model of an Idealized Moist Atmosphere

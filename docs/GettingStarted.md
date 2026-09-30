@@ -1,13 +1,11 @@
-[back to contents](README.md)
-
 # Getting started with MiMA
 
 This page explains how to compile MiMA and run the test case that ships with the repository.
 
 * [Downloading the source](#downloading-the-source)
 * [Dependencies](#dependencies)
-  * [FMS](#fms)
-  * [Installing FRE-NCtools](#installing-fre-nctools)
+    * [FMS](#fms)
+    * [Installing FRE-NCtools](#installing-fre-nctools)
 * [Compiling](#compiling)
 * [Running the test case](#running-the-test-case)
 * [Output](#output)
@@ -93,7 +91,7 @@ Check that it worked with `which mppnccombine`. The same steps work on HPC syste
 
 ### Using the container
 
-If you would rather not install the dependencies yourself, a development container with GNU compilers, Open MPI and netCDF is available as the Docker image `robcking/eddy_builder_dev:gnu_openmpi`. The repository's [`.devcontainer`](https://github.com/Eddy-Stanford/MiMA/blob/master/.devcontainer/devcontainer.json) configuration uses this image, so opening the repository in VS Code (with the Dev Containers extension) or GitHub Codespaces gives you a ready-to-build environment. Then follow the compile steps below as normal.
+If you would rather not install the dependencies yourself, a development container with GNU compilers, Open MPI and netCDF is available as the Docker image `robcking/eddy_builder_dev:gnu_openmpi`. The repository's [`.devcontainer`](https://github.com/Eddy-Stanford/MiMA/blob/main/.devcontainer/devcontainer.json) configuration uses this image, so opening the repository in VS Code (with the Dev Containers extension) or GitHub Codespaces gives you a ready-to-build environment. Then follow the compile steps below as normal.
 
 ## Compiling
 
@@ -139,7 +137,7 @@ exec/
 └── RESTART/        # restart files are written here at the end of the run
 ```
 
-These files are copied from the [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/master/input) directory of the repository. **Note:** re-running `cmake --install build` overwrites `input.nml`, `diag_table` and `field_table` in `exec/`. For your own experiments, copy `exec/` (or `input/` plus the executable) to a separate run directory.
+These files are copied from the [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/main/input) directory of the repository. **Note:** re-running `cmake --install build` overwrites `input.nml`, `diag_table` and `field_table` in `exec/`. For your own experiments, copy `exec/` (or `input/` plus the executable) to a separate run directory.
 
 To run the model:
 
@@ -157,13 +155,14 @@ As a rough guide, the test case runs at about 10 s per model day on 4 cores of a
 
 ### The test case
 
-The test case is defined entirely by the files in [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/master/input):
+The test case is defined entirely by the files in [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/main/input):
 
 * `input.nml`: This is the most important file. It sets all the input parameters within the various namelists of MiMA. Any variable not present in `input.nml` takes its (hard-coded) default value. This file completely defines the simulation you are running. See [Parameter settings](Parameters.md) for what the parameters mean.
 * `diag_table`: A list of the diagnostics you would like in your output files. It doesn't change the simulation you are running. It only decides which variables are written, how frequently, and whether the output is averaged or instantaneous. [Diagnostics](Diagnostics.md) explains the format and lists every field the model can output.
 * `field_table`: A list of passive tracers you'd like to advect during the simulation. There are two types: grid or spectral tracers. To get the temporal evolution of a tracer (or its time average), add its name as a diagnostic output in `diag_table`.
 
 The test run is one 360-day year (12 months of 30 days) with the following setup:
+
 * T42 horizontal resolution (128 × 64 grid) with 40 vertical levels
 * realistic topography and land-sea mask, interpolated from `INPUT/navy_topography.data.nc` and `INPUT/navy_pctwater.data.nc`
 * RRTM radiation scheme, with 390 ppm CO<sub>2</sub>, ozone from `INPUT/ozone_1990.nc`, and a solar constant of 1370 W/m<sup>2</sup>

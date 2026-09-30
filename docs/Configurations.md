@@ -1,5 +1,3 @@
-[back to contents](README.md)
-
 # Model configurations
 
 This page describes some common ways of changing the model setup beyond the default [test case](GettingStarted.md#the-test-case). All options are set in `input.nml`; see [Parameter settings](Parameters.md) for the full list of namelist variables.
@@ -54,6 +52,7 @@ For the standard **dry** benchmark, switch off radiation, moist physics and the 
 The model always carries a humidity tracer (`sphum` in the field table); in the dry setup it stays zero. Also set `use_virtual_temperature = .false.` and `do_water_correction = .false.` in `spectral_dynamics_nml`.
 
 The HS forcing can be combined with other parts of the model:
+
 * `do_damping = .true.` with `damping_driver_nml` enables the Rayleigh sponge (`do_rayleigh`) and/or the convective gravity-wave drag (`do_cg_drag`). Note that `do_cg_drag` defaults to `.true.`, so set `do_cg_drag = .false.` if you want only the sponge.
 * Non-flat topography through `topography_option` in `spectral_dynamics_nml`.
 * **Moist variants:** with `do_moist_physics = .true.` and `do_boundary_layer = .true.` (and `do_rayleigh_friction = .false.`), the HS temperature relaxation replaces radiation while MiMA's moist physics, boundary layer and surface fluxes stay active. This is similar in spirit to the moist Held-Suarez test of [Thatcher and Jablonowski (2016)](https://doi.org/10.5194/gmd-9-1263-2016), but uses MiMA's own boundary-layer and surface schemes.

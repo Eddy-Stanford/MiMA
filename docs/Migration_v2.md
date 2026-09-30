@@ -1,5 +1,3 @@
-[back to contents](README.md)
-
 # Migrating from MiMA v1 to v2.0
 
 This page is for users who have a working MiMA v1 setup (v1.2.x or older) and want to run it with v2.0. It lists everything that changed and what you have to do about it.
@@ -34,11 +32,11 @@ To move a v1 run directory to v2.0:
 
 1. Build MiMA v2.0 with CMake 3.22 or later; FMS is found or downloaded automatically ([Building](#building)).
 2. Convert `input.nml` ([Converting an old input.nml](#converting-an-old-inputnml)). The easiest way is often to start from the new `input/input.nml` and re-apply your own changes. At the very least:
-   * replace `do_grey_radiation`/`do_rrtm_radiation` with `&radiation_nml radiation_scheme`;
-   * rename `&grey_radiation_nml` to `&gray_radiation_nml`;
-   * delete `&fms_io_nml` and add `&sat_vapor_pres_nml do_simple = .true. /`;
-   * delete every variable that no longer exists (an unknown variable stops the model);
-   * check the [changed defaults](#changed-defaults) for every variable you did not set.
+    * replace `do_grey_radiation`/`do_rrtm_radiation` with `&radiation_nml radiation_scheme`;
+    * rename `&grey_radiation_nml` to `&gray_radiation_nml`;
+    * delete `&fms_io_nml` and add `&sat_vapor_pres_nml do_simple = .true. /`;
+    * delete every variable that no longer exists (an unknown variable stops the model);
+    * check the [changed defaults](#changed-defaults) for every variable you did not set.
 3. Make sure `field_table` has a `sphum` tracer ([field_table changes](#field_table-changes)).
 4. Update module and field names in `diag_table` (mainly the radiation diagnostics), and check it with `tools/mimadoc validate` ([diag_table changes](#diag_table-changes)).
 5. Expect single netCDF output files, no need for `mppnccombine`, and a few format changes ([Output files](#output-files)).

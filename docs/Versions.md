@@ -1,12 +1,10 @@
-[back to contents](README.md)
-
 # Version history
 
 This file is to be updated whenever major changes are implemented in MiMA.
 This is an important part of the documentation, as it might be quite important to know which version
 includes which physical feature, bugfix, etc.
 
-Any contributor to the code should change this file when merging into the master branch.
+Any contributor to the code should change this file when merging into the main branch.
 The newest changes should be on the top of this list.
 
 ## v2.0
@@ -14,15 +12,15 @@ The newest changes should be on the top of this list.
 A clean break from v1: results are not bit-for-bit identical to v1, and `input.nml`, `diag_table` and output-processing scripts need updating. See the [migration guide](Migration_v2.md).
 
 * Unreleased:
-  * The model is trimmed to its idealized configurations: RRTM radiation with the mixed-layer surface (the default), gray radiation, and Held-Suarez. Unused physics (the AM2 radiation, Donner, RAS, stratiform clouds, Mellor-Yamada, EDT, dry adjustment, `topo_drag` and others) and their namelist variables and diagnostics are removed.
-  * Built against the external [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.02 or later, instead of the bundled copy; CMake finds an installed FMS or downloads it. CMake 3.22 or later is required. `&sat_vapor_pres_nml do_simple = .true.` is required and `&fms_io_nml` is gone.
-  * The radiation scheme is chosen with `radiation_nml radiation_scheme` (`'rrtm'`, `'gray'` or `'none'`), replacing `do_rrtm_radiation`/`do_grey_radiation`; the radiation diagnostics of both schemes are under module `radiation` with unified names.
-  * The code defaults equal the shipped `input/input.nml`.
-  * Held-Suarez (1994) forcing (`do_held_suarez`, `held_suarez_nml`) with the new switches `do_boundary_layer` and `do_moist_physics`; example configurations `input/examples/held_suarez` and `input/examples/gray`.
-  * Answer-changing fixes: `cg_drag` recomputed at the intended interval and conserving the momentum deposited above the model top (this changes the winds above about 1 hPa), implicit zonal surface stress, consistent bottom-level time levels, evaporation derivatives, Betts-Miller shallow-convection energy, Earth radius 6371 km and the FMS saturation vapour pressure table.
-  * `cg_drag` and RRTM state are saved in new restart files, so runs in segments reproduce continuous runs. v1 restart files can still be read.
-  * Output and restarts are single files by default (`spec_mpp_nml io_layout`), so `mppnccombine` is no longer needed. Axes are written in double precision, time bounds are named `time_bnds`, fields have a `_FillValue`, and units follow UDUNITS.
-  * New [diagnostics reference](Diagnostics.md), generated from the source by `tools/mimadoc`, which can also check a `diag_table`. The surface stress and reference-height diagnostics of `simple_surface` are now written.
+    * The model is trimmed to its idealized configurations: RRTM radiation with the mixed-layer surface (the default), gray radiation, and Held-Suarez. Unused physics (the AM2 radiation, Donner, RAS, stratiform clouds, Mellor-Yamada, EDT, dry adjustment, `topo_drag` and others) and their namelist variables and diagnostics are removed.
+    * Built against the external [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.02 or later, instead of the bundled copy; CMake finds an installed FMS or downloads it. CMake 3.22 or later is required. `&sat_vapor_pres_nml do_simple = .true.` is required and `&fms_io_nml` is gone.
+    * The radiation scheme is chosen with `radiation_nml radiation_scheme` (`'rrtm'`, `'gray'` or `'none'`), replacing `do_rrtm_radiation`/`do_grey_radiation`; the radiation diagnostics of both schemes are under module `radiation` with unified names.
+    * The code defaults equal the shipped `input/input.nml`.
+    * Held-Suarez (1994) forcing (`do_held_suarez`, `held_suarez_nml`) with the new switches `do_boundary_layer` and `do_moist_physics`; example configurations `input/examples/held_suarez` and `input/examples/gray`.
+    * Answer-changing fixes: `cg_drag` recomputed at the intended interval and conserving the momentum deposited above the model top (this changes the winds above about 1 hPa), implicit zonal surface stress, consistent bottom-level time levels, evaporation derivatives, Betts-Miller shallow-convection energy, Earth radius 6371 km and the FMS saturation vapour pressure table.
+    * `cg_drag` and RRTM state are saved in new restart files, so runs in segments reproduce continuous runs. v1 restart files can still be read.
+    * Output and restarts are single files by default (`spec_mpp_nml io_layout`), so `mppnccombine` is no longer needed. Axes are written in double precision, time bounds are named `time_bnds`, fields have a `_FillValue`, and units follow UDUNITS.
+    * New [diagnostics reference](Diagnostics.md), generated from the source by `tools/mimadoc`, which can also check a `diag_table`. The surface stress and reference-height diagnostics of `simple_surface` are now written.
 
 ## v1.2.X
 

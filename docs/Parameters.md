@@ -1,10 +1,8 @@
-[back to contents](README.md)
-
 # Parameter settings
 
 All run-time parameters are set in namelists in `input.nml`. This page lists every namelist group that MiMA reads and every variable in it, with its default value in the source code. For the physical meaning of the parameters, see the MiMA reference papers and the comments in the source code.
 
-**The defaults are the standard test case.** Since v2.0 every default in MiMA's own namelists equals the value in the shipped [`input/input.nml`](https://github.com/Eddy-Stanford/MiMA/blob/master/input/input.nml): the RRTM, stationary-wave configuration of [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1) with Q-fluxes, `cg_drag` and the Navy land-sea mask. An `input.nml` therefore only needs the settings that differ from it, plus the FMS settings listed under [FMS namelists](#fms-namelists). If you are moving from v1, where many defaults were different, see the [migration guide](Migration_v2.md#changed-defaults).
+**The defaults are the standard test case.** Since v2.0 every default in MiMA's own namelists equals the value in the shipped [`input/input.nml`](https://github.com/Eddy-Stanford/MiMA/blob/main/input/input.nml): the RRTM, stationary-wave configuration of [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1) with Q-fluxes, `cg_drag` and the Navy land-sea mask. An `input.nml` therefore only needs the settings that differ from it, plus the FMS settings listed under [FMS namelists](#fms-namelists). If you are moving from v1, where many defaults were different, see the [migration guide](Migration_v2.md#changed-defaults).
 
 A few rules:
 

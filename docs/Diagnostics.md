@@ -1,5 +1,3 @@
-[back to contents](README.md)
-
 # Diagnostics
 
 MiMA writes only the diagnostics you ask for in the `diag_table` file in the run
