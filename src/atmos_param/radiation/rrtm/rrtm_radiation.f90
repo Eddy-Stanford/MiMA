@@ -27,7 +27,7 @@
 !
 !   external modules
         use parkind, only         : im => kind_im, rb => kind_rb
-        use interpolator_mod, only: interpolate_type
+        use mima_interpolator_mod, only: interpolate_type
 !
 !  rrtm_radiation variables
 !
@@ -188,7 +188,7 @@
           use parrrtm, only:          nbndlw
           use parrrsw, only:          nbndsw
           use diag_manager_mod, only: register_diag_field, send_data
-          use interpolator_mod, only: interpolate_type, interpolator_init, &
+          use mima_interpolator_mod, only: interpolate_type, interpolator_init, &
                                       &CONSTANT, ZERO,INTERP_WEIGHTED_P
           use fms_mod, only:          open_namelist_file, check_nml_error,  &
                                       &mpp_pe, mpp_root_pe, close_file, &
@@ -416,7 +416,7 @@
           use rrtm_astro, only:      compute_zenith,use_dyofyr,solr_cnst,&
                                      solrad,solday,equinox_day
           use time_manager_mod,only: time_type,get_time,set_time
-          use interpolator_mod,only: interpolator
+          use mima_interpolator_mod,only: interpolator
 !---------------------------------------------------------------------------------------------------------------
 ! In/Out variables
           implicit none
@@ -809,7 +809,7 @@
 !*****************************************************************************************
 
         subroutine rrtm_radiation_end
-          use interpolator_mod, only: interpolator_end
+          use mima_interpolator_mod, only: interpolator_end
           implicit none
 
           if(do_read_ozone)call interpolator_end(o3_interp)

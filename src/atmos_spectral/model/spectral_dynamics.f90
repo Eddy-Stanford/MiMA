@@ -12,8 +12,7 @@ module spectral_dynamics_mod
 
    use      field_manager_mod, only: MODEL_ATMOS, parse
 
-   use     tracer_manager_mod, only: get_number_tracers, query_method, get_tracer_index, get_tracer_names, NO_TRACER, &
-      tracer_requires_init, query_tracer_init
+   use     tracer_manager_mod, only: get_number_tracers, query_method, get_tracer_index, get_tracer_names, NO_TRACER
 
    use       diag_manager_mod, only: diag_axis_init, register_diag_field, register_static_field, send_data
 

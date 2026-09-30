@@ -1,4 +1,4 @@
-module interpolator_mod
+module mima_interpolator_mod
 !
 ! Purpose: Module to interpolate climatology data to model grid.
 !
@@ -451,7 +451,7 @@ do i = 1, ndim
                trim(file_calendar) == 'noleap') .or. &
               (model_calendar == THIRTY_DAY_MONTHS .and. & !mj
                trim(file_calendar) == 'thirty_day_months'))  then
-          call mpp_error (NOTE, 'interpolator_mod: Model and file&
+          call mpp_error (NOTE, 'mima_interpolator_mod: Model and file&
                     & calendars are the same ( ' // trim(file_calendar) // ' ) for file ' //   &
                     & trim(file_name) // '; no calendar conversion  &
                     &needed')
@@ -459,7 +459,7 @@ do i = 1, ndim
                                 filemin,filesec)
         else if ( (model_calendar == JULIAN .and.   &
                    trim(file_calendar) == 'noleap')) then  
-          call mpp_error (NOTE, 'interpolator_mod: Using julian &
+          call mpp_error (NOTE, 'mima_interpolator_mod: Using julian &
                             &model calendar and noleap file calendar&
                             & for file ' // trim(file_name) //   &
                             &'; calendar conversion needed')
@@ -467,14 +467,14 @@ do i = 1, ndim
                                         filehr, filemin, filesec)
         else if ( (model_calendar == NOLEAP .and.   &
                    trim(file_calendar) == 'julian')) then  
-          call mpp_error (NOTE, 'interpolator_mod: Using noleap &
+          call mpp_error (NOTE, 'mima_interpolator_mod: Using noleap &
                             &model calendar and julian file calendar&
                             & for file ' // trim(file_name) //  &
                             &'; calendar conversion needed')
           base_time = set_date_julian (fileyr, filemon, fileday,  &
                                        filehr, filemin, filesec)
         else
-          call mpp_error (FATAL , 'interpolator_mod: Model and file&
+          call mpp_error (FATAL , 'mima_interpolator_mod: Model and file&
                & calendars ( ' // trim(file_calendar) // ' ) differ  &
                &for file ' // trim(file_name) // ';  this calendar  &
                &conversion not currently available')
@@ -513,10 +513,10 @@ do i = 1, ndim
           endif
         end do
         if (fileyr == 0) then
-          call mpp_error (NOTE, 'interpolator_mod :'  // &
+          call mpp_error (NOTE, 'mima_interpolator_mod :'  // &
           trim(file_name) // ' is a year-independent climatology file') 
         else
-          call mpp_error (NOTE, 'interpolator_mod :' // &
+          call mpp_error (NOTE, 'mima_interpolator_mod :' // &
             trim(file_name) // ' is a timeseries file') 
         endif
 
@@ -1057,7 +1057,7 @@ if (.not. module_is_initialized .or. .not. associated(clim_type%lon)) &
        if (mpp_pe() == mpp_root_pe() ) then
          print *, 'processing file ' // trim(clim_type%file_name)
        endif
-       call mpp_error (FATAL, 'interpolator_mod: &
+       call mpp_error (FATAL, 'mima_interpolator_mod: &
                &cannot use 4D interface to interpolator for this file')
      endif
    end do
@@ -2269,7 +2269,7 @@ end subroutine interp_linear
 !
 !########################################################################
 !
-end module interpolator_mod
+end module mima_interpolator_mod
 !
 !#######################################################################
 !
@@ -2284,7 +2284,7 @@ use diag_manager_mod!, only : diag_axis_init, file_exist, MPP_NPES, &
                     !  MPP_PE, REGISTER_DIAG_FIELD, SEND_DATA, SET_DATE,&
                     !  SET_TIME
 
-use interpolator_mod
+use mima_interpolator_mod
 !use sulfate_mod
 !use ozone_mod
 use constants_mod, only : grav, constants_init, PI

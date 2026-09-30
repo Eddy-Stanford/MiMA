@@ -18,7 +18,7 @@ use           fms_mod, only : error_mesg, FATAL, file_exist,   &
                               mpp_pe, mpp_root_pe, close_file, &
                               write_version_number, stdlog
 
-use monin_obukhov_mod, only : mo_diff
+use mima_monin_obukhov_mod, only : mo_diff
 
 implicit none
 private
@@ -69,7 +69,7 @@ private
 !                buoyancy scale (m/s**2)
 
 !   (u_star and b_star can be obtained by calling
-!     mo_drag in monin_obukhov_mod)
+!     mo_drag in mima_monin_obukhov_mod)
 
 ! output:
 

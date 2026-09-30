@@ -10,7 +10,7 @@ use            fms_mod, only:  file_exist, error_mesg, open_namelist_file, &
                                FATAL, close_file, write_version_number, stdlog
 
 use sat_vapor_pres_mod, only:  escomp, descomp
-use      constants_mod, only:  HLv,HLs,Cp_air,Grav,rdgas,rvgas, cph2ovapor, &
+use      constants_mod, only:  HLv,HLs,Cp_air,Grav,rdgas,rvgas, &
                                kappa, es0
 
 implicit none

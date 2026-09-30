@@ -41,7 +41,7 @@ use  field_manager_mod, only : MODEL_ATMOS, parse
 use      constants_mod, only : grav, rdgas, PI
 use   horiz_interp_mod, only : horiz_interp
 use      constants_mod, only : PI
-use   interpolator_mod, only : interpolator,  &
+use   mima_interpolator_mod, only : interpolator,  &
                                interpolate_type
 
 implicit none

@@ -1,5 +1,5 @@
 
-module monin_obukhov_mod
+module mima_monin_obukhov_mod
 
 !======================================================================
 !
@@ -317,11 +317,11 @@ integer :: unit, ierr, io
 
 if(rich_crit.le.0.25)  call error_mesg( &
         'MONIN_OBUKHOV_INIT in MONIN_OBUKHOV_MOD', &
-        'rich_crit in monin_obukhov_mod must be > 0.25', FATAL)
+        'rich_crit in mima_monin_obukhov_mod must be > 0.25', FATAL)
 
 if(drag_min.le.0.0)  call error_mesg( &
         'MONIN_OBUKHOV_INIT in MONIN_OBUKHOV_MOD', &
-        'drag_min in monin_obukhov_mod must be >= 0.0', FATAL)
+        'drag_min in mima_monin_obukhov_mod must be >= 0.0', FATAL)
 
 b_stab = 1.0/rich_crit
 r_crit = 0.95*rich_crit
@@ -559,7 +559,7 @@ iter_loop: do iter = 1, max_iter
 
 end do iter_loop
 
-call error_mesg ('solve_zeta in monin_obukhov_mod',  &
+call error_mesg ('solve_zeta in mima_monin_obukhov_mod',  &
                  'no convergence in surface drag iteration', FATAL)
 
 end subroutine solve_zeta
@@ -1402,5 +1402,5 @@ return
 end subroutine stable_mix_0d
 !=======================================================================
 
-end module monin_obukhov_mod
+end module mima_monin_obukhov_mod
 

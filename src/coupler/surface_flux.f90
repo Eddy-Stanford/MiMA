@@ -41,7 +41,7 @@ module surface_flux_mod
 
 use             fms_mod, only: FATAL, close_file, mpp_pe, mpp_root_pe, write_version_number
 use             fms_mod, only: file_exist, check_nml_error, open_namelist_file, stdlog
-use   monin_obukhov_mod, only: mo_drag, mo_profile
+use   mima_monin_obukhov_mod, only: mo_drag, mo_profile
 use  sat_vapor_pres_mod, only: lookup_es
 use       constants_mod, only: cp_air, hlv, stefan, rdgas, rvgas, grav, vonkarm
 

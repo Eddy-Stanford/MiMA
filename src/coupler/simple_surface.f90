@@ -8,7 +8,7 @@ use atmos_model_mod, only: atmos_data_type
 use surface_flux_mod, only: surface_flux
 
 
-use diag_integral_mod, only: diag_integral_field_init, &
+use mima_diag_integral_mod, only: diag_integral_field_init, &
                              sum_diag_integral_field
 
 use           fms_mod, only: file_exist, open_namelist_file, check_nml_error, &
@@ -27,7 +27,7 @@ use      constants_mod, only: rdgas, rvgas, cp_air, hlv, hlf
 use spectral_dynamics_mod,only: get_surf_geopotential
 use topography_mod,only: get_ocean_mask
 ! mj read SSTs
-use interpolator_mod, only: interpolate_type,interpolator_init&
+use mima_interpolator_mod, only: interpolate_type,interpolator_init&
      &,CONSTANT,interpolator
 !mj q-flux
 use qflux_mod, only: qflux_init,qflux,warmpool

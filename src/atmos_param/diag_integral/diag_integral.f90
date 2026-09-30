@@ -1,4 +1,4 @@
-module diag_integral_mod
+module mima_diag_integral_mod
 ! <CONTACT EMAIL="Fei.Liu@noaa.gov">
 !  fil
 ! </CONTACT>
@@ -6,7 +6,7 @@ module diag_integral_mod
 ! </REVIEWER>
 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 ! <OVERVIEW>
-!    diag_integral_mod computes and outputs global and / or 
+!    mima_diag_integral_mod computes and outputs global and / or 
 !    hemispheric physics integrals.
 ! </OVERVIEW>
 ! <DESCRIPTION>
@@ -40,7 +40,7 @@ implicit none
 private
 
 !----------------------------------------------------------------------
-!    diag_integral_mod computes and outputs global and / or 
+!    mima_diag_integral_mod computes and outputs global and / or 
 !    hemispheric physics integrals.
 !----------------------------------------------------------------------
 
@@ -205,10 +205,10 @@ logical :: module_is_initialized = .false.
 !####################################################################
 ! <SUBROUTINE NAME="diag_integral_init">
 !  <OVERVIEW>
-!    diag_integral_init is the constructor for diag_integral_mod.
+!    diag_integral_init is the constructor for mima_diag_integral_mod.
 !  </OVERVIEW>
 !  <DESCRIPTION>
-!    diag_integral_init is the constructor for diag_integral_mod.
+!    diag_integral_init is the constructor for mima_diag_integral_mod.
 !  </DESCRIPTION>
 !  <TEMPLATE>
 !   call diag_integral_init (Time_init, Time, blon, blat)
@@ -230,7 +230,7 @@ logical :: module_is_initialized = .false.
 subroutine diag_integral_init (Time_init, Time, blon, blat)
 
 !--------------------------------------------------------------------
-!    diag_integral_init is the constructor for diag_integral_mod.
+!    diag_integral_init is the constructor for mima_diag_integral_mod.
 !--------------------------------------------------------------------
 
 type (time_type),  intent(in), optional :: Time_init, Time
@@ -438,7 +438,7 @@ character(len=*), intent(in) :: name, format
 !    make sure the integral name is not too long.
 !--------------------------------------------------------------------
       if (len(name) > max_len_name )  then
-        call error_mesg ('diag_integral_mod',  &
+        call error_mesg ('mima_diag_integral_mod',  &
                 ' integral name too long', FATAL)
       endif
 
@@ -448,7 +448,7 @@ character(len=*), intent(in) :: name, format
 !---------------------------------------------------------------------
       field = get_field_index (name)
       if (field /= 0)   then
-        call error_mesg ('diag_integral_mod', &
+        call error_mesg ('mima_diag_integral_mod', &
                              'integral name already exists', FATAL)
       endif
 
@@ -458,7 +458,7 @@ character(len=*), intent(in) :: name, format
 !----------------------------------------------------------------------
       num_field = num_field + 1
       if (num_field > max_num_field)  then
-        call error_mesg ('diag_integral_mod', &
+        call error_mesg ('mima_diag_integral_mod', &
                               'too many fields initialized', FATAL)
       endif
 
@@ -555,7 +555,7 @@ integer, optional, intent(in) :: is, js
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
       if (.not. module_is_initialized ) then
-        call error_mesg ('diag_integral_mod',   &
+        call error_mesg ('mima_diag_integral_mod',   &
               'module has not been initialized', FATAL )
       endif
 
@@ -564,7 +564,7 @@ integer, optional, intent(in) :: is, js
 !---------------------------------------------------------------------
       field = get_field_index (name)
       if (field == 0)  then
-        call error_mesg ('diag_integral_mod', &
+        call error_mesg ('mima_diag_integral_mod', &
                                     'field does not exist', FATAL)
       endif
 
@@ -643,7 +643,7 @@ integer, optional, intent(in) :: is, js
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
       if (.not. module_is_initialized ) then
-        call error_mesg ('diag_integral_mod',   &
+        call error_mesg ('mima_diag_integral_mod',   &
               'module has not been initialized', FATAL )
       endif
 
@@ -652,7 +652,7 @@ integer, optional, intent(in) :: is, js
 !---------------------------------------------------------------------
       field = get_field_index (name)
       if (field == 0)   then
-        call error_mesg ('diag_integral_mod', &
+        call error_mesg ('mima_diag_integral_mod', &
                                'field does not exist', FATAL)
       endif
 
@@ -733,7 +733,7 @@ integer, optional, intent(in) :: is, js
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
       if (.not. module_is_initialized ) then
-        call error_mesg ('diag_integral_mod',   &
+        call error_mesg ('mima_diag_integral_mod',   &
               'module has not been initialized', FATAL )
       endif
 
@@ -742,7 +742,7 @@ integer, optional, intent(in) :: is, js
 !---------------------------------------------------------------------
       field = get_field_index (name)
       if (field == 0)   then
-        call error_mesg ('diag_integral_mod', &
+        call error_mesg ('mima_diag_integral_mod', &
                                'field does not exist', FATAL)
       endif
 
@@ -819,7 +819,7 @@ integer,           intent(in) :: is, js, ie, je
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
       if (.not. module_is_initialized ) then
-        call error_mesg ('diag_integral_mod',   &
+        call error_mesg ('mima_diag_integral_mod',   &
               'module has not been initialized', FATAL )
       endif
 
@@ -828,7 +828,7 @@ integer,           intent(in) :: is, js, ie, je
 !---------------------------------------------------------------------
       field = get_field_index (name)
       if (field == 0)    then
-        call error_mesg ('diag_integral_mod', &
+        call error_mesg ('mima_diag_integral_mod', &
                                'field does not exist', FATAL)
       endif
 
@@ -912,7 +912,7 @@ type (time_type), intent(in) :: Time
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
       if (.not. module_is_initialized ) then
-        call error_mesg ('diag_integral_mod',   &
+        call error_mesg ('mima_diag_integral_mod',   &
               'module has not been initialized', FATAL )
       endif
 
@@ -938,10 +938,10 @@ end subroutine diag_integral_output
 !#######################################################################
 ! <SUBROUTINE NAME="diag_integral_end">
 !  <OVERVIEW>
-!    diag_integral_end is the destructor for diag_integral_mod.
+!    diag_integral_end is the destructor for mima_diag_integral_mod.
 !  </OVERVIEW>
 !  <DESCRIPTION>
-!    diag_integral_end is the destructor for diag_integral_mod.
+!    diag_integral_end is the destructor for mima_diag_integral_mod.
 !  </DESCRIPTION>
 !  <TEMPLATE>
 !   call diag_integral_end (Time)
@@ -954,7 +954,7 @@ end subroutine diag_integral_output
 subroutine diag_integral_end (Time)
 
 !--------------------------------------------------------------------
-!    diag_integral_end is the destructor for diag_integral_mod.
+!    diag_integral_end is the destructor for mima_diag_integral_mod.
 !--------------------------------------------------------------------
 
 type (time_type), intent(in) :: Time
@@ -963,7 +963,7 @@ type (time_type), intent(in) :: Time
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
       if (.not. module_is_initialized ) then
-        call error_mesg ('diag_integral_mod',   &
+        call error_mesg ('mima_diag_integral_mod',   &
               'module has not been initialized', FATAL )
       endif
 
@@ -1127,7 +1127,7 @@ integer                       :: index
 !--------------------------------------------------------------------
       nc = len_trim (name)
       if (nc > max_len_name)  then
-        call error_mesg ('diag_integral_mod',  &
+        call error_mesg ('mima_diag_integral_mod',  &
                                         'name too long', FATAL)
       endif
 
@@ -1243,7 +1243,7 @@ type (time_type), intent(in) :: Time
           write (chsize, '(i0)') field_size
           write (chcount, '(i0)') field_count(i)
           call error_mesg &
-                 ('diag_integral_mod',  &
+                 ('mima_diag_integral_mod',  &
                   'field_count not a multiple of field_size. ' // &
                   'field_name is ' // trim( field_name(i)) // &
                   ', field_size=' // trim(chsize) // &
@@ -1686,7 +1686,7 @@ real, dimension (size(data,1),size(data,2)) :: data2
 !--------------------------------------------------------------------
       wt2 = sum(wt,3)
       if (count(wt2 == 0.) > 0)  then
-        call error_mesg ('diag_integral_mod',  &
+        call error_mesg ('mima_diag_integral_mod',  &
                              'vert sum of weights equals zero', FATAL)
       endif
       data2 = sum(data*wt,3) / wt2
@@ -1704,5 +1704,5 @@ real, dimension (size(data,1),size(data,2)) :: data2
 
 
 
-end module diag_integral_mod
+end module mima_diag_integral_mod
 

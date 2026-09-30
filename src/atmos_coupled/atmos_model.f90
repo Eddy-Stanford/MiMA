@@ -39,8 +39,8 @@ use fms_io_mod,         only: get_restart_io_mode
 use time_manager_mod,   only: time_type, operator(+), get_time
 use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: register_tracers
-use diag_integral_mod,  only: diag_integral_init, diag_integral_end
-use diag_integral_mod,  only: diag_integral_output
+use mima_diag_integral_mod,  only: diag_integral_init, diag_integral_end
+use mima_diag_integral_mod,  only: diag_integral_output
 use atmosphere_mod,     only: atmosphere_up, atmosphere_down, atmosphere_init
 use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind
 use atmosphere_mod,     only: atmosphere_resolution, atmosphere_domain

@@ -27,7 +27,7 @@ use             fms_mod, only: file_exist, check_nml_error,    &
                                mpp_pe, mpp_root_pe, stdlog,    &
                                error_mesg, FATAL, NOTE
 
-use diag_integral_mod, only:     diag_integral_field_init, &
+use mima_diag_integral_mod, only:     diag_integral_field_init, &
                              sum_diag_integral_field
 
 use       constants_mod, only: CP_AIR, GRAV, RDGAS, RVGAS, HLV, KAPPA, ES0
