@@ -2,7 +2,6 @@ module spectral_dynamics_mod
 
    use                fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE, FATAL, write_version_number, stdlog, &
       input_nml_file, check_nml_error, lowercase, uppercase, mpp_npes
-   use fms2_io_mod, only: file_exists
 
    use        restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, close_restart, &
       read_restart_field, write_restart_field, get_restart_field_size
@@ -50,6 +49,8 @@ module spectral_dynamics_mod
    use    global_integral_mod, only: mass_weighted_global_integral
 
    use spectral_init_cond_mod, only: spectral_init_cond
+
+   use spectral_initialize_fields_mod, only: read_initial_condition
 
    use        tracer_type_mod, only: tracer_type, tracer_type_version, tracer_type_tagname
 
@@ -111,11 +112,6 @@ module spectral_dynamics_mod
    character(len=32), parameter :: default_representation = 'spectral'
    character(len=32), parameter :: default_advect_vert    = 'second_centered'
    character(len=32), parameter :: default_hole_filling   = 'off'
-
-
-! epg+ray: this netcdf include file is needed to load in specified initial
-! conditions.  Only used if specify_initial_conditions == .true.
-   include 'netcdf.inc'
 
 !===============================================================================================
 ! namelist variables
@@ -478,12 +474,6 @@ contains
       character(len=4) :: ch1,ch2,ch3,ch4,ch5,ch6
       type(restart_file_type) :: rst
 
-! epg+ray: for loading the initial tracer distribution (after Lorenzo Polvani's code for doing this)
-      real, allocatable,dimension(:,:,:) :: lmptmp
-
-      integer :: ncid,vid,err,counts(3)
-! ------
-
       if(open_restart_read(rst, 'INPUT/spectral_dynamics.res.nc', grid_domain)) then
          call get_restart_field_size(rst, 'vors_real', siz)
          if(num_fourier /= siz(1)-1 .or. num_spherical /= siz(2)-1 .or. num_levels /= siz(3)) then
@@ -573,32 +563,11 @@ contains
          do ntr = 1,num_tracers
             if(trim(tracer_attributes(ntr)%name) == 'sphum') then
                if(specify_initial_conditions) then
-!epg+ray: This loads in sphum from the file initial_conditions.nc
-                  if (.not.file_exists('INPUT/initial_conditions.nc')) then
-                     call error_mesg('spectral_initialize_fields','Could not find INPUT/initial_conditions.nc!',FATAL)
-                  endif
-
-! open up the netcdf file`
-                  ncid = ncopn('INPUT/initial_conditions.nc',NCNOWRIT,err)
-! This array tells us the size of input variables.
-                  counts(1) = size(grid_tracers,1)
-                  counts(2) = size(grid_tracers,2)
-                  counts(3) = size(grid_tracers,3)
-! Allocate space to put the initial condition information, temporarily.
-                  allocate(lmptmp(counts(1),counts(2),counts(3)))
-
-! load sphum, if it has been specified.  Otherwise write error and break.
-                  vid = ncvid(ncid,'sphum',err)
-                  if(err == 0) then
-                     call ncvgt(ncid,vid,(/is,js,1/),counts,lmptmp,err)
-                     grid_tracers(:,:,:,1,ntr) = lmptmp
-                     grid_tracers(:,:,:,2,ntr) = lmptmp
-                     if(mpp_pe() == mpp_root_pe()) then
-                        print *,'tracer ', trim(tracer_attributes(ntr)%name), ' read in from initial_conditions.nc'
-                     endif
-                  else
-                     call error_mesg('read_restart_or_do_coldstart','Could not find '//trim(tracer_attributes(ntr)%name)// &
-                        'in initial_conditions.nc',FATAL)
+! sphum from INPUT/initial_conditions.nc
+                  call read_initial_condition('sphum', grid_tracers(:,:,:,1,ntr))
+                  grid_tracers(:,:,:,2,ntr) = grid_tracers(:,:,:,1,ntr)
+                  if(mpp_pe() == mpp_root_pe()) then
+                     print *,'tracer ', trim(tracer_attributes(ntr)%name), ' read in from initial_conditions.nc'
                   endif
                else
                   grid_tracers(:,:,:,:,ntr) = initial_sphum

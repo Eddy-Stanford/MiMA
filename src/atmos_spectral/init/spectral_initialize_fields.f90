@@ -1,19 +1,28 @@
 module spectral_initialize_fields_mod
 
-! epg: we added "error_mesg, FATAL, and file_exist" here so that we can report an error if 
-!      the initial_conditions.nc file is missing.
 use              fms_mod, only: mpp_pe, mpp_root_pe, write_version_number, FATAL, error_mesg
-use fms2_io_mod, only: file_exists
+
+use               netcdf, only: nf90_open, nf90_close, nf90_inq_varid, nf90_inquire_variable, &
+                                nf90_inquire_dimension, nf90_get_var, nf90_strerror, nf90_noerr, &
+                                nf90_nowrite, nf90_max_var_dims
 
 use        constants_mod, only: rdgas
 
 use       transforms_mod, only: trans_grid_to_spherical, trans_spherical_to_grid, vor_div_from_uv_grid, &
-                                uv_grid_from_vor_div, get_grid_domain, get_spec_domain, area_weighted_global_mean
+                                uv_grid_from_vor_div, get_grid_domain, get_spec_domain, area_weighted_global_mean, &
+                                get_lon_max, get_lat_max
 
 implicit none
 private
 
-public :: spectral_initialize_fields
+public :: spectral_initialize_fields, read_initial_condition
+
+! Read one field of INPUT/initial_conditions.nc on this PE's grid subdomain
+interface read_initial_condition
+   module procedure read_initial_condition_2d, read_initial_condition_3d
+end interface
+
+character(len=*), parameter :: ic_file = 'INPUT/initial_conditions.nc'
 
 character(len=128), parameter :: version = &
 '$Id: spectral_initialize_fields.f90,v 10.0 2003/10/24 22:00:59 fms Exp $'
@@ -22,10 +31,6 @@ character(len=128), parameter :: tagname = &
 '$Name: lima $'
 
 logical :: entry_to_logfile_done = .false.
-
-! epg: this netcdf include file is needed to load in specified initial
-! conditions.  Only used if choice_of_init == 3
-include 'netcdf.inc'
 
 contains
 
@@ -51,12 +56,6 @@ real :: initial_sea_level_press, global_mean_psg
 real :: initial_perturbation   = 1.e-7
 
 integer :: ms, me, ns, ne, is, ie, js, je, num_levels
-
-! epg: needed to load in initial conditions from a netcdf file
-!      code was initially developed by Lorenzo Polvani; hence lmp
-real, allocatable,dimension(:,:,:) :: lmptmp
-integer :: ncid,vid,err,counts(3)
-! --------
 
 if(.not.entry_to_logfile_done) then
   call write_version_number(version, tagname)
@@ -116,54 +115,17 @@ if(choice_of_init == 2) then   ! initial vorticity perturbation used in benchmar
   call uv_grid_from_vor_div(vors, divs, ug, vg)
 endif
 
-! epg: This was written by Lorenzo Polvani to load in the initial conditions
-!      from a netcdf file, which must be called "initial_conditions.nc" and must be placed in the
-!      INPUT directory from where the code is being run.
-If (choice_of_init == 3) then !initialize with prescribed input
-   if (.not.file_exists('INPUT/initial_conditions.nc')) then
-      call error_mesg('spectral_initialize_fields','Could not find INPUT/initial_conditions.nc!',FATAL)
-   end if
-
-   ! first, open up the netcdf file
-   ncid = ncopn('INPUT/initial_conditions.nc',NCNOWRIT,err)
-   ! This array tells us the size of input variables.
-   counts(1) = size(ug,1)
-   counts(2) = size(ug,2)
-   counts(3) = size(ug,3)
-   ! Allocate space to put the initial condition information, temporarily.
-   allocate(lmptmp(counts(1),counts(2),counts(3)))
-   
-   ! load the zonal wind initial conditions
-   vid = ncvid(ncid,'ucomp',err)
-   call ncvgt(ncid,vid,(/is,js,1/),counts,lmptmp,err)
-   ug(:,:,:) = lmptmp
- 
-   ! load the meridional wind
-   vid = ncvid(ncid,'vcomp',err)
-   call ncvgt(ncid,vid,(/is,js,1/),counts,lmptmp,err)
-   vg(:,:,:) = lmptmp
- 
-   ! load temperature
-   vid = ncvid(ncid,'temp',err)
-   call ncvgt(ncid,vid,(/is,js,1/),counts,lmptmp,err)
-   tg(:,:,:) = lmptmp
-
-   ! load surface pressure
-   vid = ncvid(ncid,'ps',err)
-   call ncvgt(ncid,vid,(/is,js/),counts(1:2),lmptmp(:,:,1),err)
-   psg(:,:) = lmptmp(:,:,1)
+! Initial state read from INPUT/initial_conditions.nc (after Lorenzo Polvani)
+if (choice_of_init == 3) then
+   call read_initial_condition('ucomp', ug)
+   call read_initial_condition('vcomp', vg)
+   call read_initial_condition('temp',  tg)
+   call read_initial_condition('ps',    psg)
    ln_psg = log(psg(:,:))
- 
-   ! close up the input netcdf file.
-   call ncclos(ncid,err)
- 
-   ! and lastly, let us know that it worked!
    if(mpp_pe() == mpp_root_pe()) then
       print *, 'initial dynamical fields read in from initial_conditions.nc'
    endif
- 
 endif
-!epg: end of lorenzo polvani's script --------
 
 
 !  initial spectral fields (and spectrally-filtered) grid fields
@@ -188,6 +150,77 @@ endif
 
 return
 end subroutine spectral_initialize_fields
+!================================================================================
+
+subroutine read_initial_condition_3d(name, field)
+character(len=*), intent(in) :: name
+real, intent(out), dimension(:,:,:) :: field
+integer :: ncid, varid, is, ie, js, je
+
+call open_initial_condition(name, 3, size(field,3), ncid, varid)
+call get_grid_domain(is, ie, js, je)
+call check_nc(nf90_get_var(ncid, varid, field, start=(/is,js,1/)), 'Could not read '//name//' from')
+call check_nc(nf90_close(ncid), 'Could not close')
+
+end subroutine read_initial_condition_3d
+!================================================================================
+
+subroutine read_initial_condition_2d(name, field)
+character(len=*), intent(in) :: name
+real, intent(out), dimension(:,:) :: field
+integer :: ncid, varid, is, ie, js, je
+
+call open_initial_condition(name, 2, 1, ncid, varid)
+call get_grid_domain(is, ie, js, je)
+call check_nc(nf90_get_var(ncid, varid, field, start=(/is,js/)), 'Could not read '//name//' from')
+call check_nc(nf90_close(ncid), 'Could not close')
+
+end subroutine read_initial_condition_2d
+!================================================================================
+
+! Open the file and find variable name, checking that its dimensions are
+! (lon, lat[, level]) of the model grid.  Any further (e.g. time) dimensions
+! must have length 1.
+subroutine open_initial_condition(name, rank, num_levels, ncid, varid)
+character(len=*), intent(in) :: name
+integer, intent(in) :: rank, num_levels
+integer, intent(out) :: ncid, varid
+integer :: ndims, n, lon_max, lat_max
+integer, dimension(nf90_max_var_dims) :: dimids, file_len, model_len
+character(len=64) :: file_shape, model_shape, axes
+
+call check_nc(nf90_open(ic_file, nf90_nowrite, ncid), 'Could not open')
+call check_nc(nf90_inq_varid(ncid, name, varid), 'Could not find variable '//name//' in')
+call check_nc(nf90_inquire_variable(ncid, varid, ndims=ndims, dimids=dimids), 'Could not inquire '//name//' in')
+
+call get_lon_max(lon_max)
+call get_lat_max(lat_max)
+model_len = 1
+model_len(1:3) = (/lon_max, lat_max, num_levels/)
+do n = 1, ndims
+   call check_nc(nf90_inquire_dimension(ncid, dimids(n), len=file_len(n)), 'Could not inquire dimensions of '//name//' in')
+enddo
+if (ndims < rank .or. any(file_len(1:ndims) /= model_len(1:ndims))) then
+   write(file_shape,  '(*(i0,:," x "))') file_len(1:ndims)
+   write(model_shape, '(*(i0,:," x "))') model_len(1:rank)
+   axes = 'lon x lat'
+   if (rank == 3) axes = 'lon x lat x level'
+   call error_mesg('spectral_initialize_fields', 'Variable '//name//' in '//ic_file//' has shape '// &
+        trim(file_shape)//', but the model grid needs '//trim(model_shape)//' ('//trim(axes)//')', FATAL)
+endif
+
+end subroutine open_initial_condition
+!================================================================================
+
+subroutine check_nc(status, action)
+integer, intent(in) :: status
+character(len=*), intent(in) :: action
+
+if (status /= nf90_noerr) then
+   call error_mesg('spectral_initialize_fields', action//' '//ic_file//': '//trim(nf90_strerror(status)), FATAL)
+endif
+
+end subroutine check_nc
 !================================================================================
 
 end module spectral_initialize_fields_mod
