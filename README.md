@@ -39,6 +39,7 @@ See [Getting started](docs/GettingStarted.md) for details on the build options, 
 * [Getting started](docs/GettingStarted.md): dependencies, compiling, running the test case
 * [Model configurations](docs/Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
 * [Parameter settings](docs/Parameters.md): default and recommended namelist values
+* [Diagnostics](docs/Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
 * [Version history](docs/Versions.md)
 * [References](docs/README.md#references)
 

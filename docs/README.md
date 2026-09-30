@@ -12,6 +12,7 @@ The source code is on [GitHub](https://github.com/Eddy-Stanford/MiMA).
 * [Getting started](GettingStarted.md): dependencies, compiling, running the test case
 * [Model configurations](Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
 * [Parameter settings](Parameters.md): default and recommended namelist values
+* [Diagnostics](Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
 * [Version history](Versions.md): main additions and changes
 * [References](#references): required and relevant references
 * [License](https://github.com/Eddy-Stanford/MiMA#license)

@@ -1,11 +1,38 @@
 "MiMA Held-Suarez"
 0001 1 1 0 0 0
-"atmos_daily", 24, "hours", 1, "days", "time",
- "dynamics",    "ps",     "ps",     "atmos_daily", "all", .true., "none", 2,
- "dynamics",    "ucomp",  "ucomp",  "atmos_daily", "all", .true., "none", 2,
- "dynamics",    "vcomp",  "vcomp",  "atmos_daily", "all", .true., "none", 2,
- "dynamics",    "temp",   "temp",   "atmos_daily", "all", .true., "none", 2,
- "dynamics",    "omega",  "omega",  "atmos_daily", "all", .true., "none", 2,
- "held_suarez", "teq",    "teq",    "atmos_daily", "all", .true., "none", 2,
- "held_suarez", "tdt_hs", "tdt_hs", "atmos_daily", "all", .true., "none", 2,
- "held_suarez", "udt_hs", "udt_hs", "atmos_daily", "all", .true., "none", 2,
+# Output for the dry Held-Suarez example (input.nml in this directory).
+# All fields and their units are listed in docs/Diagnostics.md. Check this file
+# with:  python3 tools/diag_inventory.py --validate-diag-table diag_table --nml input.nml
+#
+# file name,       output frequency, units, format, time units, time axis name
+"atmos_daily",     1, "days", 1, "days", "time",
+"atmos_monthly",  30, "days", 1, "days", "time",
+#
+# daily means
+ "dynamics",    "bk",          "bk",          "atmos_daily",   "all", .false., "none", 2,
+ "dynamics",    "pk",          "pk",          "atmos_daily",   "all", .false., "none", 2,
+ "dynamics",    "ps",          "ps",          "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",    "ucomp",       "ucomp",       "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",    "vcomp",       "vcomp",       "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",    "temp",        "temp",        "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",    "omega",       "omega",       "atmos_daily",   "all", .true.,  "none", 2,
+#
+# 30-day means
+ "dynamics",    "bk",          "bk",          "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",    "pk",          "pk",          "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",    "ps",          "ps",          "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "ucomp",       "ucomp",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "vcomp",       "vcomp",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "temp",        "temp",        "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "omega",       "omega",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "height",      "height",      "atmos_monthly", "all", .true.,  "none", 2,
+# second moments, for eddy statistics (e.g. u'v' = ucomp_vcomp - ucomp*vcomp)
+ "dynamics",    "ucomp_sq",    "ucomp_sq",    "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "vcomp_sq",    "vcomp_sq",    "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "ucomp_vcomp", "ucomp_vcomp", "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",    "temp_sq",     "temp_sq",     "atmos_monthly", "all", .true.,  "none", 2,
+# Held-Suarez forcing
+ "held_suarez", "teq",         "teq",         "atmos_monthly", "all", .true.,  "none", 2,
+ "held_suarez", "tdt_hs",      "tdt_hs",      "atmos_monthly", "all", .true.,  "none", 2,
+ "held_suarez", "udt_hs",      "udt_hs",      "atmos_monthly", "all", .true.,  "none", 2,
+ "held_suarez", "vdt_hs",      "vdt_hs",      "atmos_monthly", "all", .true.,  "none", 2,

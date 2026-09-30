@@ -1,0 +1,60 @@
+"MiMA gray radiation"
+0001 1 1 0 0 0
+# Output for the gray-radiation example (input/examples/gray/input.nml).
+# All fields and their units are listed in docs/Diagnostics.md. Check this file
+# with:  python3 tools/diag_inventory.py --validate-diag-table diag_table --nml input.nml
+#
+# file name,       output frequency, units, format, time units, time axis name
+"atmos_daily",     1, "days", 1, "days", "time",
+"atmos_monthly",  30, "days", 1, "days", "time",
+#
+# daily means: state at the surface and in the column
+ "dynamics",       "bk",        "bk",        "atmos_daily",   "all", .false., "none", 2,
+ "dynamics",       "pk",        "pk",        "atmos_daily",   "all", .false., "none", 2,
+ "dynamics",       "ps",        "ps",        "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",       "ucomp",     "ucomp",     "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",       "vcomp",     "vcomp",     "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",       "temp",      "temp",      "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",       "sphum",     "sphum",     "atmos_daily",   "all", .true.,  "none", 2,
+ "dynamics",       "omega",     "omega",     "atmos_daily",   "all", .true.,  "none", 2,
+ "simple_surface", "t_surf",    "t_surf",    "atmos_daily",   "all", .true.,  "none", 2,
+ "moist",          "precip",    "precip",    "atmos_daily",   "all", .true.,  "none", 2,
+ "radiation",      "olr",       "olr",       "atmos_daily",   "all", .true.,  "none", 2,
+#
+# 30-day means
+ "dynamics",       "bk",        "bk",        "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",       "pk",        "pk",        "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",       "zsurf",     "zsurf",     "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",       "ps",        "ps",        "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "slp",       "slp",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "ucomp",     "ucomp",     "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "vcomp",     "vcomp",     "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "temp",      "temp",      "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "sphum",     "sphum",     "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "omega",     "omega",     "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "height",    "height",    "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "rh",        "rh",        "atmos_monthly", "all", .true.,  "none", 2,
+# surface
+ "simple_surface", "t_surf",    "t_surf",    "atmos_monthly", "all", .true.,  "none", 2,
+ "simple_surface", "shflx",     "shflx",     "atmos_monthly", "all", .true.,  "none", 2,
+ "simple_surface", "evap",      "evap",      "atmos_monthly", "all", .true.,  "none", 2,
+ "simple_surface", "lwflx",     "lwflx",     "atmos_monthly", "all", .true.,  "none", 2,
+ "simple_surface", "albedo",    "albedo",    "atmos_monthly", "all", .true.,  "none", 2,
+# precipitation and moist physics
+ "moist",          "precip",    "precip",    "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "prec_conv", "prec_conv", "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "prec_ls",   "prec_ls",   "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "WVP",       "WVP",       "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "tdt_conv",  "tdt_conv",  "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "tdt_ls",    "tdt_ls",    "atmos_monthly", "all", .true.,  "none", 2,
+# gray radiation (fluxes on half levels are positive up)
+ "radiation",      "olr",       "olr",       "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "swdn_toa",  "swdn_toa",  "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "swnet_sfc", "swnet_sfc", "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "lwdn_sfc",  "lwdn_sfc",  "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "lwup_sfc",  "lwup_sfc",  "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "tdt_rad",   "tdt_rad",   "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "lwnet_half", "lwnet_half", "atmos_monthly", "all", .true., "none", 2,
+ "radiation",      "swnet_half", "swnet_half", "atmos_monthly", "all", .true., "none", 2,
+# gravity-wave drag (do_cg_drag in damping_driver_nml)
+ "cg_drag",        "gwfu_cgwd", "gwfu_cgwd", "atmos_monthly", "all", .true.,  "none", 2,

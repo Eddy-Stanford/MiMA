@@ -21,6 +21,8 @@ The radiation scheme is chosen with `radiation_scheme` in `radiation_nml`:
 * `'gray'`: the gray radiation scheme of Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)), configured with `gray_radiation_nml`.
 * `'none'`: no radiative heating and no radiative surface fluxes.
 
+The two schemes provide different diagnostics (the shared ones, such as `olr` and `tdt_rad`, have the same names); see the `radiation` module in [Diagnostics](Diagnostics.md#module-radiation). A complete gray-radiation setup is in `input/examples/gray/`: its `input.nml` is the default test case with `radiation_scheme = 'gray'` and `gray_radiation_nml` in place of `rrtm_radiation_nml` and `astro_nml`, and its `diag_table` writes daily and 30-day means including the gray radiative fluxes. It uses the same `INPUT/` files as the test case.
+
 ## Held-Suarez forcing
 
 MiMA can run the [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994)075<1825:APFTIO>2.0.CO;2) idealized forcing: Newtonian relaxation of temperature towards a zonally symmetric equilibrium profile, and Rayleigh friction of the winds in the boundary layer. It is switched on in `physics_driver_nml`, and its parameters are set in `held_suarez_nml` (the defaults are the HS94 values):
