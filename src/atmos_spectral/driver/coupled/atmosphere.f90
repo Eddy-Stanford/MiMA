@@ -45,7 +45,6 @@ public :: atmosphere_init, atmosphere_down, atmosphere_up, atmosphere_end, atmos
 public :: atmosphere_resolution, atmosphere_boundary, get_bottom_mass, get_bottom_wind, get_atmosphere_axes
 public :: surf_diff_type
 integer :: seconds, days, num_tracers, num_levels, nhum
-logical :: dry_model
 
 integer, parameter :: num_time_levels=2
 integer :: phyclock, dynclock
@@ -105,7 +104,7 @@ Time_step = Time_step_in
 call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
 allocate (tracer_attributes(num_tracers))
 
-call spectral_dynamics_init(Time, Time_step, tracer_attributes, dry_model, nhum)
+call spectral_dynamics_init(Time, Time_step, tracer_attributes, nhum)
 atmos_domain_is_computed = .true.
 call get_grid_domain(is, ie, js, je)
 call get_num_levels(num_levels)
@@ -166,12 +165,8 @@ endif
 
 call spectral_physics_init(Time, get_axis_id(), Surf_diff, nhum, p_half)
 
-if(dry_model) then
-  call compute_pressures_and_heights(tg(:,:,:,current), psg(:,:,current), z_full, z_half, p_full, p_half)
-else
-  call compute_pressures_and_heights( &
-       tg(:,:,:,current), psg(:,:,current), z_full, z_half, p_full, p_half, grid_tracers(:,:,:,current,nhum))
-endif
+call compute_pressures_and_heights( &
+     tg(:,:,:,current), psg(:,:,current), z_full, z_half, p_full, p_half, grid_tracers(:,:,:,current,nhum))
 
 
 module_is_initialized = .true.
@@ -284,14 +279,9 @@ endif
 t_bot     = tg(:,:,num_levels, previous)
 q_bot     = grid_tracers(:,:,num_levels, previous, nhum)
 p_surf    = psg(:,:,previous)
-if(dry_model) then
-  call compute_pressures_and_heights(tg(:,:,:,previous), psg(:,:,previous), &
-                                     z_full_prev, z_half_prev, p_full_prev, p_half_prev)
-else
-  call compute_pressures_and_heights(tg(:,:,:,previous), psg(:,:,previous), &
-                                     z_full_prev, z_half_prev, p_full_prev, p_half_prev, &
-                                     grid_tracers(:,:,:,previous,nhum))
-endif
+call compute_pressures_and_heights(tg(:,:,:,previous), psg(:,:,previous), &
+                                   z_full_prev, z_half_prev, p_full_prev, p_half_prev, &
+                                   grid_tracers(:,:,:,previous,nhum))
 p_bot     = p_full_prev(:,:,num_levels)
 call compute_z_bot(psg(:,:,previous), tg(:,:,num_levels,previous), z_bot_out, &
                    grid_tracers(:,:,num_levels,previous,nhum))

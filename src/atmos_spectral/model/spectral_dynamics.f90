@@ -82,7 +82,6 @@ module spectral_dynamics_mod
    integer, parameter :: num_time_levels = 2
 
    logical :: module_is_initialized = .false.
-   logical :: dry_model
    logical :: robert_complete_for_tracers=.true., robert_complete_for_fields=.true. ! Needed only for error checks during code development
 
    type(time_type) :: Time_step, Alarm_time, Alarm_interval ! Used to determine when it is time to print global integrals.
@@ -202,11 +201,10 @@ contains
 
 !===============================================================================================
 
-   subroutine spectral_dynamics_init(Time, Time_step_in, tracer_attributes, dry_model_out, nhum_out, ocean_mask)
+   subroutine spectral_dynamics_init(Time, Time_step_in, tracer_attributes, nhum_out, ocean_mask)
 
       type(time_type), intent(in) :: Time, Time_step_in
       type(tracer_type), intent(inout), dimension(:) :: tracer_attributes
-      logical, intent(out) :: dry_model_out
       integer, intent(out) :: nhum_out
       logical, optional, intent(in), dimension(:,:) :: ocean_mask
 
@@ -352,21 +350,23 @@ contains
 
       if(nsphum == NO_TRACER) then
          if(nmix_rat == NO_TRACER) then
-            nhum = 0
-            dry_model = .true.
+            ! The drivers pass the humidity tracer to the physics, so a
+            ! humidity tracer is required. For dry runs keep sphum in the
+            ! field_table and switch off moist physics and the surface
+            ! (see the Held-Suarez example); it then stays zero.
+            call error_mesg('spectral_dynamics_init', &
+                 'no sphum (or mix_rat) tracer in the field_table; a humidity tracer is required, '// &
+                 'even for dry runs', FATAL)
          else
             nhum = nmix_rat
-            dry_model = .false.
          endif
       else
          if(nmix_rat == NO_TRACER) then
             nhum = nsphum
-            dry_model = .false.
          else
             call error_mesg('spectral_dynamics_init','sphum and mix_rat cannot both be specified as tracers at the same time', FATAL)
          endif
       endif
-      dry_model_out = dry_model
       nhum_out = nhum
 
       allocate(tracer_vert_advect_scheme(num_tracers))
@@ -877,7 +877,7 @@ contains
 
          call compute_pressure_gradient  (ln_ps(:,:,current), psg(:,:,current), dx_psg, dy_psg)
 
-         if (use_virtual_temperature .and. .not.dry_model) then
+         if (use_virtual_temperature) then
             virtual_t = tg(:,:,:,current)*(1.0 + virtual_factor*grid_tracers(:,:,:,current,nhum))
          else
             virtual_t = tg(:,:,:,current)
@@ -887,11 +887,7 @@ contains
             ln_p_half, ln_p_full, p_full, dx_psg, dy_psg, dt_psg_tmp, wg, wg_full, dt_tg_tmp, dt_ug_tmp, dt_vg_tmp, &
             kegen, kegenq, kegenqtinv)
 
-         if(dry_model) then
-            call compute_geopotential(tg(:,:,:,current), ln_p_half, ln_p_full, phig_full, phig_half)
-         else
-            call compute_geopotential(tg(:,:,:,current), ln_p_half, ln_p_full, phig_full, phig_half, grid_tracers(:,:,:,current,nhum))
-         endif
+         call compute_geopotential(tg(:,:,:,current), ln_p_half, ln_p_full, phig_full, phig_half, grid_tracers(:,:,:,current,nhum))
 
          dt_ln_psg = dt_psg_tmp/psg(:,:,current)
          call trans_grid_to_spherical(dt_ln_psg, dt_ln_ps)
@@ -1219,38 +1215,34 @@ contains
       endif
 
       if(do_water_correction) then
-         if(dry_model) then
-            call error_mesg('compute_corrections','do_water_correction must be .false. in a dry model (default is .true.)', FATAL)
-         else
-            mean_water_tmp  = mass_weighted_global_integral(grid_tracers(:,:,:,future,nhum), psg(:,:,future))
+         mean_water_tmp  = mass_weighted_global_integral(grid_tracers(:,:,:,future,nhum), psg(:,:,future))
 !mj add water correction upper limit
-            water_mask = 0
-            where ( p_full >= water_correction_limit )
-               water_mask = 1
-            endwhere
-            corr_water_tmp    = mass_weighted_global_integral(grid_tracers(:,:,:,future,nhum)*water_mask, psg(:,:,future))
-            water_mask = 0
-            where ( p_full < water_correction_limit )
-               water_mask = 1
-            endwhere
-            not_corr_water_tmp= mass_weighted_global_integral(grid_tracers(:,:,:,future,nhum)*water_mask, psg(:,:,future))
+         water_mask = 0
+         where ( p_full >= water_correction_limit )
+            water_mask = 1
+         endwhere
+         corr_water_tmp    = mass_weighted_global_integral(grid_tracers(:,:,:,future,nhum)*water_mask, psg(:,:,future))
+         water_mask = 0
+         where ( p_full < water_correction_limit )
+            water_mask = 1
+         endwhere
+         not_corr_water_tmp= mass_weighted_global_integral(grid_tracers(:,:,:,future,nhum)*water_mask, psg(:,:,future))
 !
-            if(mean_water_tmp > 0.) then
-               water_correction_factor = mean_water_previous/mean_water_tmp
+         if(mean_water_tmp > 0.) then
+            water_correction_factor = mean_water_previous/mean_water_tmp
 !mj add water correction upper limit
-               water_correction_factor = water_correction_factor*(1.+not_corr_water_tmp/corr_water_tmp) - not_corr_water_tmp/corr_water_tmp
-               water_correction = 0.
-               where ( p_full >= water_correction_limit )
-                  water_correction = (water_correction_factor-1.)*grid_tracers(:,:,:,future,nhum)/delta_t
-                  grid_tracers(:,:,:,future,nhum) = water_correction_factor*grid_tracers(:,:,:,future,nhum)
+            water_correction_factor = water_correction_factor*(1.+not_corr_water_tmp/corr_water_tmp) - not_corr_water_tmp/corr_water_tmp
+            water_correction = 0.
+            where ( p_full >= water_correction_limit )
+               water_correction = (water_correction_factor-1.)*grid_tracers(:,:,:,future,nhum)/delta_t
+               grid_tracers(:,:,:,future,nhum) = water_correction_factor*grid_tracers(:,:,:,future,nhum)
+            endwhere
+            if(tracer_attributes(nhum)%numerical_representation == 'spectral') then
+               where ( p_full > water_correction_limit )
+                  spec_tracers(:,:,:,future,nhum) = water_correction_factor*spec_tracers(:,:,:,future,nhum)
                endwhere
-               if(tracer_attributes(nhum)%numerical_representation == 'spectral') then
-                  where ( p_full > water_correction_limit )
-                     spec_tracers(:,:,:,future,nhum) = water_correction_factor*spec_tracers(:,:,:,future,nhum)
-                  endwhere
-               endif
-!jm
             endif
+!jm
          endif
       endif
 
@@ -1282,13 +1274,8 @@ contains
       endif
 
       if(do_water_correction) then
-         if(dry_model) then
-            call error_mesg('initialize_corrections','do_water_correction must be .false. in a dry model&
-            & (default is .true.)', FATAL)
-         else
-            mean_water_previous = &
-               mass_weighted_global_integral(grid_tracers(:,:,:,previous,nhum) + delta_t*dt_tracers(:,:,:,nhum), psg(:,:,previous))
-         endif
+         mean_water_previous = &
+            mass_weighted_global_integral(grid_tracers(:,:,:,previous,nhum) + delta_t*dt_tracers(:,:,:,nhum), psg(:,:,previous))
       endif
 
       return

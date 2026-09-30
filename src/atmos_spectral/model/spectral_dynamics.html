@@ -141,10 +141,8 @@ output:
 
   type(tracer_type) :: tracer_attributes
 
-  logical :: dry_model -- .true. when water vapor does not appear in the field table
-
-  integer :: nhum -- The tracer index of water vapor.
-                     Zero when water vapor does not appear in the field table
+  integer :: nhum -- The tracer index of water vapor (sphum or mix_rat),
+                     which the field table must contain
 
   optional, logical, dimension(:,:) :: ocean_mask -- If present, used 
                     for the smoothing of topography when the computed
