@@ -1,4 +1,14 @@
 
+!> Large-scale condensation.
+!>
+!> Where the specific humidity exceeds `hc` times the saturation value, the temperature
+!> and humidity are adjusted to saturation, releasing latent heat; the condensate falls
+!> out as precipitation. With `do_evap`, falling precipitation re-evaporates in
+!> sub-saturated layers below. All precipitation is returned as rain. Used with
+!> `do_lsc = .true.` in `moist_processes_nml`.
+!>
+!> Namelist: `lscale_cond_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#lscale_cond_nml)).
 module lscale_cond_mod
 
 !-----------------------------------------------------------------------
@@ -31,63 +41,33 @@ module lscale_cond_mod
 !-----------------------------------------------------------------------
 !   --- namelist ----
 
-  real    :: hc = 1.00
-  logical :: do_evap = .true.
+  real    :: hc = 1.00  !! relative humidity at which condensation occurs (0 <= `hc` <= 1)
+  logical :: do_evap = .true.  !! re-evaporate falling precipitation in sub-saturated layers below
 
   namelist /lscale_cond_nml/ hc, do_evap
-
-!-----------------------------------------------------------------------
-!           description of namelist variables
-!
-!  hc        =  relative humidity at which large scale condensation
-!               occurs, where 0 <= hc <= 1 (default: hc=1.)
-!
-!  do_evap   =  flag for the re-evaporation of moisture in
-!               sub-saturated layers below, if do_evap=.true. then
-!               re-evaporation is performed (default: do_evap=.true.)
-!
-!-----------------------------------------------------------------------
 
 contains
 
 !#######################################################################
 
+  !> Computes the large-scale condensation: the adjustments of temperature and specific
+  !> humidity and the resulting precipitation.
   subroutine lscale_cond(tin, qin, pfull, phalf, coldT, &
                          rain, snow, tdel, qdel, mask, conv)
 
-!-----------------------------------------------------------------------
-!
-!                      large scale condensation
-!
-!-----------------------------------------------------------------------
-!
-!   input:  tin      temperature at full model levels
-!           qin      specific humidity of water vapor at full
-!                      model levels
-!           pfull    pressure at full model levels
-!           phalf    pressure at half (interface) model levels
-!           coldT    should precipitation be snow at this point?
-!   optional:
-!           mask     optional mask (0 or 1.)
-!           conv     logical flag; if true then no large-scale
-!                       adjustment is performed at that grid-point or
-!                       model level
-!
-!  output:  rain     liquid precipitation (kg/m2)
-!           snow     frozen precipitation (kg/m2)
-!           tdel     temperature tendency at full model levels
-!           qdel     specific humidity tendency (of water vapor) at
-!                      full model levels
-!
-!-----------------------------------------------------------------------
 !--------------------- interface arguments -----------------------------
 
     real, intent(in), dimension(:, :, :) :: tin, qin, pfull, phalf
-    logical, intent(in), dimension(:, :):: coldT
+    !! `tin`: temperature at full levels [K]; `qin`: specific humidity at full levels [kg/kg];
+    !! `pfull`, `phalf`: pressure at full and half levels [Pa]
+    logical, intent(in), dimension(:, :):: coldT  !! whether precipitation should be snow (not used)
     real, intent(out), dimension(:, :)   :: rain, snow
+    !! liquid and frozen precipitation [kg/m2]; `snow` is always zero
     real, intent(out), dimension(:, :, :) :: tdel, qdel
-    real, intent(in), dimension(:, :, :), optional :: mask
+    !! changes of temperature [K] and specific humidity [kg/kg] at full levels
+    real, intent(in), dimension(:, :, :), optional :: mask  !! mask (0 or 1); no adjustment where it is 0
     logical, intent(in), dimension(:, :, :), optional :: conv
+    !! no large-scale adjustment where true (e.g. where convection occurred)
 !-----------------------------------------------------------------------
 !---------------------- local data -------------------------------------
 
@@ -135,11 +115,11 @@ contains
 !--------- do adjustment where greater than saturated value ------------
 
     if (present(conv)) then
-!!!!  do_adjust(:,:,:)=(.not.conv(:,:,:) .and. qin(:,:,:) > qsat(:,:,:))
+!     do_adjust(:,:,:)=(.not.conv(:,:,:) .and. qin(:,:,:) > qsat(:,:,:))
       do_adjust(:, :, :) = (.not. conv(:, :, :) .and. &
                             (qin(:, :, :) - qsat(:, :, :))*qsat(:, :, :) > 0.0)
     else
-!!!!  do_adjust(:,:,:)=(qin(:,:,:) > qsat(:,:,:))
+!     do_adjust(:,:,:)=(qin(:,:,:) > qsat(:,:,:))
       do_adjust(:, :, :) = ((qin(:, :, :) - qsat(:, :, :))*qsat(:, :, :) > 0.0)
     end if
 
@@ -191,11 +171,10 @@ contains
 
 !#######################################################################
 
+  !> Re-evaporates falling precipitation in sub-saturated layers below.
   subroutine precip_evap(pmass, tin, qin, qsat, dqsat, hlcp, &
                          tdel, qdel, mask)
 
-!-----------------------------------------------------------------------
-!        performs re-evaporation of falling precipitation
 !-----------------------------------------------------------------------
     real, intent(in), dimension(:, :, :) :: pmass, tin, qin, qsat, dqsat
     real, intent(in), dimension(:, :)   :: hlcp
@@ -234,13 +213,9 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `lscale_cond_nml` and writes it to the log file.
   subroutine lscale_cond_init()
 
-!-----------------------------------------------------------------------
-!
-!        initialization for large scale condensation
-!
-!-----------------------------------------------------------------------
 
     integer unit, io, ierr
 
@@ -261,6 +236,7 @@ contains
   end subroutine lscale_cond_init
 
 !#######################################################################
+  !> Marks the module as not initialized.
   subroutine lscale_cond_end
 
     module_is_initialized = .false.

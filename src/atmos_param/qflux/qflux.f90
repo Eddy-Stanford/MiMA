@@ -1,4 +1,23 @@
 
+!> Prescribed ocean heat fluxes (Q-fluxes) for the slab ocean.
+!>
+!> `qflux` adds the zonally symmetric meridional Q-flux of Merlis et al. (2013,
+!> Part II); `warmpool` adds zonally asymmetric fluxes: a tropical warm pool and, depending
+!> on `warmpool_localization_choice`, regional patterns such as the Gulf Stream, the
+!> Kuroshio and the tropical Atlantic, following Garfinkel et al. (2020). Both are called
+!> by `simple_surface` with `do_qflux` and `do_warmpool` in `simple_surface_nml`.
+!>
+!> Namelist: `qflux_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#qflux_nml)).
+!>
+!> References:
+!>
+!> * Merlis, T. M., T. Schneider, S. Bordoni, and I. Eisenman, 2013: Hadley circulation
+!>   response to orbital precession. Part II: Subtropical continent. J. Climate, 26,
+!>   754-771.
+!> * Garfinkel, C. I., I. White, E. P. Gerber, M. Jucker, and M. Erez, 2020:
+!>   The building blocks of Northern Hemisphere wintertime stationary waves.
+!>   J. Climate, 33, 5611-5633, https://doi.org/10.1175/JCLI-D-19-0181.1.
 module qflux_mod
 
   use constants_mod, only: pi
@@ -7,28 +26,35 @@ module qflux_mod
 
   implicit none
 
-  real ::    qflux_amp = 26., & ! amplitude of meridional Q-flux [W/m2]
-          qflux_width = 16., & ! half-width of Q-flux [deg lat]
-          warmpool_amp = 18., & ! amplitude of warmpool [W/m2]
-          warmpool_width = 35., & ! width of warmpool (square profile) [deg lat]
-          warmpool_centr = 0., & ! center of warmpool [deg lat]
-          warmpool_phase = 140.     ! phase of warmpool [deg lon]
+  real ::    qflux_amp = 26., & !! [W/m2] amplitude of the meridional Q-flux
+          qflux_width = 16., & !! [deg] half-width of the meridional Q-flux
+          warmpool_amp = 18., & !! [W/m2] amplitude of the warm pool
+          warmpool_width = 35., & !! [deg] latitudinal width of the warm pool
+          warmpool_centr = 0., & !! [deg] central latitude of the warm pool
+          warmpool_phase = 140.     !! [deg] longitude phase of the warm pool
 
-  integer :: gulf_k = 4       ! wave number of gulfstream perturbation []
+  integer :: gulf_k = 4       !! zonal wave number of the Gulf Stream perturbation (choice 2; with choice 3
+  !! only in a North Atlantic term near 67N)
 
-  real :: warmpool_k = 1.66666, & ! wave number of warmpool []
-          gulf_phase = 310., & ! phase of warmpool [deg lon]
-          gulf_amp = 70., & ! amplitude of gulf stream perturbation [W/m2]
-          kuroshio_amp = 40., &  ! amplitude of kuroshio perturbation [W/m2]
-          trop_atlantic_amp = 50., &  ! amplitude of tropical atlantic perturbation [W/m2]
-          north_sea_heat = 0., & !add extra perturbation to move heat from Canada to North Sea
-          Pac_ITCZextra = 0., & !extra q flux in tropical South Pacific to strengthen local ITCZ
-          Pac_SPCZextra = 0., & !extra q flux in subtropical pacific to modulate SPCZ
-          Africaextra = 0., &  !extra q flux by Agulhaus
-          Sampeextra = 0., &
-          Hawaiiextra = 30.0
+  real :: warmpool_k = 1.66666, & !! zonal wave number of the warm pool
+          gulf_phase = 310., & !! [deg] longitude phase of the Gulf Stream perturbation (choice 2; with
+          !! choice 3 only in a North Atlantic term near 67N)
+          gulf_amp = 70., & !! [W/m2] Gulf Stream amplitude (choices 2 and 3; with choice 3 it scales a fixed,
+          !! localized Gulf Stream pattern, and the tropical Atlantic term is only applied if `gulf_amp` > 0)
+          kuroshio_amp = 40., &  !! [W/m2] Kuroshio amplitude (choices 2 and 3)
+          trop_atlantic_amp = 50., &  !! [W/m2] tropical Atlantic amplitude (choices 2 and 3)
+          north_sea_heat = 0., &
+          !! [1] factor on `gulf_amp` for moving heat from Canada to the North Sea (choice 2 only)
+          Pac_ITCZextra = 0., & !! [W/m2] extra flux in the tropical South Pacific (strengthens the local ITCZ; choice 3 only)
+          Pac_SPCZextra = 0., & !! [W/m2] extra flux in the subtropical Pacific (modulates the SPCZ; choice 3 only)
+          Africaextra = 0., &  !! [W/m2] extra flux near the Agulhas current (choice 3 only)
+          Sampeextra = 0., & !! [W/m2] extra flux off South America (choice 3 only)
+          Hawaiiextra = 30.0 !! [W/m2] extra flux near Hawaii (choice 3 only)
 
-  integer :: warmpool_localization_choice = 3 ! 1->cos, 2->cos but restricted to Indo-Pacific
+  integer :: warmpool_localization_choice = 3
+  !! 1: cosine in longitude; 2: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and
+  !! tropical Atlantic terms; 3: the localized patterns of Garfinkel et al. (2020). Which of the
+  !! regional amplitudes below are used depends on this choice (see `qflux.f90`).
   logical :: qflux_initialized = .false.
 
   namelist /qflux_nml/ qflux_amp, qflux_width, &
@@ -45,6 +71,7 @@ module qflux_mod
 contains
 
 !########################################################
+  !> Reads `qflux_nml`.
   subroutine qflux_init
     implicit none
     integer :: unit, ierr, io
@@ -57,11 +84,11 @@ contains
   end subroutine qflux_init
 !########################################################
 
+  !> Subtracts the meridional Q-flux of Merlis et al. (2013, Part II) from `flux`.
   subroutine qflux(latb, flux)
-! compute Q-flux as in Merlis et al (2013) [Part II]
     implicit none
-    real, dimension(:), intent(in)    :: latb   !latitude boundary
-    real, dimension(:, :), intent(inout) :: flux   !total ocean heat flux
+    real, dimension(:), intent(in)    :: latb   !! latitudes of the cell boundaries [rad]
+    real, dimension(:, :), intent(inout) :: flux   !! total ocean heat flux [W/m2]
 !
     integer j
     real lat, coslat
@@ -82,10 +109,11 @@ contains
 
 !########################################################
 
+  !> Adds the zonally asymmetric Q-fluxes (warm pool and regional patterns) to `flux`.
   subroutine warmpool(lonb, latb, flux)
     implicit none
-    real, dimension(:), intent(in)   :: lonb, latb  !lon and lat boundaries
-    real, dimension(:, :), intent(inout):: flux       !total ocean heat flux
+    real, dimension(:), intent(in)   :: lonb, latb  !! longitudes and latitudes of the cell boundaries [rad]
+    real, dimension(:, :), intent(inout):: flux       !! total ocean heat flux [W/m2]
 !
     integer i, j
     real lon, lat, piphase, pigulfphase, latgulf, latgreen, latorig, africaamp

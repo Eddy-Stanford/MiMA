@@ -1,3 +1,21 @@
+!> Betts-Miller convection scheme, in the simplified form of Frierson (2007).
+!>
+!> Where a parcel lifted from the lowest level has CAPE, temperature and humidity between
+!> the lowest level and the level of zero buoyancy are relaxed over the time `tau_bm`
+!> towards reference profiles: the parcel temperature, and a humidity of `rhbm` times
+!> saturation. The relaxation is corrected so that the scheme conserves enthalpy
+!> (deep convection); where it would give negative precipitation, a shallow-convection
+!> scheme is used instead (`do_shallower` or `do_changeqref`). All precipitation is
+!> returned as rain. Used with `do_bm = .true.` in `moist_processes_nml`.
+!>
+!> Namelist: `betts_miller_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#betts_miller_nml)).
+!>
+!> References:
+!>
+!> * Frierson, D. M. W., 2007: The dynamics of idealized convection schemes and their
+!>   effect on the zonally averaged tropical circulation. J. Atmos. Sci., 64, 1959-1976,
+!>   https://doi.org/10.1175/JAS3935.1.
 module betts_miller_mod
 
 !----------------------------------------------------------------------
@@ -37,18 +55,19 @@ module betts_miller_mod
 !-----------------------------------------------------------------------
 !   --- namelist ----
 
-  real    :: tau_bm = 7200.
-  real    :: rhbm = .7
-  logical :: do_simp = .false.
+  real    :: tau_bm = 7200.  !! [s] relaxation time
+  real    :: rhbm = .7  !! relative humidity of the reference profile
+  logical :: do_simp = .false.  !! adjust the time scales so that precipitation is always continuous
 
 !logical :: do_enadjusttemp = .false.
-  logical :: do_shallower = .true.
-  logical :: do_changeqref = .false.
+  logical :: do_shallower = .true.  !! shallow convection: choose a smaller depth so that precipitation is zero
+  logical :: do_changeqref = .false.  !! shallow convection: change both q and T so that precipitation is zero
   logical :: do_envsat = .false.
-  logical :: do_taucape = .false.
-  real    :: capetaubm = 900.
-  real    :: tau_min = 2400.
-  real    :: buoyancy_kick = 0.
+  !! reference humidity relative to the environment (`.true.`) or the parcel (`.false.`)
+  logical :: do_taucape = .false.  !! make `tau_bm` proportional to `CAPE**(-1/2)`
+  real    :: capetaubm = 900.  !! [J/kg] CAPE at which the relaxation time is `tau_bm` (with `do_taucape`)
+  real    :: tau_min = 2400.  !! [s] minimum relaxation time (with `do_taucape`)
+  real    :: buoyancy_kick = 0.  !! [K] temperature added to the parcel at the lowest level
 
   namelist /betts_miller_nml/ tau_bm, rhbm, do_simp, &
     !                            do_enadjusttemp, &
@@ -56,96 +75,37 @@ module betts_miller_mod
     do_envsat, do_taucape, capetaubm, tau_min, &
     buoyancy_kick
 
-!-----------------------------------------------------------------------
-!           description of namelist variables
-!
-!  tau_bm    =  betts-miller relaxation timescale (seconds)
-!
-!  rhbm      = relative humidity that you're relaxing towards
-!
-!  do_simp = do the simple method where you adjust timescales to make
-!            precip continuous always
-!
-!  do_enadjusttemp = do the betts-miller (1986) way of conserving energy:
-!                    adjust the reference temperature by a fixed amount w/
-!                    height.
-
-! ***   if neither of the two above are true, then we instead adjust the
-!       humidity profile so its precipitation is increased to balance the
-!       precip_t change, and hence dries more than the
-!
-!  do_shallower = do the shallow convection scheme where it chooses a smaller
-!                 depth such that precipitation is zero
-!
-!  do_changeqref = do the shallow convection scheme where if changes the
-!                  profile of both q and T in order make precip zero
-!
-!  do_envsat = reference profile is rhbm times saturated wrt environment
-!              (if false, it's rhbm times parcel)
-!
-!  do_taucape = scheme where taubm is proportional to CAPE**-1/2
-!
-!  capetaubm = for the above scheme, the value of CAPE for which
-!              tau = tau_bm
-!
-!  tau_min   = minimum relaxation time allowed for the above scheme
-!
-!
-!
-!-----------------------------------------------------------------------
-
 contains
 
 !#######################################################################
 
+  !> Computes the Betts-Miller convective adjustments of temperature and humidity, the
+  !> precipitation, and the CAPE, CIN and reference profiles.
   subroutine betts_miller(dt, tin, qin, pfull, phalf, coldT, &
                           rain, snow, tdel, qdel, q_ref, bmflag, &
                           klzbs, cape, cin, t_ref, invtau_bm_t, invtau_bm_q, &
                           mask, conv)
 
-!-----------------------------------------------------------------------
-!
-!                     Betts-Miller Convection Scheme
-!
-!-----------------------------------------------------------------------
-!
-!   input:  dt       time step in seconds
-!           tin      temperature at full model levels
-!           qin      specific humidity of water vapor at full
-!                      model levels
-!           pfull    pressure at full model levels
-!           phalf    pressure at half (interface) model levels
-!           coldT    should precipitation be snow at this point?
-!   optional:
-!           mask     optional mask (0 or 1.)
-!           conv     logical flag; if true then no betts-miller
-!                       adjustment is performed at that grid-point or
-!                       model level
-!
-!  output:  rain     liquid precipitation (kg/m2)
-!           snow     frozen precipitation (kg/m2)
-!           tdel     temperature tendency at full model levels
-!           qdel     specific humidity tendency (of water vapor) at
-!                      full model levels
-!           bmflag   flag for which routines you're calling
-!           klzbs    stored klzb values
-!           cape     convectively available potential energy
-!           cin      convective inhibition (this and the above are before the
-!                    adjustment)
-!           invtau_bm_t temperature relaxation timescale
-!           invtau_bm_q humidity relaxation timescale
-!
-!-----------------------------------------------------------------------
 !--------------------- interface arguments -----------------------------
 
     real, intent(in), dimension(:, :, :) :: tin, qin, pfull, phalf
-    real, intent(in)                    :: dt
-    logical, intent(in), dimension(:, :):: coldT
+    !! `tin`: temperature at full levels [K]; `qin`: specific humidity at full levels [kg/kg];
+    !! `pfull`, `phalf`: pressure at full and half levels [Pa]
+    real, intent(in)                    :: dt  !! time step [s]
+    logical, intent(in), dimension(:, :):: coldT  !! whether precipitation should be snow (not used)
     real, intent(out), dimension(:, :)   :: rain, snow, bmflag, klzbs, cape, &
                                             cin, invtau_bm_t, invtau_bm_q
+    !! `rain`, `snow`: liquid and frozen precipitation [kg/m2] (`snow` is always zero);
+    !! `bmflag`: 0 no convection, 1 shallow convection, 2 deep convection; `klzbs`: level of
+    !! zero buoyancy (model level index); `cape`, `cin`: CAPE and convective inhibition before
+    !! the adjustment [J/kg]; `invtau_bm_t`, `invtau_bm_q`: inverse relaxation times of
+    !! temperature and humidity [1/s]
     real, intent(out), dimension(:, :, :) :: tdel, qdel, q_ref, t_ref
-    real, intent(in), dimension(:, :, :), optional :: mask
-    logical, intent(in), dimension(:, :, :), optional :: conv
+    !! `tdel`, `qdel`: changes of temperature [K] and specific humidity [kg/kg] over the time
+    !! step; `t_ref`, `q_ref`: reference profiles of temperature [K] and specific humidity
+    !! [kg/kg] (the input profiles where there is no convection)
+    real, intent(in), dimension(:, :, :), optional :: mask  !! mask (0 or 1) (not used)
+    logical, intent(in), dimension(:, :, :), optional :: conv  !! convection flag (not used)
 !-----------------------------------------------------------------------
 !---------------------- local data -------------------------------------
 
@@ -336,7 +296,7 @@ contains
                 invtau_bm_q(i, j) = 1./tau_bm
 ! Now change the reference temperature in such a way to make the net
 ! heating zero.
-!! Reduce tdel in the top layer
+! Reduce tdel in the top layer
                 tdel(i, j, ktop) = ptopfrac*tdel(i, j, ktop)
                 deltak = 0.
 ! Integrate the temperature tendency over the convecting layers (this
@@ -441,6 +401,8 @@ contains
 
 !all new cape calculation.
 
+  !> Computes CAPE, CIN, the level of zero buoyancy and the profile of a parcel lifted
+  !> from the lowest level.
   subroutine capecalcnew(kx, p, phalf, cp_air, rdgas, rvgas, hlv, kappa, tin, rin, &
                          cape, cin, tp, rp, klzb)
 
@@ -516,9 +478,9 @@ contains
     call escomp(t0, es)
     rs = rdgas/rvgas*es/p(kx)
     if (r0 .ge. rs) then
-! if you�re already saturated, set lcl to be the surface value.
+! if you're already saturated, set lcl to be the surface value.
       plcl = p(kx)
-! the first level where you�re completely saturated.
+! the first level where you're completely saturated.
       klcl = kx
 ! saturate out to get the parcel temp and humidity at this level
 ! first order (in delta T) accurate expression for change in temp
@@ -527,7 +489,7 @@ contains
       rp(kx) = rdgas/rvgas*es/p(kx)
     else
 ! if not saturated to begin with, use the analytic expression to calculate the
-! exact pressure and temperature where you�re saturated.
+! exact pressure and temperature where you're saturated.
       theta0 = t0*(pstar/p(kx))**kappa
 ! the expression that we utilize is
 ! log(r/theta**(1/kappa)*pstar*rvgas/rdgas/es00) = log(es/T**(1/kappa))
@@ -603,14 +565,14 @@ contains
 !         write (*,*) 'tp, rp klcl:kx, new', tp(klcl:kx), rp(klcl:kx)
 ! CAPE/CIN stuff
       if ((tp(klcl) .lt. tin(klcl)) .and. nocape) then
-! if you�re not yet buoyant, then add to the CIN and continue
+! if you're not yet buoyant, then add to the CIN and continue
         cin = cin + rdgas*(tin(klcl) - &
                            tp(klcl))*log(phalf(klcl + 1)/phalf(klcl))
       else
-! if you�re buoyant, then add to cape
+! if you're buoyant, then add to cape
         cape = cape + rdgas*(tp(klcl) - &
                              tin(klcl))*log(phalf(klcl + 1)/phalf(klcl))
-! if it�s the first time buoyant, then set the level of free convection to k
+! if it's the first time buoyant, then set the level of free convection to k
         if (nocape) then
           nocape = .false.
           klfc = klcl
@@ -647,17 +609,17 @@ contains
       call escomp(tp(k), es)
       rp(k) = rdgas/rvgas*es/p(k)
       if ((tp(k) .lt. tin(k)) .and. nocape) then
-! if you�re not yet buoyant, then add to the CIN and continue
+! if you're not yet buoyant, then add to the CIN and continue
         cin = cin + rdgas*(tin(k) - tp(k))*log(phalf(k + 1)/phalf(k))
       elseif ((tp(k) .lt. tin(k)) .and. (.not. nocape)) then
-! if you have CAPE, and it�s your first time being negatively buoyant,
+! if you have CAPE, and it's your first time being negatively buoyant,
 ! then set the level of zero buoyancy to k+1, and stop the moist ascent
         klzb = k + 1
         go to 11
       else
-! if you�re buoyant, then add to cape
+! if you're buoyant, then add to cape
         cape = cape + rdgas*(tp(k) - tin(k))*log(phalf(k + 1)/phalf(k))
-! if it�s the first time buoyant, then set the level of free convection to k
+! if it's the first time buoyant, then set the level of free convection to k
         if (nocape) then
           nocape = .false.
           klfc = k
@@ -752,13 +714,9 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `betts_miller_nml` and writes it to the log file.
   subroutine betts_miller_init()
 
-!-----------------------------------------------------------------------
-!
-!        initialization for betts_miller
-!
-!-----------------------------------------------------------------------
 
     integer unit, io, ierr
 

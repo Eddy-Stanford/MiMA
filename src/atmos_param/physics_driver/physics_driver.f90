@@ -1,50 +1,26 @@
 
+!> High-level interface to the atmospheric physics.
+!>
+!> Calls the physics modules and returns the tendencies and the boundary fluxes that drive
+!> the atmosphere and force the surface model. It is designed around the implicit
+!> vertical diffusion scheme and advances the model one time step in two passes, which
+!> correspond to the down and up sweeps of the tridiagonal solver:
+!>
+!> * `physics_driver_down`: radiation, the Held-Suarez forcing (`do_held_suarez`), local
+!>   heating (`do_local_heating`), damping and gravity-wave drag (`do_damping`),
+!>   boundary-layer turbulence, tracers, and the downward pass of the vertical diffusion
+!>   (`do_boundary_layer`).
+!> * `physics_driver_up`: the upward pass of the vertical diffusion, then convection and
+!>   large-scale condensation (`do_moist_physics`).
+!>
+!> The diffusion coefficients, optionally smoothed in time (`diffusion_smooth`), are kept
+!> in the restart file `RESTART/physics_driver.res.nc`.
+!>
+!> Namelist: `physics_driver_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#physics_driver_nml)).
+!>
+!> Original authors: Fei Liu.
 module physics_driver_mod
-! <CONTACT EMAIL="Fei.Liu@noaa.gov">
-!  fil
-! </CONTACT>
-! <REVIEWER EMAIL="">
-! </REVIEWER>
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-! <OVERVIEW>
-!     Provides high level interfaces for calling the entire
-!     FMS atmospheric physics package.
-!
-!    physics_driver_mod accesses the model's physics modules and
-!    obtains tendencies and boundary fluxes due to the physical
-!    processes that drive atmospheric time tendencies and supply
-!    boundary forcing to the surface models.
-! </OVERVIEW>
-! <DESCRIPTION>
-!     This version of physics_driver_mod has been designed around the implicit
-!     version diffusion scheme of the GCM. It requires two routines to advance
-!     the model one time step into the future. These two routines
-!     correspond to the down and up sweeps of the standard tridiagonal solver.
-!     Radiation, Rayleigh damping, gravity wave drag, vertical diffusion of
-!     momentum and tracers, and the downward pass of vertical diffusion for
-!     temperature and specific humidity are performed in the down routine.
-!     The up routine finishes the vertical diffusion and computes moisture
-!     related terms (convection,large-scale condensation, and precipitation).
-! </DESCRIPTION>
-! <DIAGFIELDS>
-! </DIAGFIELDS>
-! <DATASET NAME="physics_driver.res.nc">
-! netcdf format restart file
-! </DATASET>
-
-! <INFO>
-
-!   <REFERENCE>            </REFERENCE>
-!   <COMPILER NAME="">     </COMPILER>
-!   <PRECOMP FLAG="">      </PRECOMP>
-!   <LOADER FLAG="">       </LOADER>
-!   <TESTPROGRAM NAME="">  </TESTPROGRAM>
-!   <BUG>                  </BUG>
-!   <NOTE>
-!   </NOTE>
-!   <FUTURE> Deal with conservation of total energy?              </FUTURE>
-
-! </INFO>
 !   shared modules:
 
   use time_manager_mod, only: time_type, get_time, operator(-), &
@@ -105,13 +81,6 @@ module physics_driver_mod
   private
 
 !---------------------------------------------------------------------
-!    physics_driver_mod accesses the model's physics modules and
-!    obtains tendencies and boundary fluxes due to the physical
-!    processes that drive atmospheric time tendencies and supply
-!    boundary forcing to the surface models.
-!---------------------------------------------------------------------
-
-!---------------------------------------------------------------------
 !----------- version number for this module -------------------
 
   character(len=128) :: version = '$Id: physics_driver.f90,v 12.0.6.2 2005/05/16 13:56:54 pjp Exp $'
@@ -139,40 +108,20 @@ module physics_driver_mod
 !---------------------------------------------------------------------
 !------- namelist ------
 
-  real    :: tau_diff = 3600.    ! time scale for smoothing diffusion
-  ! coefficients
+  real    :: tau_diff = 3600.    !! [s] time scale for smoothing the diffusion coefficients in time
 
-  logical :: do_damping = .true.
+  logical :: do_damping = .true.  !! Rayleigh sponge and gravity-wave drag (`damping_driver_nml`)
 
-  logical :: do_local_heating = .false.
+  logical :: do_local_heating = .false.  !! add prescribed local heating (`local_heating_nml`)
 
-  logical :: do_held_suarez = .false.    ! add the Held-Suarez (1994) forcing?
-  logical :: do_boundary_layer = .true.  ! boundary-layer turbulence, vertical diffusion
-  ! and coupling to the surface fluxes?
-  logical :: do_moist_physics = .true.   ! convection and large-scale condensation?
+  logical :: do_held_suarez = .false.    !! add the Held-Suarez (1994) forcing (`held_suarez_nml`)
+  logical :: do_boundary_layer = .true.
+  !! boundary-layer turbulence, vertical diffusion and coupling to the surface fluxes. With
+  !! `.false.` the surface state is not updated.
+  logical :: do_moist_physics = .true.   !! convection and large-scale condensation (`moist_processes_nml`)
 
-  real    :: diff_min = 1.e-3    ! minimum value of a diffusion
-  ! coefficient beneath which the
-  ! coefficient is reset to zero
-  logical :: diffusion_smooth = .true.
-  ! diffusion coefficients should be
-  ! smoothed in time?
-! <NAMELIST NAME="physics_driver_nml">
-!  <DATA NAME="tau_diff" UNITS="" TYPE="real" DIM="" DEFAULT="3600.">
-!time scale for smoothing diffusion
-! coefficients
-!  </DATA>
-!  <DATA NAME="diff_min" UNITS="" TYPE="real" DIM="" DEFAULT="1.e-3">
-!minimum value of a diffusion
-! coefficient beneath which the
-! coefficient is reset to zero
-!  </DATA>
-!  <DATA NAME="diffusion_smooth" UNITS="" TYPE="logical" DIM="" DEFAULT=".true.">
-!diffusion coefficients should be
-! smoothed in time?
-!  </DATA>
-! </NAMELIST>
-!
+  real    :: diff_min = 1.e-3    !! [m2/s] diffusion coefficients below this are set to zero
+  logical :: diffusion_smooth = .true.  !! smooth the diffusion coefficients in time
   namelist /physics_driver_nml/ tau_diff, &
     diff_min, diffusion_smooth, &
     do_damping, do_local_heating, &
@@ -180,9 +129,6 @@ module physics_driver_mod
 
 !---------------------------------------------------------------------
 !------- public data ------
-! <DATA NAME="surf_diff_type" UNITS="" TYPE="surf_diff_type" DIM="" DEFAULT="">
-! Defined in vert_diff_driver_mod, republished here. See vert_diff_mod for details.
-! </DATA>
 
   public surf_diff_type   ! defined in  vert_diff_driver_mod, republished
   ! here
@@ -274,104 +220,31 @@ contains
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 !#####################################################################
-! <SUBROUTINE NAME="physics_driver_init">
-!  <OVERVIEW>
-!    physics_driver_init is the constructor for physics_driver_mod.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    physics_driver_init is the constructor for physics_driver_mod.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call physics_driver_init (Time, lonb, latb, domain_in, axes, pref, &
-!                             trs, Surf_diff, phalf, mask, kbot  )
-!  </TEMPLATE>
-!  <IN NAME="Time" TYPE="time_type">
-!   current time
-!  </IN>
-!  <IN NAME="pref" TYPE="real">
-!   reference prssure profiles
-!  </IN>
-!  <IN NAME="latb" TYPE="real">
-!   array of model latitudes at cell boundaries [radians]
-!  </IN>
-!  <IN NAME="lonb" TYPE="real">
-!   array of model longitudes at cell boundaries [radians]
-!  </IN>
-!  <IN NAME="domain_in" TYPE="domain2d">
-!   domain decomposition of the model grid
-!  </IN>
-!  <IN NAME="axes" TYPE="integer">
-!   axis indices, (/x,y,pf,ph/)
-!                (returned from diag axis manager)
-!  </IN>
-!  <INOUT NAME="trs" TYPE="real">
-!   atmospheric tracer fields
-!  </INOUT>
-!  <INOUT NAME="Surf_diff" TYPE="surf_diff_type">
-!   surface diffusion derived type
-!  </INOUT>
-!  <IN NAME="phalf" TYPE="real">
-!   pressure at model interface levels
-!  </IN>
-!  <IN NAME="kbot" TYPE="integer">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        index of lowest model level above ground
-!  </IN>
-!  <IN NAME="mask" TYPE="real">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        mask to remove points below ground
-!  </IN>
-! <ERROR MSG="physics_driver_init must be called first" STATUS="FATAL">
-! </ERROR>
-! </SUBROUTINE>
-!
+  !> Initializes the module: reads `physics_driver_nml`, checks the FMS physical constants
+  !> and saturation vapour pressure, initializes the physics modules and reads
+  !> `INPUT/physics_driver.res.nc` if it exists.
   subroutine physics_driver_init(Time, lonb, latb, domain_in, axes, pref, &
                                  trs, Surf_diff, phalf, mask, kbot, &
                                  diffm, difft)
 
-!---------------------------------------------------------------------
-!    physics_driver_init is the constructor for physics_driver_mod.
-!---------------------------------------------------------------------
-
-    type(time_type), intent(in)              :: Time
+    type(time_type), intent(in)              :: Time  !! current time
     real, dimension(:), intent(in)              :: lonb, latb
-    type(domain2d), intent(in)              :: domain_in
-    integer, dimension(4), intent(in)              :: axes
+    !! longitudes and latitudes of the grid box edges [rad]
+    type(domain2d), intent(in)              :: domain_in  !! domain decomposition of the model grid
+    integer, dimension(4), intent(in)              :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
     real, dimension(:, :), intent(in)              :: pref
-    real, dimension(:, :, :, :), intent(inout)           :: trs
-    type(surf_diff_type), intent(inout)           :: Surf_diff
-    real, dimension(:, :, :), intent(in)              :: phalf
+    !! two reference pressure profiles at nlev+1 levels, with surface pressures
+    !! `pref(nlev+1,1)` = 101325 and `pref(nlev+1,2)` = 81060 [Pa]
+    real, dimension(:, :, :, :), intent(inout)           :: trs  !! atmospheric tracer fields
+    type(surf_diff_type), intent(inout)           :: Surf_diff  !! surface data of the implicit vertical diffusion
+    real, dimension(:, :, :), intent(in)              :: phalf  !! pressure at half levels [Pa]
     real, dimension(:, :, :), intent(in), optional  :: mask
+    !! mask to remove points below ground (eta vertical coordinate)
     integer, dimension(:, :), intent(in), optional  :: kbot
+    !! index of the lowest model level above ground (eta vertical coordinate)
     real, dimension(:, :, :), intent(out), optional  :: diffm, difft
-
-!---------------------------------------------------------------------
-!  intent(in) variables:
-!
-!     Time       current time (time_type)
-!     lonb       longitude of the grid box edges [ radians ]
-!     latb       latitude of the grid box edges [ radians ]
-!     domain_in  domain decomposition of the model grid
-!     axes       axis indices, (/x,y,pf,ph/)
-!                (returned from diag axis manager)
-!     pref       two reference profiles of pressure at nlev+1 levels
-!                pref(nlev+1,1)=101325. and pref(nlev+1,2)=81060.
-!     phalf      pressure at model interface levels
-!                [ Pa ]
-!
-!   intent(inout) variables:
-!
-!     trs        atmosperic tracer fields
-!     Surf_diff  surface diffusion derived type variable
-!
-!   intent(in), optional variables:
-!
-!        mask    present when running eta vertical coordinate,
-!                mask to remove points below ground
-!        kbot    present when running eta vertical coordinate,
-!                index of lowest model level above ground
-!
-!---------------------------------------------------------------------
+    !! diffusion coefficients for momentum and temperature from the restart file (zero without
+    !! one) [m2/s]
 
 !---------------------------------------------------------------------
 !  local variables:
@@ -521,167 +394,9 @@ contains
   end subroutine physics_driver_init
 
 !######################################################################
-! <SUBROUTINE NAME="physics_driver_down">
-!  <OVERVIEW>
-!    physics_driver_down calculates "first pass" physics tendencies,
-!    associated with radiation, damping and turbulence, and obtains
-!    the vertical diffusion tendencies to be passed to the surface and
-!    used in the semi-implicit vertical diffusion calculation.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    physics_driver_down calculates "first pass" physics tendencies,
-!    associated with radiation, damping and turbulence, and obtains
-!    the vertical diffusion tendencies to be passed to the surface and
-!    used in the semi-implicit vertical diffusion calculation.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call physics_driver_down (is, ie, js, je,                       &
-!                                Time_prev, Time, Time_next,           &
-!                                lat, lon, area,                       &
-!                                p_half, p_full, z_half, z_full,       &
-!                                u, v, t, q, r, um, vm, tm, qm, rm,    &
-!                                frac_land, rough_mom,                 &
-!                                albedo,    t_surf_rad,                &
-!                                u_star,    b_star, q_star,            &
-!                                dtau_du,  dtau_dv,  tau_x,  tau_y,    &
-!                                udt, vdt, tdt, qdt, rdt,              &
-!                                flux_sw,  flux_lw,  gust,            &
-!                                Surf_diff,                            &
-!                                mask, kbot
-!  </TEMPLATE>
-!  <IN NAME="Time_prev" TYPE="time_type">
-!   previous time, for variable um, vm, tm, qm, rm
-!  </IN>
-!  <IN NAME="Time" TYPE="time_type">
-!   current time
-!  </IN>
-!  <IN NAME="Time_next" TYPE="time_type">
-!   next time, used for diagnostics
-!  </IN>
-!  <IN NAME="lat" TYPE="real">
-!   array of model latitudes at model points [radians]
-!  </IN>
-!  <IN NAME="lon" TYPE="real">
-!   array of model longitudes at model points [radians]
-!  </IN>
-!  <IN NAME="area" TYPE="real">
-!   grid box area - current not used
-!  </IN>
-!  <IN NAME="p_half" TYPE="real">
-!   pressure at model interface levels (offset from t,q,u,v,r)
-!  </IN>
-!  <IN NAME="p_full" TPYE="real">
-!   pressure at full levels
-!  </IN>
-!  <IN NAME="z_half" TYPE="real">
-!   height at model interface levels
-!  </IN>
-!  <IN NAME="z_full" TPYE="real">
-!   height at full levels
-!  </IN>
-!  <IN NAME="u" TYPE="real">
-!   zonal wind at current time step
-!  </IN>
-!  <IN NAME="v" TYPE="real">
-!   meridional wind at current time step
-!  </IN>
-!  <IN NAME="t" TYPE="real">
-!   temperature at current time step
-!  </IN>
-!  <IN NAME="q" TYPE="real">
-!   specific humidity at current time step
-!  </IN>
-!  <IN NAME="r" TPYE="real">
-!   multiple 3d tracer fields at current time step
-!  </IN>
-!  <IN NAME="um" TYPE="real">
-!   zonal wind at previous time step
-!  </IN>
-!  <IN NAME="vm" TYPE="real">
-!   meridional wind at previous time step
-!  </IN>
-!  <IN NAME="tm" TYPE="real">
-!   temperature at previous time step
-!  </IN>
-!  <IN NAME="qm" TYPE="real">
-!   specific humidity at previous time step
-!  </IN>
-!  <IN NAME="rm" TPYE="real">
-!   multiple 3d tracer fields at previous time step
-!  </IN>
-!  <INOUT NAME="rd" TYPE="real">
-!   multiple 3d diagnostic tracer fields
-!  </INOUT>
-!  <IN NAME="frac_land" TYPE="real">
-!   fraction of land coverage in a model grid point
-!  </IN>
-!  <IN NAME="rough_mom" TYPE="real">
-!   boundary layer roughness
-!  </IN>
-!  <IN NAME="albedo" TYPE="real">
-!   surface albedo
-!  </IN>
-!  <IN NAME="t_surf_rad" TYPE="real">
-!   surface radiative temperature
-!  </IN>
-!  <IN NAME="u_star" TYPE="real">
-!   boundary layer wind speed (frictional speed)
-!  </IN>
-!  <IN NAME="b_star" TYPE="real">
-!   ???
-!  </IN>
-!  <IN NAME="q_star" TYPE="real">
-!   boundary layer specific humidity
-!  </IN>
-!  <IN NAME="dtau_du" TYPE="real">
-!   derivative of zonal surface stress w.r.t zonal wind speed
-!  </IN>
-!  <IN NAME="dtau_dv" TYPE="real">
-!   derivative of meridional surface stress w.r.t meridional wind speed
-!  </IN>
-!  <INOUT NAME="tau_x" TYPE="real">
-!   boundary layer meridional component of wind shear
-!  </INOUT>
-!  <INOUT NAME="tau_y" TYPE="real">
-!   boundary layer zonal component of wind shear
-!  </INOUT>
-!  <INOUT NAME="udt" TYPE="real">
-!   zonal wind tendency
-!  </INOUT>
-!  <INOUT NAME="vdt" TYPE="real">
-!   meridional wind tendency
-!  </INOUT>
-!  <INOUT NAME="tdt" TYPE="real">
-!   temperature tendency
-!  </INOUT>
-!  <INOUT NAME="qdt" TYPE="real">
-!   moisture tracer tendencies
-!  </INOUT>
-!  <INOUT NAME="rdt" TYPE="real">
-!   multiple tracer tendencies
-!  </INOUT>
-!  <OUT NAME="flux_sw" TYPE="real">
-!   Shortwave flux from radiation package
-!  </OUT>
-!  <OUT NAME="flux_lw" TYPE="real">
-!   Longwave flux from radiation package
-!  </OUT>
-!  <OUT NAME="gust" TYPE="real">
-!  </OUT>
-!  <INOUT NAME="Surf_diff" TYPE="surface_diffusion_type">
-!   Surface diffusion
-!  </INOUT>
-!  <IN NAME="kbot" TYPE="integer">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        index of lowest model level above ground
-!  </IN>
-!  <IN NAME="mask" TYPE="real">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        mask to remove points below ground
-!  </IN>
-!
-! </SUBROUTINE>
-!
+  !> Computes the first-pass physics tendencies (radiation, prescribed forcings, damping
+  !> and turbulence) and the downward pass of the implicit vertical diffusion, whose
+  !> surface terms are passed to the surface model.
   subroutine physics_driver_down(is, ie, js, je, &
                                  Time_prev, Time, Time_next, &
                                  lat, lon, area, &
@@ -697,101 +412,47 @@ contains
                                  mask, kbot, &
                                  diffm, difft)
 
-!---------------------------------------------------------------------
-!    physics_driver_down calculates "first pass" physics tendencies,
-!    associated with radiation, damping and turbulence, and obtains
-!    the vertical diffusion tendencies to be passed to the surface and
-!    used in the semi-implicit vertical diffusion calculation.
-!-----------------------------------------------------------------------
-
     integer, intent(in)             :: is, ie, js, je
+    !! starting and ending subdomain i, j indices of the physics window
     type(time_type), intent(in)             :: Time_prev, Time, &
                                                Time_next
+    !! times of the previous level (of `um`, `vm`, `tm`, `qm`, `rm`), the current level (of
+    !! `u`, `v`, `t`, `q`, `r`) and the next level (used for the diagnostics)
     real, dimension(:, :), intent(in)             :: lat, lon, area
+    !! latitudes and longitudes of the model points [rad]; grid box area [m2] (not used)
     real, dimension(:, :, :), intent(in)             :: p_half, p_full, &
                                                         z_half, z_full, &
                                                         u, v, t, q, &
                                                         um, vm, tm, qm
-    real, dimension(:, :, :, :), intent(inout)          :: r
-    real, dimension(:, :, :, :), intent(inout)          :: rm
+    !! `p_half`, `p_full`: pressure at half and full levels [Pa]; `z_half`, `z_full`: height
+    !! at half and full levels [m]; `u`, `v`, `t`, `q`: zonal and meridional wind [m/s],
+    !! temperature [K] and specific humidity [kg/kg] at the current time level; `um`, `vm`,
+    !! `tm`, `qm`: the same at the previous time level
+    real, dimension(:, :, :, :), intent(inout)          :: r  !! tracers at the current time level
+    real, dimension(:, :, :, :), intent(inout)          :: rm  !! tracers at the previous time level
     real, dimension(:, :), intent(in)             :: frac_land, &
                                                      rough_mom, &
                                                      albedo, t_surf_rad, &
                                                      u_star, b_star, &
                                                      q_star, dtau_du, dtau_dv
-    real, dimension(:, :), intent(inout)          :: tau_x, tau_y
+    !! surface fields: land fraction; roughness length for momentum [m]; albedo; radiative
+    !! surface temperature [K]; friction velocity [m/s]; buoyancy scale [m/s2]; moisture
+    !! scale [kg/kg]; derivatives of the zonal and meridional surface stress with respect to
+    !! the lowest-level wind [kg/m2/s]
+    real, dimension(:, :), intent(inout)          :: tau_x, tau_y  !! zonal and meridional surface stress [N/m2]
     real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt, qdt
-    real, dimension(:, :, :, :), intent(inout)          :: rdt
+    !! tendencies of the zonal and meridional wind [m/s2], temperature [K/s] and specific
+    !! humidity [kg/kg/s]
+    real, dimension(:, :, :, :), intent(inout)          :: rdt  !! tracer tendencies
     real, dimension(:, :), intent(out)            :: flux_sw, flux_lw, gust
-    type(surf_diff_type), intent(inout)          :: Surf_diff
+    !! `flux_sw`: net downward shortwave flux at the surface [W/m2]; `flux_lw`: downward
+    !! longwave flux at the surface [W/m2]; `gust`: gustiness [m/s]
+    type(surf_diff_type), intent(inout)          :: Surf_diff  !! surface data of the implicit vertical diffusion
     real, dimension(:, :, :), intent(in), optional :: mask
-    integer, dimension(:, :), intent(in), optional :: kbot
+    !! mask of the levels with data (0: below ground, 1: data); present together with `kbot`
+    integer, dimension(:, :), intent(in), optional :: kbot  !! lowest level with data
     real, dimension(:, :, :), intent(out), optional :: diffm, difft
-
-!-----------------------------------------------------------------------
-!   intent(in) variables:
-!
-!      is,ie,js,je    starting/ending subdomain i,j indices of data in
-!                     the physics_window being integrated
-!      Time_prev      previous time, for variables um,vm,tm,qm,rm
-!                     (time_type)
-!      Time           current time, for variables u,v,t,q,r  (time_type)
-!      Time_next      next time, used for diagnostics   (time_type)
-!      lat            latitude of model points [ radians ]
-!      lon            longitude of model points [ radians ]
-!      area           grid box area - currently not used [ m**2 ]
-!      p_half         pressure at half levels (offset from t,q,u,v,r)
-!                     [ Pa ]
-!      p_full         pressure at full levels [ Pa }
-!      z_half         height at half levels [ m ]
-!      z_full         height at full levels [ m ]
-!      u              zonal wind at current time step [ m / s ]
-!      v              meridional wind at current time step [ m / s ]
-!      t              temperature at current time step [ deg k ]
-!      q              specific humidity at current time step  kg / kg ]
-!      r              multiple 3d tracer fields at current time step
-!      um,vm          zonal and meridional wind at previous time step
-!      tm,qm          temperature and specific humidity at previous
-!                     time step
-!      rm             multiple 3d tracer fields at previous time step
-!      frac_land
-!      rough_mom
-!      albedo
-!      t_surf_rad
-!      u_star
-!      b_star
-!      q_star
-!      dtau_du
-!      dtau_dv
-!
-!  intent(inout) variables:
-!
-!      tau_x
-!      tau_y
-!      udt            zonal wind tendency [ m / s**2 ]
-!      vdt            meridional wind tendency [ m / s**2 ]
-!      tdt            temperature tendency [ deg k / sec ]
-!      qdt            specific humidity tendency
-!                     [  kg vapor / kg air / sec ]
-!      rdt            multiple tracer tendencies [ unit / unit / sec ]
-!      rd             multiple 3d diagnostic tracer fields
-!                     [ unit / unit / sec ]
-!      Surf_diff      surface_diffusion_type variable
-!
-!   intent(out) variables:
-!
-!      flux_sw
-!      flux_lw
-!      gust
-!
-!   intent(in), optional variables:
-!
-!       mask        mask that designates which levels do not have data
-!                   present (i.e., below ground); 0.=no data, 1.=data
-!       kbot        lowest level which has data
-!                   note:  both mask and kbot must be present together.
-!
-!-----------------------------------------------------------------------
+    !! diffusion coefficients for momentum and temperature [m2/s]
 
 !---------------------------------------------------------------------
 !    local variables:
@@ -974,128 +635,8 @@ contains
   end subroutine physics_driver_down
 
 !#######################################################################
-! <SUBROUTINE NAME="physics_driver_up">
-!  <OVERVIEW>
-!    physics_driver_up completes the calculation of vertical diffusion
-!    and also handles moist physical processes.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    physics_driver_up completes the calculation of vertical diffusion
-!    and also handles moist physical processes.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call physics_driver_up (is, ie, js, je,                    &
-!                               Time_prev, Time, Time_next,        &
-!                               lat, lon, area,                    &
-!                               p_half, p_full, z_half, z_full,    &
-!                               omega,                             &
-!                               u, v, t, q, r, um, vm, tm, qm, rm, &
-!                               frac_land,                         &
-!                               udt, vdt, tdt, qdt, rdt,           &
-!                               Surf_diff,                         &
-!                               lprec,   fprec, gust,              &
-!                               mask, kbot    )
-!  </TEMPLATE>
-!  <IN NAME="Time_prev" TYPE="time_type">
-!   previous time, for variable um, vm, tm, qm, rm
-!  </IN>
-!  <IN NAME="Time" TYPE="time_type">
-!   current time
-!  </IN>
-!  <IN NAME="Time_next" TYPE="time_type">
-!   next time, used for diagnostics
-!  </IN>
-!  <IN NAME="lat" TYPE="real">
-!   array of model latitudes at model points [radians]
-!  </IN>
-!  <IN NAME="lon" TYPE="real">
-!   array of model longitudes at model points [radians]
-!  </IN>
-!  <IN NAME="area" TYPE="real">
-!   grid box area - current not used
-!  </IN>
-!  <IN NAME="p_half" TYPE="real">
-!   pressure at model interface levels (offset from t,q,u,v,r)
-!  </IN>
-!  <IN NAME="p_full" TPYE="real">
-!   pressure at full levels
-!  </IN>
-!  <IN NAME="z_half" TYPE="real">
-!   height at model interface levels
-!  </IN>
-!  <IN NAME="z_full" TPYE="real">
-!   height at full levels
-!  </IN>
-!  <IN NAME="omega" TYPE="real">
-!   Veritical pressure tendency
-!  </IN>
-!  <IN NAME="u" TYPE="real">
-!   zonal wind at current time step
-!  </IN>
-!  <IN NAME="v" TYPE="real">
-!   meridional wind at current time step
-!  </IN>
-!  <IN NAME="t" TYPE="real">
-!   temperature at current time step
-!  </IN>
-!  <IN NAME="q" TYPE="real">
-!   specific humidity at current time step
-!  </IN>
-!  <IN NAME="r" TPYE="real">
-!   multiple 3d tracer fields at current time step
-!  </IN>
-!  <IN NAME="um" TYPE="real">
-!   zonal wind at previous time step
-!  </IN>
-!  <IN NAME="vm" TYPE="real">
-!   meridional wind at previous time step
-!  </IN>
-!  <IN NAME="tm" TYPE="real">
-!   temperature at previous time step
-!  </IN>
-!  <IN NAME="qm" TYPE="real">
-!   specific humidity at previous time step
-!  </IN>
-!  <IN NAME="rm" TPYE="real">
-!   multiple 3d tracer fields at previous time step
-!  </IN>
-!  <IN NAME="frac_land" TYPE="real">
-!   fraction of land coverage in a model grid point
-!  </IN>
-!  <INOUT NAME="udt" TYPE="real">
-!   zonal wind tendency
-!  </INOUT>
-!  <INOUT NAME="vdt" TYPE="real">
-!   meridional wind tendency
-!  </INOUT>
-!  <INOUT NAME="tdt" TYPE="real">
-!   temperature tendency
-!  </INOUT>
-!  <INOUT NAME="qdt" TYPE="real">
-!   moisture tracer tendencies
-!  </INOUT>
-!  <INOUT NAME="rdt" TYPE="real">
-!   multiple tracer tendencies
-!  </INOUT>
-!  <OUT NAME="lprec" TYPE="real">
-!  </OUT>
-!  <OUT NAME="fprec" TYPE="real">
-!  </OUT>
-!  <OUT NAME="gust" TYPE="real">
-!  </OUT>
-!  <INOUT NAME="Surf_diff" TYPE="surface_diffusion_type">
-!   Surface diffusion
-!  </INOUT>
-!  <IN NAME="kbot" TYPE="integer">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        index of lowest model level above ground
-!  </IN>
-!  <IN NAME="mask" TYPE="real">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        mask to remove points below ground
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Completes the vertical diffusion and computes the moist processes and the convective
+  !> gustiness.
   subroutine physics_driver_up(is, ie, js, je, &
                                Time_prev, Time, Time_next, &
                                lat, lon, area, &
@@ -1108,93 +649,39 @@ contains
                                lprec, fprec, gust, &
                                mask, kbot)
 
-!----------------------------------------------------------------------
-!    physics_driver_up completes the calculation of vertical diffusion
-!    and also handles moist physical processes.
-!---------------------------------------------------------------------
-
     integer, intent(in)             :: is, ie, js, je
+    !! starting and ending subdomain i, j indices of the physics window
     type(time_type), intent(in)             :: Time_prev, Time, &
                                                Time_next
+    !! times of the previous level (of `um`, `vm`, `tm`, `qm`, `rm`), the current level (of
+    !! `u`, `v`, `t`, `q`, `r`) and the next level (used for the diagnostics)
     real, dimension(:, :), intent(in)             :: lat, lon, area
+    !! latitudes and longitudes of the model points [rad]; grid box area [m2] (not used)
     real, dimension(:, :, :), intent(in)             :: p_half, p_full, &
                                                         omega, &
                                                         z_half, z_full, &
                                                         u, v, t, q, &
                                                         um, vm, tm, qm
+    !! `p_half`, `p_full`: pressure at half and full levels [Pa]; `omega`: vertical pressure
+    !! velocity [Pa/s]; `z_half`, `z_full`: height at half and full levels [m]; `u`, `v`,
+    !! `t`, `q`: zonal and meridional wind [m/s], temperature [K] and specific humidity
+    !! [kg/kg] at the current time level; `um`, `vm`, `tm`, `qm`: the same at the previous
+    !! time level
     real, dimension(:, :, :, :), intent(in)             :: r, rm
-    real, dimension(:, :), intent(in)             :: frac_land
+    !! tracers at the current and previous time levels
+    real, dimension(:, :), intent(in)             :: frac_land  !! land fraction
     real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt, qdt
-    real, dimension(:, :, :, :), intent(inout)          :: rdt
-    type(surf_diff_type), intent(inout)          :: Surf_diff
+    !! tendencies of the zonal and meridional wind [m/s2], temperature [K/s] and specific
+    !! humidity [kg/kg/s]
+    real, dimension(:, :, :, :), intent(inout)          :: rdt  !! tracer tendencies
+    type(surf_diff_type), intent(inout)          :: Surf_diff  !! surface data of the implicit vertical diffusion
     real, dimension(:, :), intent(out)            :: lprec, fprec
+    !! liquid and frozen precipitation rates [kg/m2/s]
     real, dimension(:, :), intent(inout)          :: gust
+    !! gustiness [m/s]; the convective gustiness is added on return
     real, dimension(:, :, :), intent(in), optional :: mask
-    integer, dimension(:, :), intent(in), optional :: kbot
-
-!-----------------------------------------------------------------------
-!   intent(in) variables:
-!
-!      is,ie,js,je    starting/ending subdomain i,j indices of data in
-!                     the physics_window being integrated
-!      Time_prev      previous time, for variables um,vm,tm,qm,rm
-!                     (time_type)
-!      Time           current time, for variables u,v,t,q,r  (time_type)
-!      Time_next      next time, used for diagnostics   (time_type)
-!      lat            latitude of model points [ radians ]
-!      lon            longitude of model points [ radians ]
-!      area           grid box area - currently not used [ m**2 ]
-!      p_half         pressure at half levels (offset from t,q,u,v,r)
-!                     [ Pa ]
-!      p_full         pressure at full levels [ Pa }
-!      omega
-!      z_half         height at half levels [ m ]
-!      z_full         height at full levels [ m ]
-!      u              zonal wind at current time step [ m / s ]
-!      v              meridional wind at current time step [ m / s ]
-!      t              temperature at current time step [ deg k ]
-!      q              specific humidity at current time step  kg / kg ]
-!      r              multiple 3d tracer fields at current time step
-!      um,vm          zonal and meridional wind at previous time step
-!      tm,qm          temperature and specific humidity at previous
-!                     time step
-!      rm             multiple 3d tracer fields at previous time step
-!      frac_land
-!      rough_mom
-!      albedo
-!      t_surf_rad
-!      u_star
-!      b_star
-!      q_star
-!      dtau_du
-!      dtau_dv
-!
-!  intent(inout) variables:
-!
-!      tau_x
-!      tau_y
-!      udt            zonal wind tendency [ m / s**2 ]
-!      vdt            meridional wind tendency [ m / s**2 ]
-!      tdt            temperature tendency [ deg k / sec ]
-!      qdt            specific humidity tendency
-!                     [  kg vapor / kg air / sec ]
-!      rdt            multiple tracer tendencies [ unit / unit / sec ]
-!      Surf_diff      surface_diffusion_type variable
-!      gust
-!
-!   intent(out) variables:
-!
-!      lprec
-!      fprec
-!
-!   intent(in), optional variables:
-!
-!       mask        mask that designates which levels do not have data
-!                   present (i.e., below ground); 0.=no data, 1.=data
-!       kbot        lowest level which has data
-!                   note:  both mask and kbot must be present together.
-!
-!--------------------------------------------------------------------
+    !! mask of the levels with data (0: below ground, 1: data); present together with `kbot`
+    integer, dimension(:, :), intent(in), optional :: kbot  !! lowest level with data
 
 !--------------------------------------------------------------------
 !   local variables:
@@ -1271,35 +758,11 @@ contains
   end subroutine physics_driver_up
 
 !#######################################################################
-! <SUBROUTINE NAME="physics_driver_end">
-!  <OVERVIEW>
-!   physics_driver_end is the destructor for physics_driver_mod.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    physics_driver_end is the destructor for physics_driver_mod.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call physics_driver_end (Time)
-!  </TEMPLATE>
-!  <IN NAME="Time" TYPE="time_type">
-!   current time
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Writes the restart file `RESTART/physics_driver.res.nc` and finalizes the physics
+  !> modules.
   subroutine physics_driver_end(Time)
 
-!---------------------------------------------------------------------
-!    physics_driver_end is the destructor for physics_driver_mod.
-!---------------------------------------------------------------------
-
-    type(time_type), intent(in) :: Time
-
-!--------------------------------------------------------------------
-!   intent(in) variables:
-!
-!      Time      current time [ time_type(days, seconds) ]
-!
-!--------------------------------------------------------------------
+    type(time_type), intent(in) :: Time  !! current time
 
 !---------------------------------------------------------------------
 !   local variable:
@@ -1354,13 +817,10 @@ contains
 
 !#######################################################################
 
+  !> Returns `.true.` if the atmosphere exchanges heat, moisture and momentum with the
+  !> surface (`do_boundary_layer`); otherwise the coupler does not update the surface state.
   logical function surface_is_coupled()
 
-!---------------------------------------------------------------------
-!    .true. if the atmosphere exchanges heat, moisture and momentum with
-!    the surface (physics_driver_nml do_boundary_layer). The coupler does
-!    not update the surface state otherwise.
-!---------------------------------------------------------------------
     surface_is_coupled = do_boundary_layer
 
   end function surface_is_coupled
@@ -1373,14 +833,11 @@ contains
 
 !#####################################################################
 
+  !> Checks that FMS was built with its GFDL physical constants (the default, CMake option
+  !> `CONSTANTS=GFDL`), which MiMA's configurations and tuning assume. The GFS and GEOS
+  !> sets differ, e.g. in `RADIUS` and `GRAV`.
   subroutine check_constants
 
-!---------------------------------------------------------------------
-!    check that FMS was built with its GFDL physical constants (the
-!    default, CMake option CONSTANTS=GFDL), which MiMA's configurations
-!    and tuning assume. The GFS and GEOS sets differ, e.g. in RADIUS
-!    and GRAV.
-!---------------------------------------------------------------------
     real, parameter :: tol = 1.e-12
     real, dimension(9) :: fms, gfdl
 
@@ -1396,15 +853,14 @@ contains
 
 !#####################################################################
 
+  !> Initializes the FMS saturation vapour pressure table and checks that it is the simple
+  !> Clausius-Clapeyron form MiMA uses.
+  !>
+  !> The simple form (constant latent heat of vaporization, no ice) is computed by FMS only
+  !> with `do_simple = .true.` in `sat_vapor_pres_nml`. The table is interpolated, so it is
+  !> compared with the formula to a relative tolerance.
   subroutine check_sat_vapor_pres
 
-!---------------------------------------------------------------------
-!    initialize the FMS saturation vapour pressure table and check that
-!    it is the simple Clausius-Clapeyron form MiMA uses (constant latent
-!    heat of vaporization, no ice), which FMS computes only with
-!    sat_vapor_pres_nml do_simple = .true. The table is interpolated,
-!    so it is compared with the formula to a relative tolerance.
-!---------------------------------------------------------------------
     real, parameter :: tol = 1.e-5
     real, dimension(5), parameter :: temp = &
                                      (/180., 230., 273.16, 300., 330./)
@@ -1422,17 +878,8 @@ contains
   end subroutine check_sat_vapor_pres
 
 !#####################################################################
-! <SUBROUTINE NAME="read_restart_nc">
-!  <OVERVIEW>
-!    read_restart_nc will read the physics_driver.res.nc file and process
-!    its contents. if there is no restart file, the module variables
-!    are initialized to zero.
-!  </OVERVIEW>
-!  <TEMPLATE>
-!   call read_restart_nc
-!  </TEMPLATE>
-! </SUBROUTINE>
-!
+  !> Reads the diffusion coefficients from `INPUT/physics_driver.res.nc`, or sets them to
+  !> zero if there is no restart file.
   subroutine read_restart_nc
 
     type(restart_file_type) :: rst
@@ -1451,96 +898,7 @@ contains
   end subroutine read_restart_nc
 
 !#####################################################################
-! <SUBROUTINE NAME="check_args">
-!  <OVERVIEW>
-!    check_args determines if the input arrays to physics_driver_down
-!    are of a consistent size.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    check_args determines if the input arrays to physics_driver_down
-!    are of a consistent size.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call check_args (lat, lon, area, p_half, p_full, z_half, z_full,&
-!                        u, v, t, q, r, um, vm, tm, qm, rm,             &
-!                        udt, vdt, tdt, qdt, rdt, mask, kbot)
-!  </TEMPLATE>
-!  <IN NAME="lat" TYPE="real">
-!   array of model latitudes at model points [radians]
-!  </IN>
-!  <IN NAME="lon" TYPE="real">
-!   array of model longitudes at model points [radians]
-!  </IN>
-!  <IN NAME="area" TYPE="real">
-!   grid box area - current not used
-!  </IN>
-!  <IN NAME="p_half" TYPE="real">
-!   pressure at model interface levels (offset from t,q,u,v,r)
-!  </IN>
-!  <IN NAME="p_full" TPYE="real">
-!   pressure at full levels
-!  </IN>
-!  <IN NAME="z_half" TYPE="real">
-!   height at model interface levels
-!  </IN>
-!  <IN NAME="z_full" TPYE="real">
-!   height at full levels
-!  </IN>
-!  <IN NAME="u" TYPE="real">
-!   zonal wind at current time step
-!  </IN>
-!  <IN NAME="v" TYPE="real">
-!   meridional wind at current time step
-!  </IN>
-!  <IN NAME="t" TYPE="real">
-!   temperature at current time step
-!  </IN>
-!  <IN NAME="q" TYPE="real">
-!   specific humidity at current time step
-!  </IN>
-!  <IN NAME="r" TPYE="real">
-!   multiple 3d tracer fields at current time step
-!  </IN>
-!  <IN NAME="um" TYPE="real">
-!   zonal wind at previous time step
-!  </IN>
-!  <IN NAME="vm" TYPE="real">
-!   meridional wind at previous time step
-!  </IN>
-!  <IN NAME="tm" TYPE="real">
-!   temperature at previous time step
-!  </IN>
-!  <IN NAME="qm" TYPE="real">
-!   specific humidity at previous time step
-!  </IN>
-!  <IN NAME="rm" TPYE="real">
-!   multiple 3d tracer fields at previous time step
-!  </IN>
-!  <IN NAME="udt" TYPE="real">
-!   zonal wind tendency
-!  </IN>
-!  <IN NAME="vdt" TYPE="real">
-!   meridional wind tendency
-!  </IN>
-!  <IN NAME="tdt" TYPE="real">
-!   temperature tendency
-!  </IN>
-!  <IN NAME="qdt" TYPE="real">
-!   moisture tracer tendencies
-!  </IN>
-!  <IN NAME="rdt" TYPE="real">
-!   multiple tracer tendencies
-!  </IN>
-!  <IN NAME="kbot" TYPE="integer">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        index of lowest model level above ground
-!  </IN>
-!  <IN NAME="mask" TYPE="real">
-!   OPTIONAL: present when running eta vertical coordinate,
-!                        mask to remove points below ground
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Checks that the input arrays of `physics_driver_down` have consistent sizes.
   subroutine check_args(lat, lon, area, p_half, p_full, z_half, z_full, &
                         u, v, t, q, r, um, vm, tm, qm, rm, &
                         udt, vdt, tdt, qdt, rdt, mask, kbot)
@@ -1665,31 +1023,6 @@ contains
   end subroutine check_args
 
 !#######################################################################
-! <FUNCTION NAME="check_dim_2d">
-!  <OVERVIEW>
-!    check_dim_2d compares the size of two-dimensional input arrays
-!    with supplied expected dimensions and returns an error if any
-!    inconsistency is found.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    check_dim_2d compares the size of two-dimensional input arrays
-!    with supplied expected dimensions and returns an error if any
-!    inconsistency is found.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!    check_dim_2d (data,name,id,jd) result (ierr)
-!  </TEMPLATE>
-!  <IN NAME="data" TYPE="real">
-!   array of data to be checked
-!  </IN>
-!  <IN NAME="name" TYPE="character">
-!   name associated with array to be checked
-!  </IN>
-!  <IN NAME="id, jd" TYPE="integer">
-!   expected i and j dimensions
-!  </IN>
-! </FUNCTION>
-!
   function check_dim_2d(data, name, id, jd) result(ierr)
 
 !--------------------------------------------------------------------
@@ -1736,31 +1069,6 @@ contains
   end function check_dim_2d
 
 !#######################################################################
-! <FUNCTION NAME="check_dim_3d">
-!  <OVERVIEW>
-!    check_dim_3d compares the size of three-dimensional input arrays
-!    with supplied expected dimensions and returns an error if any
-!    inconsistency is found.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    check_dim_3d compares the size of three-dimensional input arrays
-!    with supplied expected dimensions and returns an error if any
-!    inconsistency is found.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!    check_dim_3d (data,name,id,jd, kd) result (ierr)
-!  </TEMPLATE>
-!  <IN NAME="data" TYPE="real">
-!   array of data to be checked
-!  </IN>
-!  <IN NAME="name" TYPE="character">
-!   name associated with array to be checked
-!  </IN>
-!  <IN NAME="id, jd, kd" TYPE="integer">
-!   expected i, j and k dimensions
-!  </IN>
-! </FUNCTION>
-!
   function check_dim_3d(data, name, id, jd, kd) result(ierr)
 
 !--------------------------------------------------------------------
@@ -1813,31 +1121,6 @@ contains
   end function check_dim_3d
 
 !#######################################################################
-! <FUNCTION NAME="check_dim_4d">
-!  <OVERVIEW>
-!    check_dim_4d compares the size of four-dimensional input arrays
-!    with supplied expected dimensions and returns an error if any
-!    inconsistency is found.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    check_dim_4d compares the size of four-dimensional input arrays
-!    with supplied expected dimensions and returns an error if any
-!    inconsistency is found.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!    check_dim_4d (data,name,id,jd, kd, nt) result (ierr)
-!  </TEMPLATE>
-!  <IN NAME="data" TYPE="real">
-!   array of data to be checked
-!  </IN>
-!  <IN NAME="name" TYPE="character">
-!   name associated with array to be checked
-!  </IN>
-!  <IN NAME="id, jd, kd, nt" TYPE="integer">
-!   expected i, j, k and 4th dimensions
-!  </IN>
-! </FUNCTION>
-!
   function check_dim_4d(data, name, id, jd, kd, nt) result(ierr)
 
 !--------------------------------------------------------------------

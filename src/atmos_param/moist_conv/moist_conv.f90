@@ -1,4 +1,16 @@
 
+!> Moist convective adjustment.
+!>
+!> In each column, layers that are saturated (humidity above `HC` times the saturation
+!> value at both levels) and unstable with respect to the moist adiabatic lapse rate are
+!> adjusted iteratively to the moist adiabat at saturation, conserving the integral of
+!> cp T + L q over the layers; the excess vapour falls out as rain. When `ITSMOD`
+!> iterations do not stabilize a column, the
+!> tolerance is doubled, from `TOLmin` up to `TOLmax`. Used with `do_mca = .true.` in
+!> `moist_processes_nml`.
+!>
+!> Namelist: `moist_conv_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#moist_conv_nml)).
 module moist_conv_mod
 
 !-----------------------------------------------------------------------
@@ -33,9 +45,10 @@ module moist_conv_mod
 !-----------------------------------------------------------------------
 !---- namelist ----
 
-  real :: HC = 1.00
+  real :: HC = 1.00  !! relative humidity at which the adjustment occurs
   real :: TOLmin = .02, TOLmax = .10
-  integer :: ITSMOD = 30
+  !! [K] `TOLmin`, `TOLmax`: initial and maximum tolerance of the iterative adjustment
+  integer :: ITSMOD = 30  !! number of iterations at each tolerance
 
   namelist /moist_conv_nml/ HC, TOLmin, TOLmax, ITSMOD
 
@@ -75,52 +88,35 @@ contains
 
 !#######################################################################
 
+  !> Performs the moist convective adjustment, returns the tendencies and the
+  !> precipitation rate, and sends the diagnostics.
   subroutine moist_conv(Tin, Qin, Pfull, Phalf, coldT, &
                         Tdel, Qdel, Rain, Snow, Lbot, &
                         dtinv, Time, mask, is, js, Conv, &
                         tracers, qtrmca)
 
-!-----------------------------------------------------------------------
-!
-!                       MOIST CONVECTIVE ADJUSTMENT
-!
-!-----------------------------------------------------------------------
-!
-!   INPUT:   Tin     temperature at full model levels
-!            Qin     specific humidity of water vapor at full
-!                      model levels
-!            Pfull   pressure at full model levels
-!            Phalf   pressure at half model levels
-!            coldT   Should MCA produce snow in this column?
-!
-!   OUTPUT:  Tdel    temperature adjustment at full model levels (deg k)
-!            Qdel    specific humidity adjustment of water vapor at
-!                       full model levels
-!            Rain    liquid precipitiation (in Kg m-2)
-!            Snow    ice phase precipitation (kg m-2)
-!  OPTIONAL
-!
-!   INPUT:   Lbot    integer index of the lowest model level,
-!                      Lbot is always <= size(Tin,3)
-!
-!  OUTPUT:   Conv    logical flag; TRUE then moist convective
-!                       adjustment was performed at that model level.
-!
-!-----------------------------------------------------------------------
 !----------------------PUBLIC INTERFACE ARRAYS--------------------------
     real, intent(INOUT), dimension(:, :, :)           :: Tin, Qin
-    real, intent(IN), dimension(:, :, :)           :: Pfull, Phalf
-    logical, intent(IN), dimension(:, :)             :: coldT
+    !! temperature [K] and specific humidity [kg/kg] at full levels; on return, the adjusted
+    !! values
+    real, intent(IN), dimension(:, :, :)           :: Pfull, Phalf  !! pressure at full and half levels [Pa]
+    logical, intent(IN), dimension(:, :)             :: coldT  !! whether precipitation should be snow (not used)
     real, intent(OUT), dimension(:, :, :)           :: Tdel, Qdel
+    !! tendencies of temperature [K/s] and specific humidity [kg/kg/s] at full levels
     real, intent(OUT), dimension(:, :)             :: Rain, Snow
+    !! liquid and frozen precipitation rates [kg/m2/s]; `Snow` is always zero
     integer, intent(IN), dimension(:, :), optional :: Lbot
+    !! index of the lowest model level in each column (at most `size(Tin,3)`)
     logical, intent(OUT), dimension(:, :, :), optional :: Conv
-    real, intent(IN)                                :: dtinv
+    !! true at the levels where the adjustment was performed
+    real, intent(IN)                                :: dtinv  !! inverse of the time step [1/s]
     integer, intent(IN)                                :: is, js
-    real, dimension(:, :, :, :), intent(in), optional :: tracers
+    !! starting subdomain i, j indices of the physics window
+    real, dimension(:, :, :, :), intent(in), optional :: tracers  !! tracer fields (not used)
     real, dimension(:, :, :, :), intent(out), optional :: qtrmca
-    type(time_type), intent(in)                         :: Time
-    real, intent(in), dimension(:, :, :), optional :: mask
+    !! tracer tendencies from the adjustment (always zero: tracer transport is not implemented)
+    type(time_type), intent(in)                         :: Time  !! current time (for the diagnostics)
+    real, intent(in), dimension(:, :, :), optional :: mask  !! mask (0 or 1) for the diagnostics
 
 !-----------------------------------------------------------------------
 !----------------------PRIVATE (LOCAL) ARRAYS---------------------------
@@ -208,7 +204,7 @@ contains
       Test2(:, :, k) = ALRM(:, :, k) + ALTOL - Test1(:, :, k)
     end do
 
-!!!!! Test1(:,:,:)=0.0-Qdif(:,:,:)
+!     Test1(:,:,:)=0.0-Qdif(:,:,:)
     Test1(:, :, :) = (0.0 - Qdif(:, :, :))*Qsat(:, :, :)
 
 !-------IVF=1 in unstable layers where both levels are saturated--------
@@ -369,7 +365,7 @@ contains
 
           do k = 1, MXLEV1
             IVF(i, j, k) = 0
-!!!!    if (Qdif(i,j,k) > 0.0 .and. Qdif(i,j,k+1) > 0.0 .and.  &
+!       if (Qdif(i,j,k) > 0.0 .and. Qdif(i,j,k+1) > 0.0 .and.  &
             if (Qdif(i, j, k)*Qsat(i, j, k) > 0.0 .and. &
                 Qdif(i, j, k + 1)*Qsat(i, j, k + 1) > 0.0 .and. &
                 (Temp(i, j, k + 1) - Temp(i, j, k)) > (ALRM(i, j, k) + ALTOL)) then
@@ -520,11 +516,14 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `moist_conv_nml` and registers the diagnostics,
+  !> including those of the tracers transported by the adjustment.
   subroutine moist_conv_init(axes, Time, tracers_in_mca)
 
-    integer, intent(in) :: axes(4)
-    type(time_type), intent(in) :: Time
+    integer, intent(in) :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in) :: Time  !! current time
     logical, dimension(:), intent(in), optional :: tracers_in_mca
+    !! for each tracer, whether it is transported by the moist convective adjustment
 
 !-----------------------------------------------------------------------
 
@@ -639,6 +638,7 @@ contains
   end subroutine moist_conv_init
 
 !#######################################################################
+  !> Writes a message to the log file and marks the module as not initialized.
   subroutine moist_conv_end
 
     integer :: log_unit

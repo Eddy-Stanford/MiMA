@@ -1,3 +1,13 @@
+!> Prescribed Gaussian heating, for up to `ngauss` heat sources.
+!>
+!> Each source is Gaussian in longitude, latitude, log-pressure and time, and can move
+!> in longitude, latitude and pressure. Sources with `pcenter` > 0 heat the atmosphere
+!> (`local_heating`, called by the physics driver); sources with `pcenter` < 0 heat the
+!> surface (`horizontal_heating`, called by `simple_surface`). Used with
+!> `do_local_heating = .true.` in `physics_driver_nml`.
+!>
+!> Namelist: `local_heating_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#local_heating_nml)).
 module local_heating_mod
 
   use fms_mod, only: error_mesg, FATAL, &
@@ -28,38 +38,30 @@ module local_heating_mod
   !---------------------------------------------------------------------------------------------------------------
   !
   !-------------------- diagnostics fields -------------------------------
-  integer :: id_tdt_lheat
-  character(len=14) :: mod_name = 'local_heating'
-  real :: missing_value = -999.
+  integer :: id_tdt_lheat  !! diagnostic id of `tdt_lheat`
+  character(len=14) :: mod_name = 'local_heating'  !! module name for the diagnostics
+  real :: missing_value = -999.  !! missing value of the diagnostics
   !-----------------------------------------------------------------------
   !-------------------- namelist -----------------------------------------
   !-----------------------------------------------------------------------
-  integer, parameter :: ngauss = 10
-  real, dimension(ngauss)   :: hamp = 0.        ! heating amplitude [K/d]
-  real, dimension(ngauss)   :: lonwidth = -1.       ! zonal width of Gaussian heating [deg]
-  real, dimension(ngauss)   :: loncenter = -1.       ! zonal center of Gaussian heating [deg], zonally symmetric if <0
-  real, dimension(ngauss)   :: lonmove = 0.        ! zonal center motion [deg/day]
-  real, dimension(ngauss)   :: latwidth = 15.       ! meridional width of Gaussian heating [deg]
-  real, dimension(ngauss)   :: latcenter = 0.        ! meridional center of Gaussian heating [deg]
-  real, dimension(ngauss)   :: latmove = 0.        ! meridional center motion [deg/day]
-  real, dimension(ngauss)   :: pwidth = 1.        ! height of Gaussian heating in log-pressure [log10(hPa)]
-  !  if <0, local heating will be constant in the vertical
-  real, dimension(ngauss)   :: pcenter = -1.        ! center of Gaussian heating in pressure [hPa]
-  !  if <0, local heating will be surface heating
-  real, dimension(ngauss)   :: pmove = 0.        ! vertical center motion [hPa/day]
-  logical, dimension(ngauss):: is_periodic = .false.  ! if .true., reset location in accordance
-  !  with temporal evolution
-  !  in this case, tphase and tperiod
-  !  also apply to spatial position
-  !  periodicity is unidirectional for longitude, and pressure,
-  !   ["jump back" to start]
-  !   but back-and-forth for latitude [reverse motion]
-  real, dimension(ngauss)   :: twidth = -1.        ! temporal width of Gaussian heating [days],
-  !   constant in time if <0
-  real, dimension(ngauss)   :: tphase = 0.        ! temporal phase of Gaussian heating [days]
-  real, dimension(ngauss)   :: tperiod = -1.        ! temporal period of Gaussian heating
-  ! if < 0, period is in fraction of year
-  ! if > 0, period is in days
+  integer, parameter :: ngauss = 10  !! maximum number of heat sources
+  real, dimension(ngauss)   :: hamp = 0.        !! [K/day] amplitude of the heating
+  real, dimension(ngauss)   :: lonwidth = -1.       !! [deg] zonal width, if `loncenter` >= 0
+  real, dimension(ngauss)   :: loncenter = -1.       !! [deg] longitude of the centre; zonally symmetric if < 0
+  real, dimension(ngauss)   :: lonmove = 0.        !! [deg/day] zonal speed of the source
+  real, dimension(ngauss)   :: latwidth = 15.       !! [deg] meridional width
+  real, dimension(ngauss)   :: latcenter = 0.        !! [deg] latitude of the centre
+  real, dimension(ngauss)   :: latmove = 0.        !! [deg/day] meridional speed of the source
+  real, dimension(ngauss)   :: pwidth = 1.        !! [log10(hPa)] vertical width; constant in the vertical if < 0
+  real, dimension(ngauss)   :: pcenter = -1.        !! [hPa] pressure of the centre; surface heating if < 0
+  real, dimension(ngauss)   :: pmove = 0.        !! [hPa/day] vertical speed of the source
+  logical, dimension(ngauss):: is_periodic = .false.
+  !! reset the position periodically (with `tphase` and `tperiod`): periodic in longitude and
+  !! pressure, back and forth in latitude
+  real, dimension(ngauss)   :: twidth = -1.        !! [days] temporal width; constant in time if < 0
+  real, dimension(ngauss)   :: tphase = 0.        !! [days] temporal phase
+  real, dimension(ngauss)   :: tperiod = -1.
+  !! temporal period: [fraction of a year] if < 0, [days] if > 0
 
   namelist /local_heating_nml/ hamp &
     , lonwidth, loncenter, lonmove &
@@ -69,16 +71,19 @@ module local_heating_mod
     , twidth, tphase, tperiod
 
   ! local variables
-  real, dimension(ngauss) :: logpc
-  integer                :: daysperyear
-  logical                :: do_3d_heating
+  real, dimension(ngauss) :: logpc  !! not used
+  integer                :: daysperyear  !! number of days in a year
+  logical                :: do_3d_heating  !! true if any source has `pcenter` > 0
 
 contains
 
+  !> Initializes the module: reads `local_heating_nml`, converts the namelist values to
+  !> SI units and radians, and registers the diagnostic `tdt_lheat` if any source heats
+  !> the atmosphere.
   subroutine local_heating_init(axes, Time)
     implicit none
-    integer, intent(in), dimension(4) :: axes
-    type(time_type), intent(in)       :: Time
+    integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)       :: Time  !! current time
     !-----------------------------------------------------------------------
     integer :: seconds
     integer :: unit, io, ierr, n
@@ -125,13 +130,14 @@ contains
   !-------------------- computing localized heating ----------------------
   !-----------------------------------------------------------------------
 
+  !> Adds the heating of the atmosphere by the sources with `pcenter` > 0 to `tdt_tot`.
   subroutine local_heating(is, js, Time, lon, lat, p_full, tdt_tot)
     implicit none
-    integer, intent(in)                  :: is, js
-    type(time_type), intent(in)           :: Time
-    real, dimension(:, :), intent(in)    :: lon, lat
-    real, dimension(:, :, :), intent(in)    :: p_full
-    real, dimension(:, :, :), intent(inout) :: tdt_tot
+    integer, intent(in)                  :: is, js  !! starting subdomain i, j indices of the physics window
+    type(time_type), intent(in)           :: Time  !! current time
+    real, dimension(:, :), intent(in)    :: lon, lat  !! longitudes and latitudes [rad]
+    real, dimension(:, :, :), intent(in)    :: p_full  !! pressure at full levels [Pa]
+    real, dimension(:, :, :), intent(inout) :: tdt_tot  !! temperature tendency, to which the heating is added [K/s]
     ! local variables
     integer :: i, j, k, n
     real, dimension(size(lon, 1), size(lon, 2)) :: horiz_tdt
@@ -182,12 +188,19 @@ contains
   !-----------------------------------------------------------------------
   !-----------------------------------------------------------------------
 
+  !> Returns the horizontal and temporal part of the heating, summed over the sources.
+  !>
+  !> Without `tcenter` (the call from `simple_surface`) it sums the surface sources
+  !> (`pcenter` < 0); with `tcenter` it sums the atmospheric sources (`pcenter` > 0) and
+  !> returns their current centres.
   subroutine horizontal_heating(Time, lon, lat, horiz_tdt, tcenter)
     implicit none
-    type(time_type), intent(in)       :: Time
-    real, dimension(:, :), intent(in)  :: lon, lat
-    real, dimension(:, :), intent(out) :: horiz_tdt
+    type(time_type), intent(in)       :: Time  !! current time
+    real, dimension(:, :), intent(in)  :: lon, lat  !! longitudes and latitudes [rad]
+    real, dimension(:, :), intent(out) :: horiz_tdt  !! heating rate [K/s]
     real, dimension(3, ngauss), intent(out), optional :: tcenter
+    !! current centre of each source: longitude [rad], latitude [rad] and log10 of the
+    !! pressure [log10(Pa)] (zero for sources that are not used)
     ! local variables
     integer :: i, j, d, n, deltasecs
     integer :: seconds, days, fullseconds

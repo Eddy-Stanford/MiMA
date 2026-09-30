@@ -1,21 +1,20 @@
+!> Held and Suarez (1994) idealized forcing.
+!>
+!> Newtonian relaxation of temperature towards the zonally symmetric equilibrium
+!> profile Teq(lat, p), and Rayleigh friction of the horizontal wind in the boundary
+!> layer. The default parameters are those of HS94. The forcing depends only on
+!> latitude and sigma = p/p_surf, so it applies at any resolution and with any
+!> vertical levels. Used with `do_held_suarez = .true.` in `physics_driver_nml`.
+!>
+!> Namelist: `held_suarez_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#held_suarez_nml)).
+!>
+!> References:
+!>
+!> * Held, I. M., and M. J. Suarez, 1994: A proposal for the intercomparison of the
+!>   dynamical cores of atmospheric general circulation models. Bull. Amer. Meteor.
+!>   Soc., 75, 1825-1830, https://doi.org/10.1175/1520-0477(1994)075%3C1825:APFTIO%3E2.0.CO;2.
 module held_suarez_mod
-
-!-----------------------------------------------------------------------
-!
-!   Held and Suarez (1994) idealized forcing:
-!     - Newtonian relaxation of temperature towards the zonally symmetric
-!       equilibrium profile Teq(lat, p), and
-!     - Rayleigh friction of the horizontal wind in the boundary layer.
-!
-!   Held, I. M. and M. J. Suarez, 1994: A proposal for the intercomparison
-!   of the dynamical cores of atmospheric general circulation models.
-!   Bull. Amer. Meteor. Soc., 75, 1825-1830.
-!
-!   The default parameters are those of HS94. The forcing depends only on
-!   latitude and sigma = p/p_surf, so it applies at any resolution and
-!   with any vertical levels.
-!
-!-----------------------------------------------------------------------
 
   use fms_mod, only: input_nml_file, check_nml_error, &
                      mpp_pe, mpp_root_pe, stdlog, &
@@ -34,17 +33,17 @@ module held_suarez_mod
 
 !-------------------- namelist -----------------------------------------
 
-  real    :: t_zero = 315.     ! surface equilibrium temperature at the equator [K]
-  real    :: t_strat = 200.     ! minimum (stratospheric) equilibrium temperature [K]
-  real    :: delh = 60.      ! equator-to-pole temperature difference [K]
-  real    :: delv = 10.      ! vertical potential temperature difference [K]
-  real    :: p_ref = 1.e5     ! reference pressure [Pa]
-  real    :: sigma_b = 0.7      ! top of the frictional boundary layer [sigma]
-  real    :: ka = 40.      ! free-atmosphere relaxation time [days]
-  real    :: ks = 4.       ! surface relaxation time at the equator [days]
-  real    :: kf = 1.       ! boundary-layer Rayleigh friction time [days]
-  logical :: do_rayleigh_friction = .true.   ! apply the boundary-layer friction
-  logical :: do_conserve_energy = .false.  ! heat the air by the frictional dissipation
+  real    :: t_zero = 315.     !! [K] surface equilibrium temperature at the equator
+  real    :: t_strat = 200.     !! [K] minimum (stratospheric) equilibrium temperature
+  real    :: delh = 60.      !! [K] equator-to-pole temperature difference
+  real    :: delv = 10.      !! [K] vertical potential temperature difference
+  real    :: p_ref = 1.e5     !! [Pa] reference pressure
+  real    :: sigma_b = 0.7      !! top of the frictional boundary layer (sigma)
+  real    :: ka = 40.      !! [days] free-atmosphere relaxation time
+  real    :: ks = 4.       !! [days] surface relaxation time at the equator
+  real    :: kf = 1.       !! [days] boundary-layer Rayleigh friction time
+  logical :: do_rayleigh_friction = .true.   !! apply the boundary-layer friction
+  logical :: do_conserve_energy = .false.  !! heat the air by the frictional dissipation
 
   namelist /held_suarez_nml/ t_zero, t_strat, delh, delv, p_ref, sigma_b, ka, ks, kf, &
     do_rayleigh_friction, do_conserve_energy
@@ -61,10 +60,12 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `held_suarez_nml`, checks the time scales and
+  !> `sigma_b`, and registers the diagnostics.
   subroutine held_suarez_init(axes, Time)
 
-    integer, intent(in), dimension(4) :: axes
-    type(time_type), intent(in)               :: Time
+    integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)               :: Time  !! current time
 
     integer :: unit, ierr, io
 
@@ -98,19 +99,20 @@ contains
 
 !#######################################################################
 
+  !> Adds the Held-Suarez tendencies to `udt`, `vdt` and `tdt`.
+  !>
+  !> The tendencies are computed from `u`, `v` and `t` (the previous time level in the
+  !> leapfrog scheme).
   subroutine held_suarez_forcing(is, js, Time, lat, p_full, p_half, u, v, t, udt, vdt, tdt)
 
-!-----------------------------------------------------------------------
-!   Adds the Held-Suarez tendencies to udt, vdt and tdt. u, v and t are
-!   the fields the tendencies are computed from (the previous time level
-!   in the leapfrog scheme), p_full and p_half the pressures [Pa].
-!-----------------------------------------------------------------------
-
-    integer, intent(in)                      :: is, js
-    type(time_type), intent(in)                      :: Time
-    real, intent(in), dimension(:, :)   :: lat
+    integer, intent(in)                      :: is, js  !! starting subdomain i, j indices of the physics window
+    type(time_type), intent(in)                      :: Time  !! current time (for the diagnostics)
+    real, intent(in), dimension(:, :)   :: lat  !! latitudes [rad]
     real, intent(in), dimension(:, :, :) :: p_full, p_half, u, v, t
+    !! `p_full`, `p_half`: pressure at full and half levels [Pa]; `u`, `v`: zonal and
+    !! meridional wind [m/s]; `t`: temperature [K]
     real, intent(inout), dimension(:, :, :) :: udt, vdt, tdt
+    !! tendencies of u and v [m/s2] and of temperature [K/s], to which the forcing is added
 
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: teq, tdt_hs, udt_hs, vdt_hs, diss
     real, dimension(size(t, 1), size(t, 2))           :: sin2, cos2, cos4, p_surf
@@ -169,6 +171,7 @@ contains
 
 !#######################################################################
 
+  !> Marks the module as not initialized.
   subroutine held_suarez_end
 
     module_is_initialized = .false.

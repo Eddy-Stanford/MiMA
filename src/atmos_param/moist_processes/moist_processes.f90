@@ -1,15 +1,23 @@
 
+!> Interface to the moist processes: Betts-Miller convection, moist convective adjustment
+!> and large-scale condensation.
+!>
+!> Calls the convection scheme (`do_bm` or `do_mca`, not both) and then large-scale
+!> condensation (`do_lsc`), adds their tendencies, and returns the rain and snow rates.
+!> Also computes the convective gustiness (`do_gust_cv`), the wet deposition of tracers,
+!> and the diagnostics of the moist processes (precipitation, relative humidity, water
+!> vapour path, CAPE and CIN), and passes the precipitation to the radiation. Following
+!> Frierson (2007), MiMA uses large-scale condensation with the Betts-Miller scheme.
+!>
+!> Namelist: `moist_processes_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#moist_processes_nml)).
+!>
+!> References:
+!>
+!> * Frierson, D. M. W., 2007: The dynamics of idealized convection schemes and their
+!>   effect on the zonally averaged tropical circulation. J. Atmos. Sci., 64, 1959-1976,
+!>   https://doi.org/10.1175/JAS3935.1.
 module moist_processes_mod
-
-!-----------------------------------------------------------------------
-!
-!         interface module for moisture processes
-!         ---------------------------------------
-!             Betts-Miller convective adjustment
-!             moist convective adjustment
-!             large-scale condensation
-!
-!-----------------------------------------------------------------------
 
   use betts_miller_mod, only: betts_miller, betts_miller_init
 
@@ -74,45 +82,19 @@ module moist_processes_mod
 !-------------------- namelist data (private) --------------------------
 
   logical :: do_mca = .false., do_lsc = .true., &
+             !! `do_mca`: moist convective adjustment (`moist_conv_nml`); `do_lsc`: large-scale
+             !! condensation (`lscale_cond_nml`)
              use_tau = .false., do_gust_cv = .false., &
-             do_bm = .true.
+             !! `use_tau`: use the current time level (`.true.`) or the updated values (`.false.`);
+             !! `do_gust_cv`: convective gustiness
+             do_bm = .true.  !! Betts-Miller convection (`betts_miller_nml`); not with `do_mca`
 
-  real :: pdepth = 150.e2
-  real :: tfreeze = 273.16
-  real :: gustmax = 3.             ! maximum gustiness wind (m/s)
-  real :: gustconst = 10./86400.   ! constant in kg/m2/sec, default =
-  ! 1 cm/day = 10 mm/day
-
-!---------------- namelist variable definitions ------------------------
-!
-!   do_mca   = switch to turn on/off moist convective adjustment;
-!                [logical, default: do_mca=false ]
-!   do_lsc   = switch to turn on/off large scale condensation
-!                [logical, default: do_lsc=true ]
-!   use_tau  = switch to determine whether current time level (tau)
-!                will be used or else future time level (tau+1).
-!                if use_tau = true then the input values for t,q, and r
-!                are used; if use_tau = false then input values
-!                tm+tdt*dt, etc. are used.
-!                [logical, default: use_tau=false ]
-!
-!   pdepth   = boundary layer depth in pascals for determining mean
-!                temperature tfreeze (used for snowfall determination)
-!   tfreeze  = mean temperature used for snowfall determination (deg k)
-!                [real, default: tfreeze=273.16]
-!
-!  do_gust_cv = switch to use convective gustiness (default = false)
-!  gustmax    = maximum convective gustiness (m/s)
-!  gustconst  = precip rate which defines precip rate which begins to
-!               matter for convective gustiness (kg/m2/sec)
-!
-!   do_bm    = switch to turn on/off betts-miller scheme
-!                [logical, default: do_bm=true ]
-!
-!   notes: pdepth and tfreeze are used to determine liquid vs. solid
-!          precipitation for the mca and lsc schemes.
-!
-!-----------------------------------------------------------------------
+  real :: pdepth = 150.e2  !! [Pa] boundary-layer depth used to decide between rain and snow
+  real :: tfreeze = 273.16  !! [K] freezing temperature for that decision
+  real :: gustmax = 3.             !! [m/s] maximum convective gustiness
+  real :: gustconst = 10./86400.
+  !! [kg/m2/s] precipitation rate at which convective gustiness starts to matter
+  ! default: 1 cm/day = 10 mm/day
 
   namelist /moist_processes_nml/ do_mca, do_lsc, &
     pdepth, tfreeze, &
@@ -152,6 +134,11 @@ contains
 
 !#######################################################################
 
+  !> Computes the tendencies and precipitation of the moist processes and sends their
+  !> diagnostics.
+  !>
+  !> The schemes act on the current time level (`use_tau`) or on the values updated with
+  !> the tendencies so far (`tm + tdt*dt`, the default).
   subroutine moist_processes(is, ie, js, je, Time, dt, land, &
                              phalf, pfull, zhalf, zfull, omega, diff_t, &
                              t, q, r, u, v, tm, qm, rm, um, vm, &
@@ -159,111 +146,32 @@ contains
                              lprec, fprec, gust_cv, area, &
                              lat, mask, kbot)
 
-!-----------------------------------------------------------------------
-!
-!    in:  is,ie      starting and ending i indices for window
-!
-!         js,je      starting and ending j indices for window
-!
-!         Time       time used for diagnostics [time_type]
-!
-!         dt         time step (from t(n-1) to t(n+1) if leapfrog)
-!                    in seconds   [real]
-!
-!         land        fraction of surface covered by land
-!                     [real, dimension(nlon,nlat)]
-!
-!         phalf      pressure at half levels in pascals
-!                      [real, dimension(nlon,nlat,nlev+1)]
-!
-!         pfull      pressure at full levels in pascals
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         omega      omega (vertical velocity) at full levels
-!                    in pascals per second
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         diff_t     vertical diffusion coefficient for temperature
-!                    and tracer (m*m/sec) on half levels
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         t, q       temperature (t) [deg k] and specific humidity
-!                    of water vapor (q) [kg/kg] at full model levels,
-!                    at the current time step if leapfrog scheme
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         r          tracer fields at full model levels,
-!                    at the current time step if leapfrog
-!                      [real, dimension(nlon,nlat,nlev,ntrace)]
-!
-!         u, v,      zonal and meridional wind [m/s] at full model levels,
-!                    at the current time step if leapfrog scheme
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         tm, qm     temperature (t) [deg k] and specific humidity
-!                    of water vapor (q) [kg/kg] at full model levels,
-!                    at the previous time step if leapfrog scheme
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         rm         tracer fields at full model levels,
-!                    at the previous time step if leapfrog
-!                      [real, dimension(nlon,nlat,nlev,ntrace)]
-!
-!         um, vm     zonal and meridional wind [m/s] at full model levels,
-!                    at the previous time step if leapfrog
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         area       grid box area (in m2)
-!                      [real, dimension(nlon,nlat)]
-!
-!         lat        latitude in radians
-!                      [real, dimension(nlon,nlat)]
-!
-! inout:  tdt, qdt   temperature (tdt) [deg k/sec] and specific
-!                    humidity of water vapor (qdt) tendency [1/sec]
-!                      [real, dimension(nlon,nlat,nlev)]
-!
-!         rdt        tracer tendencies
-!                      [real, dimension(nlon,nlat,nlev,ntrace)]
-!
-!         udt, vdt   zonal and meridional wind tendencies [m/s/s]
-!
-!   out:  lprec      liquid precipitiaton rate (rain) in kg/m2/s
-!                      [real, dimension(nlon,nlat)]
-!
-!         fprec      frozen precipitation rate (snow) in kg/m2/s
-!                      [real, dimension(nlon,nlat)]
-!
-!         gust_cv    gustiness from convection  in m/s
-!                      [real, dimension(nlon,nlat)]
-!
-!       optional
-!  -----------------
-!
-!    in:  mask       mask (1. or 0.) for grid boxes above or below
-!                    the ground   [real, dimension(nlon,nlat,nlev)]
-!
-!         kbot       index of the lowest model level
-!                      [integer, dimension(nlon,nlat)]
-!
-!
-!-----------------------------------------------------------------------
     integer, intent(in)              :: is, ie, js, je
-    type(time_type), intent(in)              :: Time
-    real, intent(in)                      :: dt
-    real, intent(in), dimension(:, :)     :: land
+    !! starting and ending subdomain i, j indices of the physics window
+    type(time_type), intent(in)              :: Time  !! time for the diagnostics
+    real, intent(in)                      :: dt  !! time step (from t(n-1) to t(n+1) for leapfrog) [s]
+    real, intent(in), dimension(:, :)     :: land  !! land fraction (not used)
     real, intent(in), dimension(:, :, :)   :: phalf, pfull, zhalf, zfull, &
                                               omega, diff_t, &
                                               t, q, u, v, tm, qm, um, vm
+    !! `phalf`, `pfull`: pressure at half and full levels [Pa]; `zhalf`, `zfull`, `omega`,
+    !! `diff_t`: not used; `t`, `q`, `u`, `v`: temperature [K], specific humidity [kg/kg] and
+    !! zonal and meridional wind [m/s] at the current time level; `tm`, `qm`, `um`, `vm`: the
+    !! same at the previous time level
     real, intent(in), dimension(:, :, :, :) :: r, rm
+    !! tracers at the current and previous time levels
     real, intent(inout), dimension(:, :, :)  :: tdt, qdt, udt, vdt
-    real, intent(inout), dimension(:, :, :, :):: rdt
+    !! tendencies of temperature [K/s], specific humidity [kg/kg/s] and zonal and meridional
+    !! wind [m/s2]; the tendencies of the moist processes are added to `tdt` and `qdt`
+    real, intent(inout), dimension(:, :, :, :):: rdt  !! tracer tendencies (wet deposition is subtracted)
     real, intent(out), dimension(:, :)     :: lprec, fprec, gust_cv
-    real, intent(in), dimension(:, :)     :: area
-    real, intent(in), dimension(:, :)     :: lat
+    !! `lprec`, `fprec`: rain and snow rates [kg/m2/s]; `gust_cv`: convective gustiness [m/s]
+    real, intent(in), dimension(:, :)     :: area  !! grid box area [m2] (not used)
+    real, intent(in), dimension(:, :)     :: lat  !! latitude [rad] (not used)
 
     real, intent(in), dimension(:, :, :), optional :: mask
-    integer, intent(in), dimension(:, :), optional :: kbot
+    !! mask (1 or 0) for levels above or below the ground
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
 !-----------------------------------------------------------------------
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tin, qin, ttnd, qtnd, &
@@ -640,7 +548,7 @@ contains
 
 ! start chemistry
 !if (id_wet(n) /= 0 ) then
-!! --------send wet deposition data to diag ----------
+! --------send wet deposition data to diag ----------
 !used = send_data(id_wet(n), wet_data(:,:,:,n), Time,is_in=is,js_in=js)
 !endif
 ! end chemistry
@@ -741,9 +649,9 @@ contains
 !-----------------------------------------------------------------------
 !------- diagnostics for CAPE and CIN
 
-!!-- compute and write out CAPE and CIN--
+!-- compute and write out CAPE and CIN--
     if (id_cape > 0 .or. id_cin > 0) then
-!! calculate r
+! calculate r
       rin = qin/(1.0 - qin)
       do j = js, je
         do i = is, ie
@@ -772,26 +680,22 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `moist_processes_nml`, initializes the selected schemes,
+  !> finds the tracers transported by moist convective adjustment and registers the
+  !> diagnostics.
   subroutine moist_processes_init(id, jd, kd, lonb, latb, pref, &
                                   !                                 axes, Time, doing_strat)
                                   axes, Time)
 
 !-----------------------------------------------------------------------
     integer, intent(in) :: id, jd, kd, axes(4)
+    !! `id`, `jd`: number of grid points in the global fields along x and y (not used); `kd`:
+    !! number of vertical levels (not used); `axes`: diagnostic axes (lon, lat, pfull, phalf)
     real, dimension(:), intent(in) :: lonb, latb, pref
-    type(time_type), intent(in) :: Time
+    !! longitudes and latitudes of the cell boundaries [rad] and reference pressures [Pa]
+    !! (not used)
+    type(time_type), intent(in) :: Time  !! current time
 !logical,         intent(out) :: doing_strat
-!-----------------------------------------------------------------------
-!
-!      input
-!     --------
-!
-!      id, jd        number of horizontal grid points in the global
-!                    fields along the x and y axis, repectively.
-!                      [integer]
-!
-!      kd            number of vertical points in a column of atmosphere
-!-----------------------------------------------------------------------
 
     integer :: unit, io, ierr, n, nt, ntprog
     character(len=32) :: tracer_units, tracer_name
@@ -898,6 +802,7 @@ contains
 
 !#######################################################################
 
+  !> Marks the module as not initialized.
   subroutine moist_processes_end
 
     if (.not. module_is_initialized) return
@@ -913,6 +818,7 @@ contains
 !#######################################################################
 !#######################################################################
 
+  !> Returns the mean temperature of the lowest `pdepth` of the atmosphere.
   subroutine tempavg(pdepth, phalf, temp, tsnow, mask)
 
 !-----------------------------------------------------------------------
@@ -1020,6 +926,7 @@ contains
 
 !all new cape calculation.
 
+  !> Computes CAPE and CIN of a parcel lifted from the lowest level (for the diagnostics).
   subroutine capecalcnew(kx, p, phalf, cp, rdgas, rvgas, hlv, kappa, tin, rin, &
                          cape, cin)
 
