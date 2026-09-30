@@ -6,6 +6,8 @@ module simple_surface_mod
 use atmos_model_mod, only: atmos_data_type
 
 use surface_flux_mod, only: surface_flux
+use mima_monin_obukhov_mod, only: mo_profile
+use sat_vapor_pres_mod, only: compute_qs
 
 
 use mima_diag_integral_mod, only: diag_integral_field_init, &
@@ -411,12 +413,85 @@ endif
    if ( id_u_atm       > 0 ) used = send_data ( id_u_atm,      Atm%u_bot,          Time )
    if ( id_v_atm       > 0 ) used = send_data ( id_v_atm,      Atm%v_bot,          Time )
    if ( id_albedo      > 0 ) used = send_data ( id_albedo,     albedo,             Time )
+   if ( id_u_flux      > 0 ) used = send_data ( id_u_flux,     flux_u,             Time )
+   if ( id_v_flux      > 0 ) used = send_data ( id_v_flux,     flux_v,             Time )
+
+   if ( id_t_ref > 0 .or. id_rh_ref > 0 .or. id_u_ref > 0 .or. id_v_ref > 0 .or. &
+        id_del_h > 0 .or. id_del_m > 0 .or. id_del_q > 0 )                        &
+      call reference_height_diagnostics ( Time, Atm, t_surf_atm, q_surf,          &
+                                          u_surf, v_surf, rough_mom, rough_heat,  &
+                                          rough_moist, u_star, b_star, q_star )
 
 
 
 !=======================================================================
 
  end subroutine compute_flux
+
+!#######################################################################
+
+subroutine reference_height_diagnostics ( Time, Atm, t_surf, q_surf,         &
+                                          u_surf, v_surf, rough_mom,         &
+                                          rough_heat, rough_moist,           &
+                                          u_star, b_star, q_star )
+
+! Diagnostics at the reference heights z_ref_heat (t_ref, rh_ref) and
+! z_ref_mom (u_ref, v_ref) above the surface, computed as in the FMS/AM2
+! flux_exchange. Between the surface and the lowest model level (height
+! Atm%z_bot) a quantity f is given by the Monin-Obukhov profile, so that
+!
+!     f(z_ref) = f_surf + (f_atm - f_surf) * del_f,
+!     del_f    = (f(z_ref) - f_surf) / (f(z_atm) - f_surf),
+!
+! where del_m (winds), del_h (temperature) and del_q (specific humidity)
+! come from mo_profile, for the same roughness lengths and u_star, b_star
+! as the surface fluxes. The surface values are t_surf, the surface
+! specific humidity q_surf from surface_flux, and zero wind. Then
+!
+!     rh_ref = 100 * q_ref / q_sat(t_ref, p_surf),
+!     q_sat  = eps*e_s / (p_surf - (1-eps)*e_s),   eps = rdgas/rvgas,
+!
+! with e_s(t_ref) from the sat_vapor_pres_mod table (compute_qs; with
+! do_simple = .true. the table is the simple Clausius-Clapeyron fit over
+! liquid water). These fields do not affect the model state.
+
+type       (time_type), intent(in) :: Time
+type (atmos_data_type), intent(in) :: Atm
+real, dimension(:,:),   intent(in) :: t_surf, q_surf, u_surf, v_surf,     &
+                                      rough_mom, rough_heat, rough_moist, &
+                                      u_star, b_star, q_star
+
+real, dimension(size(t_surf,1), size(t_surf,2)) :: del_m, del_h, del_q, &
+                                                   del_unused, t_ref, q_ref, qs_ref
+logical :: used
+
+! mo_profile returns all three factors at its first height (its second height
+! argument is not used), so del_h and del_q are recomputed at z_ref_heat.
+call mo_profile ( z_ref_mom, z_ref_heat, Atm%z_bot,                  &
+                  rough_mom, rough_heat, rough_moist,                &
+                  u_star, b_star, q_star, del_m, del_h, del_q )
+if ( z_ref_heat /= z_ref_mom )                                       &
+   call mo_profile ( z_ref_heat, z_ref_heat, Atm%z_bot,              &
+                     rough_mom, rough_heat, rough_moist,             &
+                     u_star, b_star, q_star, del_unused, del_h, del_q )
+
+t_ref = t_surf + (Atm%t_bot - t_surf) * del_h
+if ( id_t_ref > 0 ) used = send_data ( id_t_ref, t_ref, Time )
+
+if ( id_rh_ref > 0 ) then
+   q_ref = q_surf + (Atm%q_bot - q_surf) * del_q
+   call compute_qs ( t_ref, Atm%p_surf, qs_ref )
+   used = send_data ( id_rh_ref, 100.*q_ref/qs_ref, Time )
+endif
+
+if ( id_u_ref > 0 ) used = send_data ( id_u_ref, u_surf + (Atm%u_bot - u_surf)*del_m, Time )
+if ( id_v_ref > 0 ) used = send_data ( id_v_ref, v_surf + (Atm%v_bot - v_surf)*del_m, Time )
+
+if ( id_del_h > 0 ) used = send_data ( id_del_h, del_h, Time )
+if ( id_del_m > 0 ) used = send_data ( id_del_m, del_m, Time )
+if ( id_del_q > 0 ) used = send_data ( id_del_q, del_q, Time )
+
+end subroutine reference_height_diagnostics
 
 !#######################################################################
 
@@ -627,7 +702,9 @@ endif
  
 
 
-if (surface_choice .eq. 1 .and. .not. do_sc_sst)then
+! Set up the heat capacity and the land-sea mask whatever the SST choice: the
+! mask is also used by roughness_choice = 3, 4 and the heat capacity by the
+! heat_capacity diagnostic.
     allocate(land_sea_heat_capacity(size(Atm%t_bot,1), size(Atm%t_bot,2)))
     land_sea_heat_capacity = heat_capacity
    !mj ocean depth function of latitude
@@ -723,7 +800,6 @@ if (surface_choice .eq. 1 .and. .not. do_sc_sst)then
                      enddo	   
 	       where(.not. lmask_navy) land_sea_heat_capacity = land_capacity
    endif
-endif
 
 
 
@@ -1002,11 +1078,11 @@ subroutine diag_field_init ( Time, atmos_axes )
 
    id_u_flux     = &
    register_diag_field ( mod_name, 'tau_x',      atmos_axes, Time, &
-                        'zonal wind stress',     'pa'   )
+                        'zonal surface stress on the atmosphere (positive eastward)', 'N/m2' )
 
    id_v_flux     = &
    register_diag_field ( mod_name, 'tau_y',      atmos_axes, Time, &
-                        'meridional wind stress',     'pa'   )
+                        'meridional surface stress on the atmosphere (positive northward)', 'N/m2' )
 
    id_t_surf     = &
    register_diag_field ( mod_name, 't_surf',     atmos_axes, Time, &
@@ -1046,32 +1122,32 @@ subroutine diag_field_init ( Time, atmos_axes )
 
    id_t_ref      = &
    register_diag_field ( mod_name, 't_ref',      atmos_axes, Time, &
-                        'temperature at '//label_zh, 'deg_k' , &
+                        'air temperature at '//trim(label_zh), 'K', &
                         range=trange      )
 
    id_rh_ref     = &
    register_diag_field ( mod_name, 'rh_ref',     atmos_axes, Time,   &
-                        'relative humidity at '//label_zh, 'percent' )
+                        'relative humidity at '//trim(label_zh)//' (100 q/q_sat)', 'percent' )
 
    id_u_ref      = &
    register_diag_field ( mod_name, 'u_ref',      atmos_axes, Time, &
-                        'zonal wind component at '//label_zm,  'm/s', &
+                        'zonal wind at '//trim(label_zm),  'm/s', &
                         range=vrange )
 
    id_v_ref      = &
    register_diag_field ( mod_name, 'v_ref',      atmos_axes, Time,     &
-                      'meridional wind component at '//label_zm, 'm/s', &
+                        'meridional wind at '//trim(label_zm), 'm/s', &
                         range=vrange )
 
    id_del_h      = &
    register_diag_field ( mod_name, 'del_h',      atmos_axes, Time,  &
-                        'ref height interp factor for heat', 'none' )
+                        'Monin-Obukhov profile factor (T('//trim(label_zh)//')-T_surf)/(T_atm-T_surf)', 'none' )
    id_del_m      = &
    register_diag_field ( mod_name, 'del_m',      atmos_axes, Time,     &
-                        'ref height interp factor for momentum','none' )
+                        'Monin-Obukhov profile factor u('//trim(label_zm)//')/u_atm', 'none' )
    id_del_q      = &
    register_diag_field ( mod_name, 'del_q',      atmos_axes, Time,     &
-                        'ref height interp factor for moisture','none' )
+                        'Monin-Obukhov profile factor (q('//trim(label_zh)//')-q_surf)/(q_atm-q_surf)', 'none' )
    id_albedo      = &
    register_diag_field ( mod_name, 'albedo',      atmos_axes, Time,     &
                         'surface albedo','none' )
