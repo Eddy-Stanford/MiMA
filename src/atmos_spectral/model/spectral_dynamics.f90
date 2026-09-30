@@ -9,7 +9,7 @@ module spectral_dynamics_mod
    use          constants_mod, only: rdgas, rvgas, grav, cp_air, omega, radius, pi
 
    use       time_manager_mod, only: time_type, get_time, set_time, get_calendar_type, NO_CALENDAR, &
-      get_date, interval_alarm, operator( - ), operator( + )
+      get_date, interval_alarm, operator( - ), operator( + ), operator( * ), operator( / )
 
    use      field_manager_mod, only: MODEL_ATMOS, parse
 
@@ -801,7 +801,7 @@ contains
       real, dimension(is:ie, js:je, num_levels             ) :: dt_ug_damp, dt_vg_damp, dt_tg_damp
       real, dimension(is:ie, js:je, num_levels, num_tracers) :: dt_tracers_tmp
 
-      integer :: j, k, time_level, seconds, days, nsphum
+      integer :: j, k, time_level, nsphum
       real    :: delta_t, temperature_correction
       real, dimension(num_tracers) :: dt_hadv, dt_vadv
 !mj error message
@@ -960,9 +960,10 @@ contains
          previous = current
          current  = future
 
-         call get_time(Time, seconds, days)
-         seconds = seconds + step_number*int(dt_real/2)
-         Time_diag = set_time(seconds, days)
+         ! The fields at the new 'current' level are valid at the end of this (sub)step,
+         ! Time + step_number*Time_step/num_steps (Time_next when num_steps=1). The complete
+         ! Robert filter only alters the old level, so these values are final.
+         Time_diag = Time + (Time_step*step_number)/num_steps
          call every_step_diagnostics( &
             Time_diag, psg(:,:,current), ug(:,:,:,current), vg(:,:,:,current), tg(:,:,:,current), grid_tracers(:,:,:,current,:), &
             wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp, temperature_correction, water_correction, &

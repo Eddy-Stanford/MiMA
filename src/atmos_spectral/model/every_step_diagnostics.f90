@@ -204,6 +204,11 @@ subroutine every_step_diagnostics(Time, p_surf, u_grid, v_grid, t_grid, tr_grid,
            wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp,  &
            temperature_correction, water_correction, dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
 
+! Called at the end of each dynamics (sub)step. Time is the end of the (sub)step, where
+! p_surf, u_grid, v_grid, t_grid and tr_grid (the new time level) are valid. wg_full, p_full,
+! p_half, z_full, kegen* and the damping tendencies were evaluated at the start of the
+! (sub)step; like the physics tendencies, which are sent at Time_next, they are attributed
+! to the end of the step over which they act.
 type(time_type), intent(in) :: Time
 real, intent(in), dimension(is:ie, js:je)                         :: p_surf
 real, intent(in), dimension(is:ie, js:je, num_levels)             :: u_grid, v_grid, t_grid
