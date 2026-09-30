@@ -1,9 +1,28 @@
+!> Interpolation of climatology files (e.g. ozone) to the model grid, time and levels.
+!>
+!> `interpolator_init` opens the netCDF file `INPUT/file_name` and sets up an
+!> `interpolate_type` for some or all of its fields; `interpolator` then returns a field
+!> interpolated conservatively to the model grid, to the model time and, for 3-D and 4-D
+!> output, to the model pressure levels. The file's latitudes and longitudes may be in
+!> degrees or radians, and its levels pressure (`pfull`, `phalf`, in Pa, hPa or mb) or
+!> sigma (`sigma_full`, `sigma_half`). The time units are "days since" or "months since"
+!> a date; a year of 0 marks a climatology for all years, and julian and noleap file
+!> calendars are converted to the model calendar.
+!>
+!> A file with one record is used at all times, files with up to 12 records are
+!> interpolated cyclically over the year, and longer files linearly in time. Files of
+!> monthly data with gaps between years (e.g. only years ending in 0) are interpolated
+!> between months and between the years with data. Files with 1 to 4 records are read
+!> at initialization, others record by record as needed (or all at initialization with
+!> `read_all_on_init`). Fields in column-integral units (kg/m2) are converted to mixing
+!> ratios for the vertical interpolation and back. `init_clim_diag` registers diagnostics
+!> of the column integrals.
+!>
+!> Namelist: `interpolator_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#interpolator_nml)).
+!>
+!> Original authors: William Cooke.
 module mima_interpolator_mod
-!
-! Purpose: Module to interpolate climatology data to model grid.
-!
-! author: William Cooke William.Cooke@noaa.gov
-!
 
   use mpp_mod, only: mpp_error, &
                      FATAL, &
@@ -67,12 +86,22 @@ module mima_interpolator_mod
     init_clim_diag, &
     query_interpolator
 
+  !> Returns a climatology field interpolated to the model grid and time and, for 3-D
+  !> and 4-D output, to the model pressure levels.
+  !>
+  !> `call interpolator(clim_type, Time, phalf, interp_data, field_name, is, js,
+  !> clim_units)`; the 2-D version has no `phalf`. The 2-D and 3-D versions return the
+  !> field `field_name`; the 4-D version returns all the fields of `clim_type` (last
+  !> dimension of `interp_data`), which must then all have the same `vert_interp` and
+  !> `data_out_of_bounds`. Stops if `field_name` is not a field of `clim_type`.
   interface interpolator
     module procedure interpolator_4D
     module procedure interpolator_3D
     module procedure interpolator_2D
   end interface
 
+  !> Interpolates columns from one set of pressure layers to another, as the
+  !> pressure-weighted average of the overlapping layers.
   interface interp_weighted_scalar
     module procedure interp_weighted_scalar_1D
     module procedure interp_weighted_scalar_2D
@@ -104,47 +133,56 @@ module mima_interpolator_mod
     integer              :: tdim = 0      ! position of the time dimension, if any
   end type field_info_type
 
+  !> A climatology file and the fields read from it, set up by `interpolator_init` (all
+  !> components are private).
   type, public  :: interpolate_type
     private
 !Redundant data between fields
 !All climatology data
-    real, pointer            :: lat(:) => null()
-    real, pointer            :: lon(:) => null()
-    real, pointer            :: latb(:) => null()
-    real, pointer            :: lonb(:) => null()
-    real, pointer            :: levs(:) => null()
-    real, pointer            :: halflevs(:) => null()
-    type(horiz_interp_type)  :: interph
-    type(time_type), pointer :: time_slice(:) => null() ! An array of the times within the climatology.
-    integer                  :: ncid          ! netCDF id of the open climatology file
-    character(len=64)        :: file_name     ! Climatology filename
-    integer                  :: TIME_FLAG     ! Linear or seaonal interpolation?
-    integer                  :: level_type    ! Pressure or Sigma level
+    real, pointer            :: lat(:) => null()  !! latitudes of the climatology grid [rad]
+    real, pointer            :: lon(:) => null()  !! longitudes of the climatology grid [rad]
+    real, pointer            :: latb(:) => null()  !! latitude boundaries of the climatology grid [rad]
+    real, pointer            :: lonb(:) => null()  !! longitude boundaries of the climatology grid [rad]
+    real, pointer            :: levs(:) => null()  !! climatology full levels [Pa], or sigma
+    real, pointer            :: halflevs(:) => null()  !! climatology half levels [Pa], or sigma
+    type(horiz_interp_type)  :: interph  !! horizontal interpolation to the model grid
+    type(time_type), pointer :: time_slice(:) => null() !! times of the records in the file
+    integer                  :: ncid          !! netCDF id of the open climatology file
+    character(len=64)        :: file_name     !! climatology file name
+    integer                  :: TIME_FLAG     !! time interpolation: `LINEAR`, `SEASONAL` or `BILINEAR`
+    integer                  :: level_type    !! `PRESSURE` or `SIGMA` levels
     integer                  :: is, ie, js, je
-    integer                  :: vertical_indices ! direction of vertical
-    ! data axis
+    !! compute domain of the climatology grid, for the `climo` diagnostics
+    integer                  :: vertical_indices !! direction of the vertical axis in the file:
+    !! `INCREASING_DOWNWARD` or `INCREASING_UPWARD`
 
 !Field specific data  for nfields
-    type(field_info_type), pointer :: field_type(:) => null()   ! NetCDF field info
-    character(len=64), pointer :: field_name(:) => null()   ! name of this field
-    integer, pointer :: time_init(:, :) => null()  ! second index is the number of time_slices being kept. 2 or ntime.
-    integer, pointer :: mr(:) => null()           ! Flag for conversion of climatology to mixing ratio.
-    integer, pointer :: out_of_bounds(:) => null()! Flag for when surface pressure is out of bounds.
+    type(field_info_type), pointer :: field_type(:) => null()   !! netCDF information of each field
+    character(len=64), pointer :: field_name(:) => null()   !! name of each field
+    integer, pointer :: time_init(:, :) => null()  !! records held in `data` (second index: 2 or ntime)
+    integer, pointer :: mr(:) => null()           !! conversion to mixing ratio: `NO_CONV` or `KG_M2`
+    integer, pointer :: out_of_bounds(:) => null()!! `CONSTANT` or `ZERO` (see `interpolator_init`)
 !++lwh
-    integer, pointer :: vert_interp(:) => null()  ! Flag for type of vertical interpolation.
+    integer, pointer :: vert_interp(:) => null()  !! type of vertical interpolation
 !--lwh
-    real, pointer :: data(:, :, :, :, :) => null() ! (nlatmod,nlonmod,nlevclim,size(time_init,2),nfields)
+    real, pointer :: data(:, :, :, :, :) => null() !! horizontally interpolated data
+    !! (lon, lat, climatology level, record, field)
 
     real, pointer :: pmon_pyear(:, :, :, :) => null()
+    !! for `BILINEAR`: data of the month before the model time, in the data year before it
     real, pointer :: pmon_nyear(:, :, :, :) => null()
+    !! for `BILINEAR`: data of the month before the model time, in the data year after it
     real, pointer :: nmon_nyear(:, :, :, :) => null()
+    !! for `BILINEAR`: data of the month after the model time, in the data year after it
     real, pointer :: nmon_pyear(:, :, :, :) => null()
+    !! for `BILINEAR`: data of the month after the model time, in the data year before it
 !integer                    :: indexm, indexp, climatology
-    integer, dimension(:), pointer :: indexm => null()
-    integer, dimension(:), pointer :: indexp => null()
+    integer, dimension(:), pointer :: indexm => null()  !! for `BILINEAR`: month before the model time
+    integer, dimension(:), pointer :: indexp => null()  !! for `BILINEAR`: month after the model time
     integer, dimension(:), pointer :: climatology => null()
+    !! for `BILINEAR`: data year before the model time
 
-    type(time_type), pointer :: clim_times(:, :) => null()
+    type(time_type), pointer :: clim_times(:, :) => null()  !! times of the records, by (month, year)
   end type interpolate_type
 
   integer :: ndim, nvar, ntime
@@ -176,9 +214,15 @@ module mima_interpolator_mod
 
 ! Flags to indicate what to do when the model surface pressure exceeds the  climatology surface pressure level.
   integer, parameter, public :: CONSTANT = 1, ZERO = 2
+  !! values of `data_out_of_bounds`: with `CONSTANT` the climatology's top and bottom layers
+  !! are extended to cover the model column; with `ZERO` they are not (with
+  !! `INTERP_WEIGHTED_P` the field is then zero beyond the climatology's levels)
 
 ! Flags to indicate the type of vertical interpolation
   integer, parameter, public :: INTERP_WEIGHTED_P = 10, INTERP_LINEAR_P = 20, INTERP_LOG_P = 30
+  !! values of `vert_interp`: `INTERP_WEIGHTED_P`, pressure-weighted average of the
+  !! overlapping climatology layers; `INTERP_LINEAR_P`, linear in pressure;
+  !! `INTERP_LOG_P` is not implemented (rejected by `interpolator_init`)
 !--lwh
 
   integer :: num_clim_diag = 0
@@ -187,8 +231,8 @@ module mima_interpolator_mod
   real ::  missing_value = -1.e10
 ! sjs integer :: itaum, itaup
 
-  logical :: read_all_on_init = .false.
-  integer :: verbose = 0
+  logical :: read_all_on_init = .false.  !! read all time levels of a file at initialization
+  integer :: verbose = 0  !! amount of diagnostic printout
 
   namelist /interpolator_nml/ &
     read_all_on_init, verbose
@@ -197,32 +241,31 @@ contains
 !
 !#######################################################################
 !
+  !> Opens a climatology file and sets up an interpolate type for its fields.
+  !>
+  !> Reads the axes, times and field information of `INPUT/file_name`, sets up the
+  !> horizontal interpolation to the model grid and allocates the data; seasonal data (1 to
+  !> 4 records), and all data with `read_all_on_init`, are read here. Stops if the file or
+  !> a field in `data_names` does not exist.
   subroutine interpolator_init(clim_type, file_name, lonb_mod, latb_mod, &
                                data_names, data_out_of_bounds, &
                                vert_interp, clim_units)
     type(interpolate_type), intent(inout) :: clim_type
-    character(len=*), intent(in)            :: file_name
+    !! set up with the file and field data needed by `interpolator`
+    character(len=*), intent(in)            :: file_name  !! name of the climatology file in `INPUT/`
     real, intent(in)            :: lonb_mod(:), latb_mod(:)
+    !! `lonb_mod`, `latb_mod`: longitudes and latitudes of the model grid-box boundaries [rad]
     character(len=*), intent(in), optional :: data_names(:)
+    !! names of the fields in the file to read (default: all fields)
 !++lwh
     integer, intent(in)            :: data_out_of_bounds(:)
+    !! what to do where the model column extends beyond the climatology's levels, `CONSTANT`
+    !! or `ZERO`: one value for all fields, or one per field
     integer, intent(in), optional  :: vert_interp(:)
+    !! type of vertical interpolation, `INTERP_WEIGHTED_P` (default) or `INTERP_LINEAR_P`:
+    !! one value for all fields, or one per field
 !--lwh
-    character(len=*), intent(out), optional :: clim_units(:)
-!
-! INTENT IN
-!  file_name  :: Climatology filename
-!  lonb_mod   :: The boundaries of the model grid-box longitudes.
-!  latb_mod   :: The boundaries of the model grid_box latitudes.
-!  data_names :: A list of the names of components within the climatology file which you wish to read.
-!  data_out_of_bounds :: A list of the flags that are to be used in determining what to do if the pressure levels in the model
-!                        go out of bounds from those of the climatology.
-!  vert_interp:: Flag to determine type of vertical interpolation
-!
-! INTENT OUT
-!  clim_type  :: An interpolate type containing the necessary file and field data to be passed to the interpolator routine.
-!  clim_units :: A list of the units for the components listed in data_names.
-!
+    character(len=*), intent(out), optional :: clim_units(:)  !! units of the fields read
 
     integer                      :: ncid, log_unit
     character(len=64)            :: src_file, cart, namelev
@@ -489,13 +532,13 @@ contains
 
         else
 
-!! if the year is specified as '0000', then the file is intended to
-!! apply to all years -- the time variables within the file refer to
-!! the displacement from the start of each year to the time of the
-!! associated data. Time interpolation is to be done with interface
-!! time_interp_list, with the optional argument modtime=YEAR. base_time
-!! is set to an arbitrary value here; it's only use will be as a
-!! timestamp for optionally generated diagnostics.
+! if the year is specified as '0000', then the file is intended to
+! apply to all years -- the time variables within the file refer to
+! the displacement from the start of each year to the time of the
+! associated data. Time interpolation is to be done with interface
+! time_interp_list, with the optional argument modtime=YEAR. base_time
+! is set to an arbitrary value here; it's only use will be as a
+! timestamp for optionally generated diagnostics.
 
           base_time = get_base_time()
         end if
@@ -531,11 +574,11 @@ contains
 !Assume that the times in the data file correspond to days only.
 
             if (fileyr == 0) then
-!! RSH NOTE:
-!! for this case, do not add base_time. time_slice will be sent to
-!! time_interp_list with the optional argument modtime=YEAR, so that
-!! the time that is needed in time_slice is the displacement into the
-!! year, not the displacement from a base_time.
+! RSH NOTE:
+! for this case, do not add base_time. time_slice will be sent to
+! time_interp_list with the optional argument modtime=YEAR, so that
+! the time that is needed in time_slice is the displacement into the
+! year, not the displacement from a base_time.
               clim_type%time_slice(n) = set_time(0, int(time_in(n)))
             else
 
@@ -664,8 +707,8 @@ contains
         clim_type%lonb(2:) = clim_type%lon(1:) + dlon
       else
 
-!! this is the case for zonal mean data, lon = 1, lonb not present
-!! in file.
+! this is the case for zonal mean data, lon = 1, lonb not present
+! in file.
 
         allocate (clim_type%lonb(2))
         clim_type%lonb(1) = -360.*dtr
@@ -710,8 +753,8 @@ contains
 ! This may  be data that does not have a continous time-line
 ! i.e. IPCC data where decadal data is present but we wish to retain
 ! the seasonal nature of the data.
-!! RSH: the following test will not always work; instead use the
-!! RSH: non-monthly variable to test on.
+! RSH: the following test will not always work; instead use the
+! RSH: non-monthly variable to test on.
 !RSHlast_time = clim_type%time_slice(1) + ( ntime -1 ) * &
 !RSH        ( clim_type%time_slice(2) - clim_type%time_slice(1) )
 
@@ -905,6 +948,7 @@ contains
 !
 !#######################################################################
 !
+  !> Returns `KG_M2` if the units are those of a column integral (kg/m2), else `NO_CONV`.
   function check_climo_units(units)
 ! Function to check the units that the climatology data is using.
 ! This is needed to allow for conversion of datasets to mixing ratios which is what the
@@ -934,25 +978,16 @@ contains
 !
 !#######################################################################
 !
+  !> Registers diagnostics of the column integrals of the climatology fields [kg/m2].
+  !>
+  !> For each field, module `climo` has the column integral on the climatology grid, as
+  !> read from the file, and module `hinterp` the column integral after the horizontal
+  !> interpolation to the model grid; both diagnose the interpolation. Also sets up a
+  !> domain decomposition of the climatology grid for sending the `climo` fields.
   subroutine init_clim_diag(clim_type, mod_axes, init_time)
-!
-! Routine to register diagnostic fields for the climatology file.
-! This routine calculates the domain decompostion of the climatology fields
-! for later export through send_data.
-! The ids created here are for column burdens that will diagnose the vertical interpolation routine.
-! climo_diag_id : 'module_name = climo' is intended for use with the model vertical resolution.
-! hinterp_id    : 'module_name = 'hinterp' is intended for use with the climatology vertical resolution.
-
-! INTENT INOUT :
-!    clim_type : The interpolate type containing the names of the fields in the climatology file.
-!
-! INTENT IN    :
-!   mod_axes   : The axes of the model.
-!   init_time  : The model initialization time.
-!
-    type(interpolate_type), intent(inout)  :: clim_type
-    integer, intent(in)     :: mod_axes(:)
-    type(time_type), intent(in)     :: init_time
+    type(interpolate_type), intent(inout)  :: clim_type  !! set up by `interpolator_init`
+    integer, intent(in)     :: mod_axes(:)  !! diagnostic axes of the model grid (lon, lat, ...)
+    type(time_type), intent(in)     :: init_time  !! model initial time
 
     integer :: axes(2), nxd, nyd, ndivs, i
     type(domain2d) :: domain
@@ -1002,34 +1037,20 @@ contains
 
 !---------------------------------------------------------------------
 
+  !> Returns all the fields of an interpolate type, interpolated to the model grid, time
+  !> and levels (see `interpolator`).
   subroutine interpolator_4D(clim_type, Time, phalf, interp_data, &
                              field_name, is, js, clim_units)
-!
-! Return 4-D field interpolated to model grid and time
-!
-! INTENT INOUT
-!   clim_type   : The interpolate type previously defined by a call to interpolator_init
-!
-! INTENT IN
-!   field_name  : The name of a field that you wish to interpolate.
-!                 all variables within this interpolate_type variable
-!                 will be interpolated on this call. field_name may
-!                 be any one of the variables.
-!   Time        : The model time that you wish to interpolate to.
-!   phalf       : The half level model pressure field.
-!   is, js      : The indices of the physics window.
-!
-! INTENT OUT
-!   interp_data : The model fields with the interpolated climatology data.
-!   clim_units  : The units of field_name
-!
-    type(interpolate_type), intent(inout)  :: clim_type
+    type(interpolate_type), intent(inout)  :: clim_type  !! set up by `interpolator_init`
     character(len=*), intent(in)  :: field_name
-    type(time_type), intent(in)  :: Time
-    real, dimension(:, :, :), intent(in)  :: phalf
+    !! name of one of the fields (all the fields are interpolated)
+    type(time_type), intent(in)  :: Time  !! model time to interpolate to
+    real, dimension(:, :, :), intent(in)  :: phalf  !! model pressure at half levels [Pa]
     real, dimension(:, :, :, :), intent(out) :: interp_data
+    !! the interpolated fields (last index: field)
     integer, intent(in), optional :: is, js
-    character(len=*), intent(out), optional :: clim_units
+    !! `is`, `js`: indices of the first point of the physics window (default 1)
+    character(len=*), intent(out), optional :: clim_units  !! units of the first field
     real :: tweight, tweight1, tweight2, tweight3
     integer :: taum, taup, ilon
     real :: hinterp_data(size(interp_data, 1), size(interp_data, 2), size(clim_type%levs(:)), size(clim_type%field_name(:)))
@@ -1072,7 +1093,7 @@ contains
     jend = jstart - 1 + size(interp_data, 2)
 
     do i = 1, size(clim_type%field_name(:))
-!!++lwh
+!++lwh
       if (field_name == clim_type%field_name(i)) then
 !--lwh
         found_field = .true.
@@ -1394,30 +1415,17 @@ contains
 !#######################################################################
 !#######################################################################
 !
+  !> Returns a 3-D field interpolated to the model grid, time and levels (see
+  !> `interpolator`).
   subroutine interpolator_3D(clim_type, Time, phalf, interp_data, field_name, is, js, clim_units)
-!
-! Return 3-D field interpolated to model grid and time
-!
-! INTENT INOUT
-!   clim_type   : The interpolate type previously defined by a call to interpolator_init
-!
-! INTENT IN
-!   field_name  : The name of the field that you wish to interpolate.
-!   Time        : The model time that you wish to interpolate to.
-!   phalf       : The half level model pressure field.
-!   is, js      : The indices of the physics window.
-!
-! INTENT OUT
-!   interp_data : The model field with the interpolated climatology data.
-!   clim_units  : The units of field_name
-!
-    type(interpolate_type), intent(inout)  :: clim_type
-    character(len=*), intent(in)  :: field_name
-    type(time_type), intent(in)  :: Time
-    real, dimension(:, :, :), intent(in)  :: phalf
-    real, dimension(:, :, :), intent(out) :: interp_data
+    type(interpolate_type), intent(inout)  :: clim_type  !! set up by `interpolator_init`
+    character(len=*), intent(in)  :: field_name  !! name of the field to interpolate
+    type(time_type), intent(in)  :: Time  !! model time to interpolate to
+    real, dimension(:, :, :), intent(in)  :: phalf  !! model pressure at half levels [Pa]
+    real, dimension(:, :, :), intent(out) :: interp_data  !! the interpolated field
     integer, intent(in), optional :: is, js
-    character(len=*), intent(out), optional :: clim_units
+    !! `is`, `js`: indices of the first point of the physics window (default 1)
+    character(len=*), intent(out), optional :: clim_units  !! units of the field
     real :: tweight, tweight1, tweight2, tweight3
     integer :: taum, taup, ilon
     real :: hinterp_data(size(interp_data, 1), size(interp_data, 2), size(clim_type%levs(:)))
@@ -1738,30 +1746,16 @@ contains
 !#######################################################################
 !
 !++lwh
+  !> Returns a 2-D field interpolated to the model grid and time (see `interpolator`).
   subroutine interpolator_2D(clim_type, Time, interp_data, field_name, is, js, clim_units)
-!
-! Return 2-D field interpolated to model grid and time
-!
-!
-! INTENT INOUT
-!   clim_type   : The interpolate type previously defined by a call to interpolator_init
-!
-! INTENT IN
-!   field_name  : The name of the field that you wish to interpolate.
-!   Time        : The model time that you wish to interpolate to.
-!   is, js      : The indices of the physics window.
-!
-! INTENT OUT
-!   interp_data : The model field with the interpolated climatology data.
-!   clim_units  : The units of field_name
-!
 
-    type(interpolate_type), intent(inout)  :: clim_type
-    character(len=*), intent(in)     :: field_name
-    type(time_type), intent(in)     :: Time
-    real, dimension(:, :), intent(out)    :: interp_data
+    type(interpolate_type), intent(inout)  :: clim_type  !! set up by `interpolator_init`
+    character(len=*), intent(in)     :: field_name  !! name of the field to interpolate
+    type(time_type), intent(in)     :: Time  !! model time to interpolate to
+    real, dimension(:, :), intent(out)    :: interp_data  !! the interpolated field
     integer, intent(in), optional :: is, js
-    character(len=*), intent(out), optional :: clim_units
+    !! `is`, `js`: indices of the first point of the physics window (default 1)
+    character(len=*), intent(out), optional :: clim_units  !! units of the field
     real :: tweight, tweight1, tweight2
     integer :: taum, taup, ilon
     real :: hinterp_data(size(interp_data, 1), size(interp_data, 2), size(clim_type%levs(:)))
@@ -1913,13 +1907,9 @@ contains
 !
 !#######################################################################
 !
+  !> Frees the memory of an interpolate type and closes its file.
   subroutine interpolator_end(clim_type)
-! Subroutine to deallocate the interpolate type clim_type.
-!
-! INTENT INOUT
-!  clim_type : allocate type whose components will be deallocated.
-!
-    type(interpolate_type), intent(inout) :: clim_type
+    type(interpolate_type), intent(inout) :: clim_type  !! the interpolate type to free
     integer :: log_unit
 
     if (mpp_pe() == mpp_root_pe()) then
@@ -1948,7 +1938,7 @@ contains
       deallocate (clim_type%nmon_pyear)
     end if
 
-!! RSH mod
+! RSH mod
     if (.not. (clim_type%TIME_FLAG .eq. LINEAR .and. &
                !     read_all_on_init)) .or. clim_type%TIME_FLAG .eq. BILINEAR  ) then
                read_all_on_init)) then
@@ -1961,6 +1951,7 @@ contains
 !
 !#######################################################################
 !
+  !> Reads one record of a field and interpolates it horizontally to the model grid.
   subroutine read_data(clim_type, src_field, hdata, nt, i, Time)
 !
 !  INTENT IN
@@ -2029,6 +2020,7 @@ contains
 !
 !#######################################################################
 !
+  !> Sends the `climo` column-integral diagnostic of a field read by `read_data`.
   subroutine diag_read_data(clim_type, model_data, i, Time)
 !
 ! A routine to diagnose the data read in by read_data
@@ -2073,13 +2065,11 @@ contains
 !#######################################################################
 !
 !++lwh
+  !> Returns the number of fields and the field names of an interpolate type.
   subroutine query_interpolator(clim_type, nfields, field_names)
-!
-! Query an interpolate_type variable to find the number of fields and field names.
-!
-    type(interpolate_type), intent(in)                    :: clim_type
-    integer, intent(out), optional                        :: nfields
-    character(len=*), dimension(:), intent(out), optional :: field_names
+    type(interpolate_type), intent(in)                    :: clim_type  !! set up by `interpolator_init`
+    integer, intent(out), optional                        :: nfields  !! number of fields
+    character(len=*), dimension(:), intent(out), optional :: field_names  !! names of the fields
 
     if (present(nfields)) nfields = size(clim_type%field_name(:))
     if (present(field_names)) field_names = clim_type%field_name
@@ -2089,6 +2079,7 @@ contains
 !
 !#######################################################################
 !
+  !> Returns a string without a trailing CHAR(0), as read from netCDF files.
   function chomp(string)
 !
 ! A function to remove CHAR(0) from the end of strings read from NetCDF files.
@@ -2107,6 +2098,7 @@ contains
 !
 !#######################################################################
 !
+  !> Reads the metadata of an open netCDF file: its axes, fields and times.
   subroutine get_file_info(ncid, file_name, axes, fields, time_values, ntime)
 !
 ! Read the metadata of an open netCDF file, as mpp_io's mpp_read_meta did.
@@ -2281,6 +2273,7 @@ contains
 !
 !#################################################################
 !
+  !> Interpolates several columns (second index) by pressure-weighted averaging.
   subroutine interp_weighted_scalar_2D(grdin, grdout, datin, datout)
     real, intent(in), dimension(:) :: grdin, grdout
     real, intent(in), dimension(:, :) :: datin
@@ -2342,6 +2335,7 @@ contains
 
 !---------------------------------------------------------------------
 
+  !> Interpolates a column by pressure-weighted averaging of the overlapping layers.
   subroutine interp_weighted_scalar_1D(grdin, grdout, datin, datout)
     real, intent(in), dimension(:) :: grdin, grdout, datin
     real, intent(out), dimension(:) :: datout
@@ -2392,6 +2386,7 @@ contains
 !
 !#################################################################
 !
+  !> Interpolates a column linearly in pressure, extrapolating from the end values.
   subroutine interp_linear(grdin, grdout, datin, datout)
     real, intent(in), dimension(:) :: grdin, grdout, datin
     real, intent(out), dimension(:) :: datout

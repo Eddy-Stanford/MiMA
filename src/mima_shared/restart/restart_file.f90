@@ -1,14 +1,12 @@
+!> Reading and writing of netCDF restart files in the layout of the old `fms_io`.
+!>
+!> Each field is stored as (x, y, z, Time), scalars and 1-D arrays included, with the
+!> dimensions `xaxis_N`, `yaxis_N` and `zaxis_N` numbered in order of first use. Fields on
+!> the file's domain are domain decomposed (written through its io_domain); fields on
+!> another domain, such as spectral coefficients, are gathered and stored whole. Output is
+!> buffered and written by `close_restart`, so that the file is fully defined before any
+!> data.
 module restart_file_mod
-
-!-----------------------------------------------------------------------
-! Restart files in the layout written by the old fms_io. Each field is
-! stored as (x, y, z, Time), scalars and 1-D arrays included, with the
-! dimensions xaxis_N, yaxis_N and zaxis_N numbered in order of first use.
-! Fields on the file's domain are domain decomposed (written through its
-! io_domain); fields on another domain, such as spectral coefficients,
-! are gathered and stored whole. Output is buffered and written by
-! close_restart, so that the file is fully defined before any data.
-!-----------------------------------------------------------------------
 
   use fms2_io_mod, only: FmsNetcdfFile_t, FmsNetcdfDomainFile_t, open_file, close_file, register_axis, &
                          register_field, write_data, read_data, unlimited, file_exists, &
@@ -37,18 +35,31 @@ module restart_file_mod
     real, allocatable :: data(:, :, :)
   end type restart_field_type
 
+  !> A restart file open for reading or writing (all components are private).
   type restart_file_type
     private
-    type(FmsNetcdfDomainFile_t) :: fileobj
-    logical :: writing = .false.
-    integer :: num_fields = 0
-    type(restart_field_type), allocatable :: fields(:)
+    type(FmsNetcdfDomainFile_t) :: fileobj  !! the open netCDF file, on the model domain
+    logical :: writing = .false.  !! the file is open for writing
+    integer :: num_fields = 0  !! number of fields buffered for writing
+    type(restart_field_type), allocatable :: fields(:)  !! fields buffered for writing
   end type restart_file_type
 
+  !> Reads a field (scalar, 1-D, 2-D or 3-D) from a restart file opened with
+  !> `open_restart_read`.
+  !>
+  !> Arguments: `rst`, `name`, `data`, optional `level` (the Time record, default 1) and,
+  !> for 2-D and 3-D fields, optional `domain`: the data's domain when it is not the
+  !> file's; the whole field is then read and the compute-domain part kept. Stops if the
+  !> field's size in the file does not match `data`.
   interface read_restart_field
     module procedure read_restart_0d, read_restart_1d, read_restart_2d, read_restart_3d
   end interface
 
+  !> Adds a field (scalar, 1-D, 2-D or 3-D) to a restart file opened with
+  !> `open_restart_write`; it is written by `close_restart`.
+  !>
+  !> The arguments are the same as for `read_restart_field`. A field with `domain` is
+  !> gathered and stored whole.
   interface write_restart_field
     module procedure write_restart_0d, write_restart_1d, write_restart_2d, write_restart_3d
   end interface
@@ -58,16 +69,16 @@ module restart_file_mod
 contains
 
 !#######################################################################
-! Open path (e.g. 'INPUT/atmosphere.res.nc') for reading. Returns
-! .false. if it does not exist. It is an error if only a native-format
-! restart (the same name without '.nc') exists, if the file is split
-! into pieces (path.0000, ...) that the io_layout does not read, or if
-! the file cannot be opened on every PE.
 
+  !> Opens a restart file for reading; returns `.false.` if it does not exist.
+  !>
+  !> It is an error if only a native-format restart (the same name without `.nc`) exists,
+  !> if the file is split into pieces (`path.0000`, ...) that the io_layout does not read,
+  !> or if the file cannot be opened on every PE.
   logical function open_restart_read(rst, path, domain)
-    type(restart_file_type), intent(inout) :: rst
-    character(len=*), intent(in)    :: path
-    type(domain2d), intent(in)    :: domain
+    type(restart_file_type), intent(inout) :: rst  !! the restart file
+    character(len=*), intent(in)    :: path  !! file name, e.g. `INPUT/atmosphere.res.nc`
+    type(domain2d), intent(in)    :: domain  !! domain of the decomposed fields in the file
     integer :: io_layout(2), num_pieces, num_open
     character(len=16) :: ch1, ch2
 
@@ -108,10 +119,12 @@ contains
 
 !#######################################################################
 
+  !> Creates (or overwrites) a restart file for writing; fields are then added with
+  !> `write_restart_field` and written by `close_restart`.
   subroutine open_restart_write(rst, path, domain)
-    type(restart_file_type), intent(inout) :: rst
-    character(len=*), intent(in)    :: path
-    type(domain2d), intent(in)    :: domain
+    type(restart_file_type), intent(inout) :: rst  !! the restart file
+    character(len=*), intent(in)    :: path  !! file name, e.g. `RESTART/atmosphere.res.nc`
+    type(domain2d), intent(in)    :: domain  !! domain of the decomposed fields in the file
     integer :: old_mode
 
     if (.not. open_file(rst%fileobj, path, 'overwrite', domain)) &
@@ -129,8 +142,9 @@ contains
 
 !#######################################################################
 
+  !> Closes a restart file, first writing the buffered fields if it is open for writing.
   subroutine close_restart(rst)
-    type(restart_file_type), intent(inout) :: rst
+    type(restart_file_type), intent(inout) :: rst  !! the restart file
 
     if (rst%writing) then
       call write_fields(rst)
@@ -144,10 +158,11 @@ contains
 
 !#######################################################################
 
+  !> Returns the global size of each dimension of a field in a restart file.
   subroutine get_restart_field_size(rst, name, siz)
-    type(restart_file_type), intent(inout) :: rst
-    character(len=*), intent(in)    :: name
-    integer, intent(out)   :: siz(4)
+    type(restart_file_type), intent(inout) :: rst  !! the restart file
+    character(len=*), intent(in)    :: name  !! field name
+    integer, intent(out)   :: siz(4)  !! global sizes of the (x, y, z, Time) dimensions
 
     call global_size(rst%fileobj, name, siz)
 
@@ -155,25 +170,27 @@ contains
 
 !#######################################################################
 
+  !> Returns whether a field is in a restart file.
   logical function restart_field_exists(rst, name)
-    type(restart_file_type), intent(inout) :: rst
-    character(len=*), intent(in)    :: name
+    type(restart_file_type), intent(inout) :: rst  !! the restart file
+    character(len=*), intent(in)    :: name  !! field name
 
     restart_field_exists = variable_exists(rst%fileobj, name)
 
   end function restart_field_exists
 
 !#######################################################################
-! Stop unless variable name in fileobj has the sizes expected. Any
-! further dimensions must have size 1, except that with level the last
-! one is the Time dimension, which must hold that record. Also used for
-! input files that are not restarts.
 
+  !> Stops unless a variable in a file has the expected sizes.
+  !>
+  !> Any further dimensions must have size 1, except that with `level` the last one is the
+  !> Time dimension, which must hold that record. Also used for input files that are not
+  !> restarts.
   subroutine check_field_size(fileobj, name, expected, level)
-    class(FmsNetcdfFile_t), intent(inout) :: fileobj
-    character(len=*), intent(in)    :: name
-    integer, intent(in)    :: expected(:)
-    integer, optional, intent(in)    :: level
+    class(FmsNetcdfFile_t), intent(inout) :: fileobj  !! the open file
+    character(len=*), intent(in)    :: name  !! variable name
+    integer, intent(in)    :: expected(:)  !! expected global sizes of the first dimensions
+    integer, optional, intent(in)    :: level  !! Time record that must exist
     integer, allocatable :: siz(:)
     integer :: n
     logical :: ok
@@ -205,10 +222,11 @@ contains
   end function record_text
 
 !#######################################################################
-! Global size of each dimension. In a file of an io_layout other than
-! (1,1) the decomposed axes cover part of the grid; their
-! domain_decomposition attribute holds the global extent.
 
+  !> Returns the global size of each dimension of a variable.
+  !>
+  !> In a file of an io_layout other than (1,1) the decomposed axes cover part of the
+  !> grid; their `domain_decomposition` attribute holds the global extent.
   subroutine global_size(fileobj, name, siz)
     class(FmsNetcdfFile_t), intent(inout) :: fileobj
     character(len=*), intent(in)    :: name
@@ -230,10 +248,8 @@ contains
   end subroutine global_size
 
 !#######################################################################
-! Readers. level is the Time record (default 1). domain is the data's
-! domain when it is not the file's; the whole field is then read and
-! the compute domain part kept.
 
+  !> Reads a scalar (see `read_restart_field`).
   subroutine read_restart_0d(rst, name, data, level)
     type(restart_file_type), intent(inout) :: rst
     character(len=*), intent(in)    :: name
@@ -246,6 +262,7 @@ contains
 
   end subroutine read_restart_0d
 
+  !> Reads a 1-D field (see `read_restart_field`).
   subroutine read_restart_1d(rst, name, data, level)
     type(restart_file_type), intent(inout) :: rst
     character(len=*), intent(in)    :: name
@@ -258,6 +275,7 @@ contains
 
   end subroutine read_restart_1d
 
+  !> Reads a 2-D field (see `read_restart_field`).
   subroutine read_restart_2d(rst, name, data, level, domain)
     type(restart_file_type), intent(inout) :: rst
     character(len=*), intent(in)    :: name
@@ -271,12 +289,15 @@ contains
 
   end subroutine read_restart_2d
 
+  !> Reads a 3-D field (see `read_restart_field`).
   subroutine read_restart_3d(rst, name, data, level, domain)
-    type(restart_file_type), intent(inout) :: rst
-    character(len=*), intent(in)    :: name
-    real, intent(out)   :: data(:, :, :)
-    integer, optional, intent(in)    :: level
+    type(restart_file_type), intent(inout) :: rst  !! the restart file
+    character(len=*), intent(in)    :: name  !! field name
+    real, intent(out)   :: data(:, :, :)  !! the field, on the compute domain
+    integer, optional, intent(in)    :: level  !! Time record (default 1)
     type(domain2d), optional, intent(in)    :: domain
+    !! the data's domain when it is not the file's; the whole field is then read and the
+    !! compute-domain part kept
     real, allocatable :: global(:, :, :)
     integer :: is, ie, js, je, gis, gjs, nx, ny
 
@@ -293,8 +314,8 @@ contains
   end subroutine read_restart_3d
 
 !#######################################################################
-! Writers, with the same arguments as the readers.
 
+  !> Adds a scalar (see `write_restart_field`).
   subroutine write_restart_0d(rst, name, data, level)
     type(restart_file_type), intent(inout) :: rst
     character(len=*), intent(in)    :: name
@@ -305,6 +326,7 @@ contains
 
   end subroutine write_restart_0d
 
+  !> Adds a 1-D field (see `write_restart_field`).
   subroutine write_restart_1d(rst, name, data, level)
     type(restart_file_type), intent(inout) :: rst
     character(len=*), intent(in)    :: name
@@ -315,6 +337,7 @@ contains
 
   end subroutine write_restart_1d
 
+  !> Adds a 2-D field (see `write_restart_field`).
   subroutine write_restart_2d(rst, name, data, level, domain)
     type(restart_file_type), intent(inout) :: rst
     character(len=*), intent(in)    :: name
@@ -326,12 +349,15 @@ contains
 
   end subroutine write_restart_2d
 
+  !> Adds a 3-D field (see `write_restart_field`).
   subroutine write_restart_3d(rst, name, data, level, domain)
-    type(restart_file_type), intent(inout) :: rst
-    character(len=*), intent(in)    :: name
-    real, intent(in)    :: data(:, :, :)
-    integer, optional, intent(in)    :: level
+    type(restart_file_type), intent(inout) :: rst  !! the restart file
+    character(len=*), intent(in)    :: name  !! field name
+    real, intent(in)    :: data(:, :, :)  !! the field, on the compute domain
+    integer, optional, intent(in)    :: level  !! Time record (default 1)
     type(domain2d), optional, intent(in)    :: domain
+    !! the data's domain when it is not the file's; the field is then gathered and stored
+    !! whole
     real, allocatable :: global(:, :, :)
     integer :: nx, ny
 
@@ -410,8 +436,8 @@ contains
   end subroutine add_field
 
 !#######################################################################
-! Define the axes, Time and the fields, then write them.
 
+  !> Defines the axes, Time and the buffered fields, then writes them.
   subroutine write_fields(rst)
     type(restart_file_type), intent(inout) :: rst
     integer :: key(rst%num_fields, 3), num_axes(3)

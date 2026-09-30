@@ -1,4 +1,21 @@
 
+!> Vertical advection of a quantity in a column, with a choice of centered and
+!> finite-volume schemes.
+!>
+!> `vert_advection` returns the advective tendency of a quantity `r` on model layers,
+!> given the advecting velocity `w` at the layer interfaces and the layer depths `dz`
+!> (in any units, usually pressure). The schemes are second- and fourth-order centered
+!> differences (for uniform or unequal level spacing) and finite-volume schemes with
+!> piecewise-linear (van Leer) or piecewise-parabolic (PPM) reconstruction. The equation
+!> can be solved in flux or advective form. `vert_advection_end` prints the maximum CFL
+!> numbers and the number of CFL errors of the finite-volume schemes.
+!>
+!> References:
+!>
+!> * Colella, P., and P. R. Woodward, 1984: The piecewise parabolic method (PPM) for
+!>   gas-dynamical simulations. J. Comput. Phys., 54, 174-201.
+!> * Lin, S.-J. (2003), cited in the code for the relaxed monotonicity constraint
+!>   (Equation 6) of `FINITE_VOLUME_PARABOLIC2`.
 module vert_advection_mod
 
 !-------------------------------------------------------------------------------
@@ -11,25 +28,46 @@ module vert_advection_mod
 
   public :: vert_advection, vert_advection_end
 ! for optional argument: scheme
-  integer, parameter, public :: SECOND_CENTERED = 101
-  integer, parameter, public :: FOURTH_CENTERED = 102
+  integer, parameter, public :: SECOND_CENTERED = 101  !! `scheme`: second-order centered
+  integer, parameter, public :: FOURTH_CENTERED = 102  !! `scheme`: fourth-order centered
   integer, parameter, public :: FINITE_VOLUME_LINEAR = 103
+  !! `scheme`: piecewise linear, finite volume (van Leer)
   integer, parameter, public :: FINITE_VOLUME_PARABOLIC = 104
+  !! `scheme`: piecewise parabolic, finite volume (PPM)
   integer, parameter, public :: FINITE_VOLUME_PARABOLIC2 = 105
+  !! `scheme`: piecewise parabolic, finite volume (PPM), with the relaxed monotonicity
+  !! constraint of Lin (2003)
   integer, parameter, public :: SECOND_CENTERED_WTS = 106
+  !! `scheme`: second-order centered, for unequal level spacing
   integer, parameter, public :: FOURTH_CENTERED_WTS = 107
+  !! `scheme`: fourth-order centered, for unequal level spacing
   integer, parameter, public :: VAN_LEER_LINEAR = FINITE_VOLUME_LINEAR
+  !! `scheme`: same as `FINITE_VOLUME_LINEAR` (the default)
 ! for optional argument: form
   integer, parameter, public :: FLUX_FORM = 201, ADVECTIVE_FORM = 202
+  !! `form`: `FLUX_FORM` solves for -d(wr)/dz (the default); `ADVECTIVE_FORM` solves for
+  !! -w dr/dz
 ! for optional argument: flags
   integer, parameter, public :: WEIGHTED_TENDENCY = 1
+  !! `flags`: the tendency `rdt` is multiplied by the layer depth, units [units of r *
+  !! units of dz / s]
   integer, parameter, public :: OUTFLOW_BOUNDARY = 2
+  !! `flags`: advection is computed at the top and bottom for outflow boundaries (finite
+  !! volume schemes only)
 
   character(len=128), parameter :: version = '$Id: vert_advection.f90,v 11.0 2004/09/28 19:27:01 fms Exp $'
   character(len=128), parameter :: tagname = '$Name: lima $'
 
   logical :: module_is_initialized = .false.
 
+  !> Computes the vertical advective tendency of a quantity, for 1-D (one column), 2-D
+  !> or 3-D arrays (the vertical is the last dimension).
+  !>
+  !> The optional arguments are `mask` (layers with `mask` > 0 are above ground; a centered
+  !> fourth-order scheme uses second order next to the ground), `scheme` (default
+  !> `VAN_LEER_LINEAR`), `form` (default `FLUX_FORM`) and `flags` (sum of
+  !> `WEIGHTED_TENDENCY` and `OUTFLOW_BOUNDARY`). The vertical size of `w` is one more than
+  !> that of `dz`, `r`, `rdt` and `mask`.
   interface vert_advection
     module procedure vert_advection_1d, vert_advection_2d, vert_advection_3d
   end interface
@@ -47,50 +85,23 @@ contains
 
 !-------------------------------------------------------------------------------
 
+  !> Computes the vertical advective tendency of a quantity on a 3-D grid (the version
+  !> behind `vert_advection`).
   subroutine vert_advection_3d(dt, w, dz, r, rdt, mask, scheme, form, flags)
 
-    real, intent(in)                    :: dt
+    real, intent(in)                    :: dt  !! time step [s]
     real, intent(in), dimension(:, :, :) :: w, dz, r
+    !! `w`: advecting velocity at the layer interfaces, not assumed zero at the top and
+    !! bottom [units of dz / s]; `dz`: layer depth, in any units (usually pressure); `r`:
+    !! advected quantity, in any units
     real, intent(out), dimension(:, :, :) :: rdt
-    real, intent(in), optional :: mask(:, :, :)
+    !! advective tendency of `r` [units of r / s], or [units of r * units of dz / s] if
+    !! `flags` includes `WEIGHTED_TENDENCY`
+    real, intent(in), optional :: mask(:, :, :)  !! layers above ground have `mask` > 0
     integer, intent(in), optional :: scheme, form, flags
-
-! INPUT
-!   dt  = time step in seconds
-!   w   = advecting velocity at the vertical boundaries of the grid boxes
-!         does not assume velocities at top and bottom are zero
-!         units = [units of dz / second]
-!   dz  = depth of model layers in arbitrary units (usually pressure)
-!   r   = advected quantity in arbitrary units
-!
-! OUTPUT
-!   rdt = advective tendency for quantity "r" (units depend on optional flags argument)
-!           the default units = [units of r / second]
-!           if flags=WEIGHTED_TENDENCY then units = [units of r * units of dz / second]
-!
-! OPTIONAL INPUT
-!   mask   = mask for below ground layers,
-!            where mask > 0 for layers above ground
-!   scheme = differencing scheme, use one of these values:
-!               SECOND_CENTERED = second-order centered
-!               FOURTH_CENTERED = fourth-order centered
-!               SECOND_CENTERED_WTS = second-order centered (assuming unequal level spacing)
-!               FOURTH_CENTERED_WTS = fourth-order centered (assuming unequal level spacing)
-!               FINITE_VOLUME_LINEAR    = piecewise linear, finite volume (van Leer)
-!               VAN_LEER_LINEAR         = same as FINITE_VOLUME_LINEAR
-!               FINITE_VOLUME_PARABOLIC = piecewise parabolic, finite volume (PPM)
-!               FINITE_VOLUME_PARABOLIC2 = piecewise parabolic, finite volume (PPM)
-!                                          using relaxed montonicity constraint (Lin,2003)
-!   form   = form of equations, use one of these values:
-!               FLUX_FORM      = solves for -d(wr)/dt
-!               ADVECTIVE_FORM = solves for -w*d(r)/dt
-!   flags  = additional optional flags
-!               WEIGHTED_TENDENCY = output tendency (rdt) has units = [units of r * units of dz / second]
-!               OUTFLOW_BOUNDARY  = advection is computed at the top and bottom for outflow boundaries
-!                                   this option is only valid for finite volume schemes
-!
-! NOTE
-!   size(w,3) == size(dz,3)+1 == size(r,3)+1 == size(rdt,3)+1 == size(mask,3)+1
+    !! `scheme`: differencing scheme (default `VAN_LEER_LINEAR`); `form`: `FLUX_FORM`
+    !! (default) or `ADVECTIVE_FORM`; `flags`: sum of `WEIGHTED_TENDENCY` and
+    !! `OUTFLOW_BOUNDARY` (default 0)
 
     real, dimension(size(r, 1), size(r, 2), size(r, 3)) :: slp, r_left, r_right
     real, dimension(size(w, 1), size(w, 2), size(w, 3)) :: flux
@@ -455,6 +466,8 @@ contains
 
 !-------------------------------------------------------------------------------
 
+  !> Frees the stored coefficients and prints the maximum CFL numbers and the number of
+  !> CFL errors of the finite-volume schemes.
   subroutine vert_advection_end
 
     ! deallocate storage
@@ -476,6 +489,8 @@ contains
 
 !-------------------------------------------------------------------------------
 
+  !> Computes the (optionally limited) slope of `r` in each layer, weighted for unequal
+  !> layer depths.
   subroutine slope_z(r, dz, slope, limit, linear)
     real, intent(in), dimension(:, :, :) :: r, dz
     real, intent(out), dimension(:, :, :) :: slope
@@ -543,6 +558,8 @@ contains
 
 !-------------------------------------------------------------------------------
 
+  !> Computes and stores the weights for interface values used by the
+  !> `FOURTH_CENTERED_WTS` and parabolic schemes.
   subroutine compute_weights(dz, zwt)
     real, intent(in), dimension(:, :, :)    :: dz
     real, intent(out), dimension(0:, :, :, :) :: zwt
@@ -609,6 +626,7 @@ contains
 !-------------------------------------------------------------------------------
 !--------------------------- overloaded versions -------------------------------
 
+  !> Computes the tendency for a single column (calls `vert_advection_3d`).
   subroutine vert_advection_1d(dt, w, dz, r, rdt, mask, scheme, form, flags)
 
     real, intent(in)                :: dt
@@ -639,6 +657,8 @@ contains
 
 !-------------------------------------------------------------------------------
 
+  !> Computes the tendency for a 2-D slice with the vertical as the second dimension
+  !> (calls `vert_advection_3d`).
   subroutine vert_advection_2d(dt, w, dz, r, rdt, mask, scheme, form, flags)
 
     real, intent(in)                  :: dt

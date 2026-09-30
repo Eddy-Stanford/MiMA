@@ -1,4 +1,31 @@
 
+!> Multiple real/half-complex periodic fast Fourier transforms (Temperton's FFT99 package).
+!>
+!> Performs a number of simultaneous real/half-complex periodic Fourier transforms or the
+!> inverse transforms: given a set of real data vectors it returns a set of half-complex
+!> Fourier coefficient vectors, or vice versa. The transform length `n` must be an even
+!> number greater than 4 with no prime factors other than 2, 3 and 5. `set99` must be
+!> called once for a given `n` before the transforms `fft99` and `fft991`, which differ
+!> only in the arrangement of the gridpoint values. A typical sequence, for `m` vectors
+!> of length `n`, is
+!>
+!> ```fortran
+!> integer :: ifax(13)
+!> real :: trigs(3*n/2+1), a(m*(n+2)), work(m*(n+1))
+!> call set99(trigs, ifax, n)
+!> call fft99(a, work, trigs, ifax, inc, jump, n, m, isign)
+!> ```
+!>
+!> The transform is converted to a half-length complex transform by the procedure of
+!> Cooley, Lewis and Welch (1970). The package was written by Clive Temperton at ECMWF
+!> in November 1978 (an all-Fortran version of his routines for the Cray X-MP/Y-MP), and
+!> modified, documented and tested for NCAR by Russ Rew in September 1980.
+!>
+!> References:
+!>
+!> * Cooley, J. W., P. A. W. Lewis, and P. D. Welch, 1970: J. Sound Vib., 12, 315-337.
+!>
+!> Original authors: Clive Temperton, Russ Rew.
 module fft99_mod
 
   use constants_mod, only: pi
@@ -13,271 +40,37 @@ contains
 
 !##########################################################################
 
+  !> Performs multiple real/half-complex periodic FFTs, with explicit cyclic continuity
+  !> in the gridpoint values.
+  !>
+  !> Each coefficient vector holds `a(0), b(0), a(1), b(1), ..., a(n/2), b(n/2)` (n+2
+  !> values; b(0) = b(n/2) = 0, which need not be supplied for `isign` = +1). Each data
+  !> vector holds the n+2 gridpoint values `x(n-1), x(0), x(1), ..., x(n-1), x(0)` (for
+  !> `fft991`: `x(0), x(1), ..., x(n-1), 0, 0`). The transforms are
+  !>
+  !> ```text
+  !> isign = +1:  x(j) = sum(k=0,...,n-1) c(k) exp(2 i j k pi/n),
+  !>              where c(k) = a(k) + i b(k) and c(n-k) = a(k) - i b(k)
+  !> isign = -1:  c(k) = (1/n) sum(j=0,...,n-1) x(j) exp(-2 i j k pi/n)
+  !> ```
+  !>
+  !> so a call with `isign` = +1 followed by one with `isign` = -1 returns the original
+  !> data. For example, 19 data vectors of length 64 stored one after the other in 70
+  !> locations each (66 values and 4 empty) have `inc` = 1, `jump` = 70; stored
+  !> interleaved (`a(1:19)` holding x(63) of each vector, `a(20:38)` x(0), ...), they have
+  !> `inc` = 19, `jump` = 1. Each coefficient vector overwrites the corresponding data
+  !> vector.
   subroutine fft99(a, work, trigs, ifax, inc, jump, n, lot, isign)
-
-! purpose      performs multiple fast fourier transforms.  this package
-!              will perform a number of simultaneous real/half-complex
-!              periodic fourier transforms or corresponding inverse
-!              transforms, i.e.  given a set of real data vectors, the
-!              package returns a set of 'half-complex' fourier
-!              coefficient vectors, or vice versa.  the length of the
-!              transforms must be an even number greater than 4 that has
-!              no other factors except possibly powers of 2, 3, and 5.
-!              this is an all-fortran version of a optimized routine
-!              fft99 written for xmp/ymps by dr. clive temperton of
-!              ecmwf.
-!
-!              the package fft99f contains several user-level routines:
-!
-!            subroutine set99
-!                an initialization routine that must be called once
-!                before a sequence of calls to the fft routines
-!                (provided that n is not changed).
-!
-!            subroutines fft99 and fft991
-!                two fft routines that return slightly different
-!                arrangements of the data in gridpoint space.
-!
-! usage        let n be of the form 2**p * 3**q * 5**r, where p .ge. 1,
-!              q .ge. 0, and r .ge. 0.  then a typical sequence of
-!              calls to transform a given set of real vectors of length
-!              n to a set of 'half-complex' fourier coefficient vectors
-!              of length n is
-!
-!                   dimension ifax(13),trigs(3*n/2+1),a(m*(n+2)),
-!                  +          work(m*(n+1))
-!
-!                   call set99 (trigs, ifax, n)
-!                   call fft99 (a,work,trigs,ifax,inc,jump,n,m,isign)
-!
-!              see the individual write-ups for set99, fft99, and
-!              fft991 below, for a detailed description of the
-!              arguments.
-!
-! history      the package was written by clive temperton at ecmwf in
-!              november, 1978.  it was modified, documented, and tested
-!              for ncar by russ rew in september, 1980.
-!
-!-----------------------------------------------------------------------
-!
-! subroutine set99 (trigs, ifax, n)
-!
-! purpose      a set-up routine for fft99 and fft991.  it need only be
-!              called once before a sequence of calls to the fft
-!              routines (provided that n is not changed).
-!
-! argument     ifax(13),trigs(3*n/2+1)
-! dimensions
-!
-! arguments
-!
-! on input     trigs
-!               a floating point array of dimension 3*n/2 if n/2 is
-!               even, or 3*n/2+1 if n/2 is odd.
-!
-!              ifax
-!               an integer array.  the number of elements actually used
-!               will depend on the factorization of n.  dimensioning
-!               ifax for 13 suffices for all n less than a million.
-!
-!              n
-!               an even number greater than 4 that has no prime factor
-!               greater than 5.  n is the length of the transforms (see
-!               the documentation for fft99 and fft991 for the
-!               definitions of the transforms).
-!
-! on output    ifax
-!               contains the factorization of n/2.  ifax(1) is the
-!               number of factors, and the factors themselves are stored
-!               in ifax(2),ifax(3),...  if set99 is called with n odd,
-!               or if n has any prime factors greater than 5, ifax(1)
-!               is set to -99.
-!
-!              trigs
-!               an array of trigonometric function values subsequently
-!               used by the fft routines.
-!
-!-----------------------------------------------------------------------
-!
-! subroutine fft991 (a,work,trigs,ifax,inc,jump,n,m,isign)
-!                       and
-! subroutine fft99 (a,work,trigs,ifax,inc,jump,n,m,isign)
-!
-! purpose      perform a number of simultaneous real/half-complex
-!              periodic fourier transforms or corresponding inverse
-!              transforms, using ordinary spatial order of gridpoint
-!              values (fft991) or explicit cyclic continuity in the
-!              gridpoint values (fft99).  given a set
-!              of real data vectors, the package returns a set of
-!              'half-complex' fourier coefficient vectors, or vice
-!              versa.  the length of the transforms must be an even
-!              number that has no other factors except possibly powers
-!              of 2, 3, and 5.  this is an all-fortran version of
-!              optimized routine fft991 written for xmp/ymps by
-!              dr. clive temperton of ecmwf.
-!
-! argument     a(m*(n+2)), work(m*(n+1)), trigs(3*n/2+1), ifax(13)
-! dimensions
-!
-! arguments
-!
-! on input     a
-!               an array of length m*(n+2) containing the input data
-!               or coefficient vectors.  this array is overwritten by
-!               the results.
-!
-!              work
-!               a work array of dimension m*(n+1)
-!
-!              trigs
-!               an array set up by set99, which must be called first.
-!
-!              ifax
-!               an array set up by set99, which must be called first.
-!
-!              inc
-!               the increment (in words) between successive elements of
-!               each data or coefficient vector (e.g.  inc=1 for
-!               consecutively stored data).
-!
-!              jump
-!               the increment (in words) between the first elements of
-!               successive data or coefficient vectors.  on crays,
-!               try to arrange data so that jump is not a multiple of 8
-!               (to avoid memory bank conflicts).  for clarification of
-!               inc and jump, see the examples below.
-!
-!              n
-!               the length of each transform (see definition of
-!               transforms, below).
-!
-!              m
-!               the number of transforms to be done simultaneously.
-!
-!              isign
-!               = +1 for a transform from fourier coefficients to
-!                    gridpoint values.
-!               = -1 for a transform from gridpoint values to fourier
-!                    coefficients.
-!
-! on output    a
-!               if isign = +1, and m coefficient vectors are supplied
-!               each containing the sequence:
-!
-!               a(0),b(0),a(1),b(1),...,a(n/2),b(n/2)  (n+2 values)
-!
-!               then the result consists of m data vectors each
-!               containing the corresponding n+2 gridpoint values:
-!
-!               for fft991, x(0), x(1), x(2),...,x(n-1),0,0.
-!               for fft99, x(n-1),x(0),x(1),x(2),...,x(n-1),x(0).
-!                   (explicit cyclic continuity)
-!
-!               when isign = +1, the transform is defined by:
-!                 x(j)=sum(k=0,...,n-1)(c(k)*exp(2*i*j*k*pi/n))
-!                 where c(k)=a(k)+i*b(k) and c(n-k)=a(k)-i*b(k)
-!                 and i=sqrt (-1)
-!
-!               if isign = -1, and m data vectors are supplied each
-!               containing a sequence of gridpoint values x(j) as
-!               defined above, then the result consists of m vectors
-!               each containing the corresponding fourier cofficients
-!               a(k), b(k), 0 .le. k .le n/2.
-!
-!               when isign = -1, the inverse transform is defined by:
-!                 c(k)=(1/n)*sum(j=0,...,n-1)(x(j)*exp(-2*i*j*k*pi/n))
-!                 where c(k)=a(k)+i*b(k) and i=sqrt(-1)
-!
-!               a call with isign=+1 followed by a call with isign=-1
-!               (or vice versa) returns the original data.
-!
-!               note: the fact that the gridpoint values x(j) are real
-!               implies that b(0)=b(n/2)=0.  for a call with isign=+1,
-!               it is not actually necessary to supply these zeros.
-!
-! examples      given 19 data vectors each of length 64 (+2 for explicit
-!               cyclic continuity), compute the corresponding vectors of
-!               fourier coefficients.  the data may, for example, be
-!               arranged like this:
-!
-! first data   a(1)=    . . .                a(66)=             a(70)
-! vector       x(63) x(0) x(1) x(2) ... x(63) x(0)  (4 empty locations)
-!
-! second data  a(71)=   . . .                                  a(140)
-! vector       x(63) x(0) x(1) x(2) ... x(63) x(0)  (4 empty locations)
-!
-!               and so on.  here inc=1, jump=70, n=64, m=19, isign=-1,
-!               and fft99 should be used (because of the explicit cyclic
-!               continuity).
-!
-!               alternatively the data may be arranged like this:
-!
-!                first         second                          last
-!                data          data                            data
-!                vector        vector                          vector
-!
-!                 a(1)=         a(2)=                           a(19)=
-!
-!                 x(63)         x(63)       . . .               x(63)
-!        a(20)=   x(0)          x(0)        . . .               x(0)
-!        a(39)=   x(1)          x(1)        . . .               x(1)
-!                  .             .                               .
-!                  .             .                               .
-!                  .             .                               .
-!
-!               in which case we have inc=19, jump=1, and the remaining
-!               parameters are the same as before.  in either case, each
-!               coefficient vector overwrites the corresponding input
-!               data vector.
-!
-!-----------------------------------------------------------------------
     integer, intent(in)    :: inc, jump, n, lot, isign
-    integer, intent(inout) :: ifax(:)
-    real, intent(in)    :: trigs(:)
+    !! `inc`: increment between successive elements of each vector (1 for consecutive
+    !! data); `jump`: increment between the first elements of successive vectors; `n`:
+    !! length of each transform; `lot`: number of transforms done at once; `isign`: +1 from
+    !! Fourier coefficients to gridpoint values, -1 from gridpoint values to coefficients
+    integer, intent(inout) :: ifax(:)  !! factors of n/2, set up by `set99`
+    real, intent(in)    :: trigs(:)  !! trigonometric function values, set up by `set99`
     real, intent(inout) :: a(*), work(*)
-
-!     dimension a(n),work(n),trigs(n),ifax(1)
-!
-!     subroutine "fft99" - multiple fast real periodic transform
-!     corresponding to old scalar routine fft9
-!     procedure used to convert to half-length complex transform
-!     is given by cooley, lewis and welch (j. sound vib., vol. 12
-!     (1970), 315-337)
-!
-!     a is the array containing input and output data
-!     work is an area of size (n+1)*lot
-!     trigs is a previously prepared list of trig function values
-!     ifax is a previously prepared list of factors of n/2
-!     inc is the increment within each data 'vector'
-!         (e.g. inc=1 for consecutively stored data)
-!     jump is the increment between the start of each data vector
-!     n is the length of the data vectors
-!     lot is the number of data vectors
-!     isign = +1 for transform from spectral to gridpoint
-!           = -1 for transform from gridpoint to spectral
-!
-!     ordering of coefficients:
-!         a(0),b(0),a(1),b(1),a(2),b(2),...,a(n/2),b(n/2)
-!         where b(0)=b(n/2)=0; (n+2) locations required
-!
-!     ordering of data:
-!         x(n-1),x(0),x(1),x(2),...,x(n),x(0)
-!         i.e. explicit cyclic continuity; (n+2) locations required
-!
-!     vectorization is achieved on cray by doing the transforms in
-!     parallel
-!
-!     *** n.b. n is assumed to be an even number
-!
-!     definition of transforms:
-!     -------------------------
-!
-!     isign=+1: x(j)=sum(k=0,...,n-1)(c(k)*exp(2*i*j*k*pi/n))
-!         where c(k)=a(k)+i*b(k) and c(n-k)=a(k)-i*b(k)
-!
-!     isign=-1: a(k)=(1/n)*sum(j=0,...,n-1)(x(j)*cos(2*j*k*pi/n))
-!               b(k)=-(1/n)*sum(j=0,...,n-1)(x(j)*sin(2*j*k*pi/n))
-!
+    !! `a`: the data or coefficient vectors, length lot*(n+2), overwritten by the results;
+    !! `work`: work array of length lot*(n+1)
 
     integer :: nfax, nx, nh, ink, igo, ibase, jbase
     integer :: i, j, k, L, m, ia, la, ib
@@ -382,6 +175,7 @@ contains
 
 !##########################################################################
 
+  !> Preprocessing step of `fft99` and `fft991` for `isign` = +1 (spectral to gridpoint).
   subroutine fft99a(a, work, trigs, inc, jump, n, lot)
     integer, intent(in)    :: inc, jump, n, lot
     real, intent(in)    :: trigs(:)
@@ -466,6 +260,7 @@ contains
 
 !##########################################################################
 
+  !> Postprocessing step of `fft99` and `fft991` for `isign` = -1 (gridpoint to spectral).
   subroutine fft99b(work, a, trigs, inc, jump, n, lot)
     integer, intent(in)    :: inc, jump, n, lot
     real, intent(in)    :: trigs(:)
@@ -555,57 +350,22 @@ contains
 
 !##########################################################################
 
+  !> Performs multiple real/half-complex periodic FFTs, with the gridpoint values in
+  !> ordinary spatial order.
+  !>
+  !> The same as `fft99` except that each data vector holds `x(0), x(1), ..., x(n-1), 0, 0`
+  !> (the ordering of `mrfft2`).
   subroutine fft991(a, work, trigs, ifax, inc, jump, n, lot, isign)
     integer, intent(in)    :: inc, jump, n, lot, isign
-    integer, intent(inout) :: ifax(:)
-    real, intent(in)    :: trigs(:)
+    !! `inc`: increment between successive elements of each vector (1 for consecutive
+    !! data); `jump`: increment between the first elements of successive vectors; `n`:
+    !! length of each transform; `lot`: number of transforms done at once; `isign`: +1 from
+    !! Fourier coefficients to gridpoint values, -1 from gridpoint values to coefficients
+    integer, intent(inout) :: ifax(:)  !! factors of n/2, set up by `set99`
+    real, intent(in)    :: trigs(:)  !! trigonometric function values, set up by `set99`
     real, intent(inout) :: a(*), work(*)
-
-!     dimension a(n),work(n),trigs(n),ifax(1)
-!
-!     subroutine "fft991" - multiple real/half-complex periodic
-!     fast fourier transform
-!
-!     same as fft99 except that ordering of data corresponds to
-!     that in mrfft2
-!
-!     procedure used to convert to half-length complex transform
-!     is given by cooley, lewis and welch (j. sound vib., vol. 12
-!     (1970), 315-337)
-!
-!     a is the array containing input and output data
-!     work is an area of size (n+1)*lot
-!     trigs is a previously prepared list of trig function values
-!     ifax is a previously prepared list of factors of n/2
-!     inc is the increment within each data 'vector'
-!         (e.g. inc=1 for consecutively stored data)
-!     jump is the increment between the start of each data vector
-!     n is the length of the data vectors
-!     lot is the number of data vectors
-!     isign = +1 for transform from spectral to gridpoint
-!           = -1 for transform from gridpoint to spectral
-!
-!     ordering of coefficients:
-!         a(0),b(0),a(1),b(1),a(2),b(2),...,a(n/2),b(n/2)
-!         where b(0)=b(n/2)=0; (n+2) locations required
-!
-!     ordering of data:
-!         x(0),x(1),x(2),...,x(n-1)
-!
-!     vectorization is achieved on cray by doing the transforms in
-!     parallel
-!
-!     *** n.b. n is assumed to be an even number
-!
-!     definition of transforms:
-!     -------------------------
-!
-!     isign=+1: x(j)=sum(k=0,...,n-1)(c(k)*exp(2*i*j*k*pi/n))
-!         where c(k)=a(k)+i*b(k) and c(n-k)=a(k)-i*b(k)
-!
-!     isign=-1: a(k)=(1/n)*sum(j=0,...,n-1)(x(j)*cos(2*j*k*pi/n))
-!               b(k)=-(1/n)*sum(j=0,...,n-1)(x(j)*sin(2*j*k*pi/n))
-!
+    !! `a`: the data or coefficient vectors, length lot*(n+2), overwritten by the results;
+    !! `work`: work array of length lot*(n+1)
 
     integer :: nfax, nx, nh, ink, igo, ibase, jbase
     integer :: i, j, k, L, m, ia, la, ib
@@ -707,10 +467,21 @@ contains
 
 !##########################################################################
 
+  !> Sets up the factors and trigonometric values used by `fft99` and `fft991` for
+  !> transforms of length `n`.
+  !>
+  !> It need only be called once before a sequence of transforms of the same length. Stops
+  !> if `n` is odd, not greater than 4, or has a prime factor greater than 5.
   subroutine set99(trigs, ifax, n)
     integer, intent(in)  :: n
+    !! length of the transforms: an even number greater than 4 with no prime factor greater
+    !! than 5
     integer, intent(out) :: ifax(:)
+    !! factorization of n/2: `ifax(1)` is the number of factors, stored in `ifax(2)`,
+    !! `ifax(3)`, ...; 13 elements suffice for n less than a million
     real, intent(out) :: trigs(:)
+    !! trigonometric function values used by the transforms; size 3*n/2 if n/2 is even,
+    !! 3*n/2+1 if n/2 is odd
 
 !     dimension ifax(13),trigs(1)
 !
@@ -734,6 +505,7 @@ contains
 
 !##########################################################################
 
+  !> Factorizes `n` (or `n/2`, depending on `mode`) into factors in ascending order.
   subroutine fax(ifax, n, mode)
     integer, intent(out) :: ifax(:)
     integer, intent(in)  :: n, mode
@@ -801,6 +573,7 @@ contains
 
 !##########################################################################
 
+  !> Computes the table of trigonometric function values for the transforms.
   subroutine fftrig(trigs, n, mode)
     real, intent(out) :: trigs(:)
     integer, intent(in)  :: n, mode
@@ -852,6 +625,7 @@ contains
 
 !##########################################################################
 
+  !> Performs one pass through the data of the multiple complex FFT.
   subroutine vpassm(a, b, c, d, trigs, inc1, inc2, inc3, inc4, lot, n, ifac, la)
     integer, intent(in)  :: inc1, inc2, inc3, inc4, lot, n, ifac, la
     real, intent(in)  :: a(n), b(n), trigs(n)
