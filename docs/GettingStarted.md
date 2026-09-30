@@ -35,7 +35,7 @@ MiMA needs:
 * CMake ≥ 3.22
 * the [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.02 or later. You don't need to install it: CMake downloads and builds it if it can't find it (see [FMS](#fms)).
 
-To combine the per-processor output files you will also need `mppnccombine` from FRE-NCtools, which is installed separately (see [Installing FRE-NCtools](#installing-fre-nctools)).
+Optionally, FRE-NCtools (installed separately, see [Installing FRE-NCtools](#installing-fre-nctools)) provides `plevel.sh` for interpolating output to pressure levels, and `mppnccombine` for combining per-processor files if you choose to write them.
 
 Typical ways to install them:
 
@@ -69,7 +69,7 @@ With the Intel compilers, a downloaded FMS is compiled with FMS's own Intel flag
 
 ### Installing FRE-NCtools
 
-MiMA writes one output file per MPI process (see [Output](#output)). You join them with `mppnccombine`, which is part of NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) and is not included with MiMA. FRE-NCtools also provides `plevel.sh` for interpolating output to pressure levels.
+NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) is not needed to run MiMA, but it provides `plevel.sh` for interpolating output to pressure levels, and `mppnccombine` for joining per-processor output files (only written if you change `io_layout`, see [Output](#output)).
 
 FRE-NCtools isn't available from Homebrew, apt or conda-forge, so we recommend building it from source. It needs the same compilers and netCDF libraries as MiMA, plus `autoconf` and `automake` (`brew install autoconf automake` on macOS, `sudo apt install autoconf automake` on Ubuntu/Debian). To build it and install it into, for example, `~/fre-nctools`:
 
@@ -175,7 +175,9 @@ The test run is one 360-day year (12 months of 30 days) with the following setup
 
 ## Output
 
-MiMA writes one output file per MPI process for each file listed in `diag_table`, e.g. `atmos_daily.nc.0000`, `atmos_daily.nc.0001`, …. Each file holds a band of latitudes. Combine them into a single netCDF file with `mppnccombine` (see [Installing FRE-NCtools](#installing-fre-nctools)):
+MiMA writes each file listed in `diag_table` as a single netCDF file, e.g. `atmos_daily.nc`, and likewise the restart files in `RESTART/`.
+
+For very large runs, writing can be split over groups of processors with `io_layout` in `spec_mpp_nml`: `io_layout = 1,4`, for example, writes four files per output file, each holding a band of latitudes (`atmos_daily.nc.0000`, …, `atmos_daily.nc.0003`). The default `1,1` writes single files. Combine split files with `mppnccombine` (see [Installing FRE-NCtools](#installing-fre-nctools)):
 
 ```bash
 for f in atmos_daily atmos_avg atmos_davg atmos_dext; do
@@ -183,7 +185,7 @@ for f in atmos_daily atmos_avg atmos_davg atmos_dext; do
 done
 ```
 
-The `-r` flag removes the per-process files once they've been combined successfully. Run `mppnccombine` without arguments for its other options.
+The `-r` flag removes the pieces once they've been combined successfully. Split restart files can only be read back with the same `io_layout`, or after combining them.
 
 The test case produces:
 
@@ -194,7 +196,7 @@ The test case produces:
 | `atmos_davg.nc` | daily-mean surface temperature and precipitation |
 | `atmos_dext.nc` | daily maximum/minimum surface temperature and maximum precipitation |
 
-The output is on the model's hybrid sigma levels. To interpolate it to pressure levels, use `plevel.sh` from FRE-NCtools on a combined file:
+The output is on the model's hybrid sigma levels. To interpolate it to pressure levels, use `plevel.sh` from FRE-NCtools on an output file:
 
 ```bash
 plevel.sh -a -i atmos_daily.nc -o atmos_daily_plev.nc
@@ -211,7 +213,7 @@ mv RESTART/* INPUT/
 mpirun -n 4 ./mima
 ```
 
-The model detects the restart files in `INPUT/` and continues from the date stored in `INPUT/coupler.res`. Move or combine the output files from the previous segment first, because the new run overwrites them. Long simulations are usually run as a sequence of such segments, e.g. one year at a time.
+The model detects the restart files in `INPUT/` and continues from the date stored in `INPUT/coupler.res`. Move the output files from the previous segment first, because the new run overwrites them. Long simulations are usually run as a sequence of such segments, e.g. one year at a time.
 
 ## Adding files to the build
 

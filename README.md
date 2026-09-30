@@ -26,11 +26,7 @@ ulimit -s unlimited   # on macOS use: ulimit -s hard
 mpirun -n 4 ./mima
 ```
 
-MiMA writes one output file per MPI process. Combine them with `mppnccombine` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools), which you install separately ([instructions](docs/GettingStarted.md#installing-fre-nctools)):
-
-```bash
-for f in atmos_daily atmos_avg atmos_davg atmos_dext; do mppnccombine -r $f.nc $f.nc.????; done
-```
+MiMA writes each output file listed in `diag_table` (e.g. `atmos_daily.nc`) as a single netCDF file.
 
 See [Getting started](docs/GettingStarted.md) for details on the build options, the test configuration, output and restarts.
 
@@ -41,6 +37,7 @@ See [Getting started](docs/GettingStarted.md) for details on the build options, 
 * [Parameter settings](docs/Parameters.md): default and recommended namelist values
 * [Diagnostics](docs/Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
 * [Version history](docs/Versions.md)
+* [Migrating from v1 to v2.0](docs/Migration_v2.md)
 * [References](docs/README.md#references)
 
 See the 30 second trailer on [YouTube](https://www.youtube.com/watch?v=8UfaFnGtCrk "Model of an idealized Moist Atmosphere (MiMA)"):

@@ -14,6 +14,7 @@ The source code is on [GitHub](https://github.com/Eddy-Stanford/MiMA).
 * [Parameter settings](Parameters.md): default and recommended namelist values
 * [Diagnostics](Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
 * [Version history](Versions.md): main additions and changes
+* [Migrating from v1 to v2.0](Migration_v2.md): what changed in v2.0 and how to convert a v1 setup
 * [References](#references): required and relevant references
 * [License](https://github.com/Eddy-Stanford/MiMA#license)
 
