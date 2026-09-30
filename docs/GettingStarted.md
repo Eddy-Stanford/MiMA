@@ -217,3 +217,17 @@ The model detects the restart files in `INPUT/` and continues from the date stor
 
 * If you work on your own version of MiMA, put each extension in a new file where possible, so as not to disturb the main branch and any other fork that might exist.
 * When adding a source file, add it to the `CMakeLists.txt` in the same directory, so that it is compiled the next time you build.
+
+## Code style
+
+The Fortran sources are formatted with [fprettify](https://github.com/fortran-lang/fprettify) (version 0.3.7), using the options in `.fprettify.rc` at the top of the repository: 2-space indentation, whitespace level 2 (spaces around `+`, `-`, relational and logical operators, none around `*` and `/`), and lower case for keywords, intrinsic procedures, operators and exponent letters. Before committing, format the files you have changed by running, from the repository root,
+
+```bash
+fprettify -c .fprettify.rc <files>
+```
+
+fprettify also picks up `.fprettify.rc` on its own, but version 0.3.7 ignores the letter-case setting unless the file is passed with `-c`. Running it again on formatted code changes nothing.
+
+The vendored AER RRTMG code (`src/atmos_param/radiation/rrtm/rrtmg_*`) is kept as distributed: do not format it.
+
+fprettify does not break long lines (the `line-length` in `.fprettify.rc` only stops it from producing lines longer than that). Keep lines to at most 132 characters, the free-form limit of the Fortran standard, by continuing long statements with `&` and putting long comments on their own lines.

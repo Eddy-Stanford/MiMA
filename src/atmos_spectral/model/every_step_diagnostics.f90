@@ -60,7 +60,8 @@ module every_step_diagnostics_mod
 !jm
 
   integer :: is, ie, js, je
-  integer :: nsphum = NO_TRACER ! tracer index of specific humidity. Initialized to NO_TRACER, then set in subroutine every_step_diagnostics_init.
+  ! tracer index of specific humidity. Initialized to NO_TRACER, then set in subroutine every_step_diagnostics_init.
+  integer :: nsphum = NO_TRACER
 
   type(time_type) :: Time_save ! every_step_diagnostics_end needs time because it is a required argument of send_data,
   ! even though the fields are static. When Time is not available to every_step_diagnostics_end
@@ -132,9 +133,11 @@ contains
     id_wsubt = register_diag_field(mod_name, 'wsubt', axes_3d, time, 'kappa omega T/p, weighted by ps/p00', 'K/s')
     id_wsubtv = register_diag_field(mod_name, 'wsubtv', axes_3d, time, 'kappa omega Tv/p, weighted by ps/p00', 'K/s')
     id_kegen = register_diag_field(mod_name, 'kegen', axes_3d, time, &
-                                   'kappa omega T/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00', 'K/s')
+                                   'kappa omega T/p from the dynamical core (Tv if use_virtual_temperature), '// &
+                                   'weighted by ps/p00', 'K/s')
     id_kegenq = register_diag_field(mod_name, 'kegenq', axes_3d, time, &
-                                    'kappa omega T q/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00', 'K/s kg/kg')
+                                    'kappa omega T q/p from the dynamical core (Tv if use_virtual_temperature), '// &
+                                    'weighted by ps/p00', 'K/s kg/kg')
     id_kegenqtinv = register_diag_field(mod_name, 'kegenqtinv', axes_3d, time, &
                                         'kappa omega q/p from the dynamical core, weighted by ps/p00', 'kg/kg/s')
     id_drystaten = register_diag_field(mod_name, 'dry_stat_en', axes_3d, time, 'dry static energy', 'J/kg')
@@ -171,10 +174,12 @@ contains
       call get_tracer_names(MODEL_ATMOS, ntr, tname, longname, units)
       id_tr(ntr) = register_diag_field(mod_name, trim(tname)//'_every', axes_3d, Time, longname, units)
       id_dt_hadv(ntr) = register_diag_field(mod_name, trim(tname)//'_hadv', axes_3d, Time, & ! New name=sphum_hadv XXX
-                                            'Global mean column integrated '//trim(longname)//' tendency due to horizontal advection', &
+                                            'Global mean column integrated '//trim(longname)// &
+                                            ' tendency due to horizontal advection', &
                                             trim(units)//' kg/m2/s')
       id_dt_vadv(ntr) = register_diag_field(mod_name, trim(tname)//'_vadv', axes_3d, Time, & ! New name=sphum_vadv XXX
-                                            'Global mean column integrated '//trim(longname)//' tendency due to vertical advection', &
+                                            'Global mean column integrated '//trim(longname)// &
+                                            ' tendency due to vertical advection', &
                                             trim(units)//' kg/m2/s')
     end do
     nsphum = get_tracer_index(MODEL_ATMOS, 'sphum')

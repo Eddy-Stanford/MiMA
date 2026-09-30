@@ -325,7 +325,8 @@ contains
     logical :: used, opened
 
     dtr = PI/180.
-    deg_90 = -90.*dtr; deg_180 = -180.*dtr ! -90 and -180 degrees are the southwest boundaries of the emission field you are reading in.
+    ! -90 and -180 degrees are the southwest boundaries of the emission field you are reading in.
+    deg_90 = -90.*dtr; deg_180 = -180.*dtr
 
 ! Read in GEIA SF6 emission distribution grid and determine sizes:
 !

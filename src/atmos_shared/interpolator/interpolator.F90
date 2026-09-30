@@ -983,10 +983,12 @@ contains
     do i = 1, size(clim_type%field_name(:))
       climo_diag_name(i + num_clim_diag) = clim_type%field_name(i)
       climo_diag_id(i + num_clim_diag) = register_diag_field('climo', clim_type%field_name(i), axes(1:2), init_time, &
-                                                             'column integral of '//trim(clim_type%field_name(i))//' (climatology grid)', &
+                                                             'column integral of '//trim(clim_type%field_name(i))// &
+                                                             ' (climatology grid)', &
                                                              'kg/m2', missing_value)
       hinterp_id(i + num_clim_diag) = register_diag_field('hinterp', clim_type%field_name(i), mod_axes(1:2), init_time, &
-                                                          'column integral of '//trim(clim_type%field_name(i))//' (interpolated to the model grid)', &
+                                                          'column integral of '//trim(clim_type%field_name(i))// &
+                                                          ' (interpolated to the model grid)', &
                                                           'kg/m2', missing_value)
     end do
 ! Total number of climatology diagnostics (num_clim_diag). This can be from multiple climatology fields with different spatial axes.
@@ -1991,7 +1993,8 @@ contains
 !  read time level nt of the field and unpack it, as mpp_read did
     n = product(src_field%count)
     if (n > size(climdata)) call mpp_error(FATAL, 'interpolator read_data : '// &
-                                           trim(src_field%name)//' in '//trim(clim_type%file_name)//' is larger than the climatology grid')
+                                           trim(src_field%name)//' in '//trim(clim_type%file_name)// &
+                                           ' is larger than the climatology grid')
     allocate (buf(size(climdata)))
     buf = 0.0
     start = 1

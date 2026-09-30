@@ -336,7 +336,8 @@ contains
     damp_level = min(damp_level, kmax)
 
 !cig: make sure everyhing is ok
-!          write (*,*) "damp",pref(klevel_of_damp), '  ', klevel_of_damp, '  ', damp_level_pressure, '  ', damp_level(2,2), '  ', damp_level(12,2)
+!          write (*,*) "damp",pref(klevel_of_damp), '  ', klevel_of_damp, '  ', damp_level_pressure, '  ', &
+!                      damp_level(2,2), '  ', damp_level(12,2)
 
 !      deallocate( lat )
 
@@ -1091,7 +1092,8 @@ contains
             end if
           end do  ! (k loop)
 
-!cig: place the extra momentum flux in the layers above a specific threshold instead of all in the top layer   (k=0 isn't a real model level)
+!cig: place the extra momentum flux in the layers above a specific threshold instead of all in the top layer
+!     (k=0 isn't a real model level)
 !    the momentum deposited above the model top (k = 0) is spread over
 !    levels 1..iztop as a uniform acceleration that conserves momentum:
 !    the layer masses are rho*dz, as in the definition of wv_frcng.

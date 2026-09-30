@@ -106,23 +106,31 @@ contains
         lon = 0.5*(lonb(i + 1) + lonb(i))
         if (abs(lat) .le. 1.0) then
           if (warmpool_localization_choice == 1) then
+            !modified by cig, nov 15 2017, note that I use 4th power not 2nd as in MJ to better match Pac warm pool
             flux(i, j) = flux(i, j) &
-                 &+ (1.-lat**4.)*warmpool_amp*cos(warmpool_k*(lon - piphase))  !modified by cig, nov 15 2017, note that I use 4th power not 2nd as in MJ to better match Pac warm pool
+                 &+ (1.-lat**4.)*warmpool_amp*cos(warmpool_k*(lon - piphase))
           elseif (warmpool_localization_choice == 2 .or. warmpool_localization_choice == 3) then  !assumes k=5/3 for warmpool,
-            if (lon .ge. (warmpool_phase - 54)*pi/180. .and. lon .le. (warmpool_phase + 162)*pi/180.) then !modified by cig, nov 15 2017
+            !modified by cig, nov 15 2017
+            if (lon .ge. (warmpool_phase - 54)*pi/180. .and. lon .le. (warmpool_phase + 162)*pi/180.) then
               flux(i, j) = flux(i, j) &
                  &+ (1.-lat**4.)*warmpool_amp*cos(warmpool_k*(lon - piphase))
             end if
-            if (lon .ge. (warmpool_phase + 117)*pi/180. .and. lon .le. (warmpool_phase + 162)*pi/180. .and. warmpool_localization_choice == 3) then !modified by cig, mar 28 2019
+            !modified by cig, mar 28 2019
+            if (lon .ge. (warmpool_phase + 117)*pi/180. .and. lon .le. (warmpool_phase + 162)*pi/180. &
+              & .and. warmpool_localization_choice == 3) then
               flux(i, j) = flux(i, j) &
                  &+ (1.-lat**4.)*warmpool_amp*sin(8*(lon - piphase - 139.5*pi/180.))
             end if
           end if
-          if (lon .ge. (warmpool_phase - 130)*pi/180. .and. lon .le. (warmpool_phase - 58)*pi/180. .and. warmpool_localization_choice == 3) then !modified by cig, may 13 2019
+          !modified by cig, may 13 2019
+          if (lon .ge. (warmpool_phase - 130)*pi/180. .and. lon .le. (warmpool_phase - 58)*pi/180. &
+            & .and. warmpool_localization_choice == 3) then
             flux(i, j) = flux(i, j) &
                &+ (1.-lat**2.)*africaamp*cos(5*(lon - (piphase - 112*pi/180)))
           end if
-          if ((lon .ge. (gulf_phase - 22)*pi/180. .or. lon .le. (gulf_phase + 68 - 360)*pi/180.) .and. warmpool_localization_choice == 2) then !modified by cig, april 30 2018
+          !modified by cig, april 30 2018
+          if ((lon .ge. (gulf_phase - 22)*pi/180. .or. lon .le. (gulf_phase + 68 - 360)*pi/180.) &
+            & .and. warmpool_localization_choice == 2) then
             flux(i, j) = flux(i, j) &
                &+ (1.-lat**4.)*trop_atlantic_amp*cos(gulf_k*(lon - pigulfphase))
           end if
@@ -134,16 +142,19 @@ contains
             flux(i, j) = flux(i, j) &
                &+ (1.-latgulf**4.)*gulf_amp*cos(gulf_k*(lon - (pigulfphase - 19.5*pi/180.)))
           end if
-          if (lon .ge. (gulf_phase - 42)*pi/180. .and. lon .lt. (gulf_phase + 3)*pi/180.) then !modified by cig, Nov 18 2018 to localize gulfstream more over ocean
+          !modified by cig, Nov 18 2018 to localize gulfstream more over ocean
+          if (lon .ge. (gulf_phase - 42)*pi/180. .and. lon .lt. (gulf_phase + 3)*pi/180.) then
             flux(i, j) = flux(i, j) &
                &+ 0.535*(1.-latgulf**4.)*gulf_amp*sin(gulf_k*2*(lon - (pigulfphase - 19.5*pi/180.)))
           end if
 
-          if (lon .ge. (warmpool_phase - 17.5)*pi/180. .and. lon .lt. (warmpool_phase + 72.5)*pi/180.) then !modified by cig, june 3 2018, use k=4 for kuroshio
+          !modified by cig, june 3 2018, use k=4 for kuroshio
+          if (lon .ge. (warmpool_phase - 17.5)*pi/180. .and. lon .lt. (warmpool_phase + 72.5)*pi/180.) then
             flux(i, j) = flux(i, j) &
                &+ (1.-latgulf**2.)*kuroshio_amp*cos(gulf_k*(lon - (piphase + 5*pi/180))) !modified by cig, mar 29 2019,
           end if
-          if (lon .ge. (warmpool_phase + 30)*pi/180. .and. lon .lt. (warmpool_phase + 90)*pi/180.) then !modified by cig, jan 2 2019, shift cooling kuroshio east k=6
+          !modified by cig, jan 2 2019, shift cooling kuroshio east k=6
+          if (lon .ge. (warmpool_phase + 30)*pi/180. .and. lon .lt. (warmpool_phase + 90)*pi/180.) then
             flux(i, j) = flux(i, j) &
                &- (1.-latgulf**2.)*0.65*kuroshio_amp*cos((2*gulf_k - 2)*(lon - (piphase + 15*pi/180)))!modified by cig, mar 29 2019
           end if
@@ -151,34 +162,42 @@ contains
 
         if (abs(latgreen) .le. 1.0 .and. warmpool_localization_choice == 2 .and. north_sea_heat .gt. 0.001) then
 
-          if (lon .ge. (gulf_phase - 52)*pi/180. .or. lon .lt. (gulf_phase + 68 - 360)*pi/180.) then !modified by cig, Nov 22 2018 to add opposite of Gulfstream further polewrd
+          !modified by cig, Nov 22 2018 to add opposite of Gulfstream further polewrd
+          if (lon .ge. (gulf_phase - 52)*pi/180. .or. lon .lt. (gulf_phase + 68 - 360)*pi/180.) then
             flux(i, j) = flux(i, j) &
                & + north_sea_heat*(1.-latgreen**4.)*gulf_amp*cos((gulf_k - 1)*(lon - pigulfphase - 38*pi/180.))
 
           end if
-          if (lon .ge. (gulf_phase - 67)*pi/180. .and. lon .lt. (gulf_phase - 7)*pi/180.) then !modified by cig, Nov 22 2018 to smear out the cooling over Northern Canada over broad region
+          !modified by cig, Nov 22 2018 to smear out the cooling over Northern Canada over broad region
+          if (lon .ge. (gulf_phase - 67)*pi/180. .and. lon .lt. (gulf_phase - 7)*pi/180.) then
             flux(i, j) = flux(i, j) &
                & + north_sea_heat*0.25*(1.-latgreen**4.)*gulf_amp*cos(2*(gulf_k - 1)*(lon - pigulfphase + 22*pi/180.))
 
           end if
         end if
 
-        if (warmpool_localization_choice == 3 .and. kuroshio_amp .gt. 0.001 .and. latorig .le. 47. .and. latorig .ge. 5.) then !add Kuroshio
-          if (lon .ge. (warmpool_phase - 30.)*pi/180. .and. lon .lt. (warmpool_phase + 130.)*pi/180.) then !modified by cig, may 13 2019, Pacific sector is exp
+        !add Kuroshio
+        if (warmpool_localization_choice == 3 .and. kuroshio_amp .gt. 0.001 .and. latorig .le. 47. .and. latorig .ge. 5.) then
+          !modified by cig, may 13 2019, Pacific sector is exp
+          if (lon .ge. (warmpool_phase - 30.)*pi/180. .and. lon .lt. (warmpool_phase + 130.)*pi/180.) then
             flux(i, j) = flux(i, j) &
-               &- kuroshio_amp*59.4/100.*exp(-(lon*180./pi + latorig - 268.)**2./(2*49.))*exp(-(lon*180./pi - latorig - 215.)**2./(2*625.))  &
+               &- kuroshio_amp*59.4/100.*exp(-(lon*180./pi + latorig - 268.)**2./(2*49.)) &
+                 & *exp(-(lon*180./pi - latorig - 215.)**2./(2*625.))  &
                &+ kuroshio_amp*exp(-(lon*180./pi - 3*latorig - 45.)**2./(2*100.))*exp(-(lon*180./pi + latorig - 170.)**2./(2*400.))
           end if
 
         end if
 
-        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. lon .ge. 70.*pi/180. .and. latorig .le. 60. .and. latorig .ge. -10. .and. lon .lt. 240.*pi/180.) then !add more Kurishio at expense of Southeast Asia  modified by cig, may 14 2019
+        !add more Kurishio at expense of Southeast Asia  modified by cig, may 14 2019
+        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. lon .ge. 70.*pi/180. .and. latorig .le. 60. &
+          & .and. latorig .ge. -10. .and. lon .lt. 240.*pi/180.) then
           if (kuroshio_amp .gt. 0.001) then
             flux(i, j) = flux(i, j) &
             &- 27.60*exp(-(lon*180./pi - 140)**2./(2*1521))*(exp(-(latorig - 19.7)**2./(2*49)))   &
             &- (5.2)*exp(-(lon*180./pi - 140)**2./(2*64))*(exp(-(latorig - 20.)**2./(2*16)))   &
             &+ 35.4*exp(-(lon*180./pi - 160)**2./(2*400))*exp(-(latorig - 35)**2./(2*36)) &
-               &+ (49.5 - Hawaiiextra*.0228)*exp(-(lon*180./pi - 3*latorig - 45.-Hawaiiextra/5)**2./(2*100.))*exp(-(lon*180./pi + latorig - 160.)**2./(2*400.)) &
+               &+ (49.5 - Hawaiiextra*.0228)*exp(-(lon*180./pi - 3*latorig - 45.-Hawaiiextra/5)**2./(2*100.)) &
+                 & *exp(-(lon*180./pi + latorig - 160.)**2./(2*400.)) &
             &+ 22.9*exp(-(lon*180./pi - 90)**2./(2*144))*exp(-(latorig - 0)**2./(2*25))
           else
             flux(i, j) = flux(i, j) &
@@ -188,7 +207,10 @@ contains
           end if
         end if
 
-        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. latorig .le. 24. .and. latorig .ge. -78. .and. lon .ge. 129.*pi/180. .and. lon .lt. 290.*pi/180.) then !add south pacific and SPCZ at expense of further cold tongue  modified by cig, may 28 2019, also includes Australia bit from Kuroshio above
+        !add south pacific and SPCZ at expense of further cold tongue  modified by cig, may 28 2019, also includes Australia bit
+        !from Kuroshio above
+        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. latorig .le. 24. .and. latorig .ge. -78. &
+          & .and. lon .ge. 129.*pi/180. .and. lon .lt. 290.*pi/180.) then
           flux(i, j) = flux(i, j) &
               &- (50.-Pac_SPCZextra*.28 - Hawaiiextra*.6)*exp(-(lon*180./pi - 270)**2./(2*81))*(exp(-(latorig + 0.)**2./(2*9)))   &
               &- (50.-Pac_SPCZextra*.28 - Hawaiiextra*.6)*exp(-(lon*180./pi - 250)**2./(2*81))*(exp(-(latorig + 1.)**2./(2*9)))   &
@@ -198,7 +220,8 @@ contains
               & - (16.-Hawaiiextra*.676)*exp(-(lon*180./pi - 170)**2./(2*81))*(exp(-(latorig + 0.)**2./(2*9))) &
               &- 40.*exp(-(lon*180./pi - 287)**2./(2*4))*(exp(-(latorig + 25.)**2./(2*81)))   &
               &- 15.*exp(-(lon*180./pi - 282)**2./(2*25))*(exp(-(latorig + 15.)**2./(2*81)))   &
-              &- (25.+Pac_ITCZextra + Pac_SPCZextra - Hawaiiextra*.5)*exp(-(lon*180./pi - 240)**2./(2*1600))*(exp(-(latorig + 21.)**2./(2*121)))   &
+              &- (25.+Pac_ITCZextra + Pac_SPCZextra - Hawaiiextra*.5)*exp(-(lon*180./pi - 240)**2./(2*1600)) &
+                & *(exp(-(latorig + 21.)**2./(2*121)))   &
               &- (38.0 - Hawaiiextra*.7)*exp(-(lon*180./pi - 195)**2./(2*169))*(exp(-(latorig - 16.)**2./(2*49)))   &
               &- (51.4 - Hawaiiextra*.7)*exp(-(lon*180./pi - 225)**2./(2*169))*(exp(-(latorig - 16.)**2./(2*49)))   &
               &+ (28.2 - Hawaiiextra*25/30*.8623)*exp(-(lon*180./pi - 220)**2./(2*1600))*exp(-(latorig + 57)**2./(2*225)) &
@@ -210,45 +233,60 @@ contains
                 &+ (60.-Hawaiiextra)*exp(-(lon*180./pi - 180)**2./(2*169))*(exp(-(latorig - 6.97)**2./(2*4))) &
               &+ (47.-Hawaiiextra)*exp(-(lon*180./pi - 210)**2./(2*169))*(exp(-(latorig - 6.97)**2./(2*4))) &
               &+ (45.-Hawaiiextra)*exp(-(lon*180./pi - 240)**2./(2*169))*(exp(-(latorig - 6.97)**2./(2*4))) &
-              &+ (19.5 + Pac_SPCZextra*.4 - Hawaiiextra*.5158)*exp(-(lon*180./pi - 145)**2./(2*196))*(exp(-(latorig - 3.)**2./(2*16)))  &
+              &+ (19.5 + Pac_SPCZextra*.4 - Hawaiiextra*.5158)*exp(-(lon*180./pi - 145)**2./(2*196)) &
+                & *(exp(-(latorig - 3.)**2./(2*16)))  &
               &+ (40.+Pac_SPCZextra*.35 - Hawaiiextra*.5158)*exp(-(lon*180./pi - 150)**2./(2*169))*(exp(-(latorig - 7.)**2./(2*9)))
         end if
-        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. latorig .le. 30. .and. latorig .ge. -16. .and. lon .ge. 50.*pi/180. .and. lon .lt. 220.*pi/180.) then !add south pacific and SPCZ at expense of further cold tongue  modified by cig, may 28 2019, also includes Australia bit from Kuroshio above
+        !add south pacific and SPCZ at expense of further cold tongue  modified by cig, may 28 2019, also includes Australia bit
+        !from Kuroshio above
+        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. latorig .le. 30. .and. latorig .ge. -16. &
+          & .and. lon .ge. 50.*pi/180. .and. lon .lt. 220.*pi/180.) then
           flux(i, j) = flux(i, j) &
                 &+ Hawaiiextra*.9*exp(-(lon*180./pi - 145)**2./(2*400))*(exp(-(latorig - 16.)**2./(2*25)))
         end if
 
-        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. latorig .le. 10. .and. latorig .ge. -36. .and. lon .ge. 50.*pi/180. .and. lon .lt. 220.*pi/180.) then !add south pacific and south indian at expense of Australia  modified by cig, may 13 2019
+        !add south pacific and south indian at expense of Australia  modified by cig, may 13 2019
+        if (warmpool_localization_choice == 3 .and. warmpool_amp .gt. 0.001 .and. latorig .le. 10. .and. latorig .ge. -36. &
+          & .and. lon .ge. 50.*pi/180. .and. lon .lt. 220.*pi/180.) then
           flux(i, j) = flux(i, j) &
               &- (qflux_amp + warmpool_amp)*1.02*exp(-(lon*180./pi - 135)**2./(2*225))*(exp(-(latorig + 20.)**2./(2*36)))   &
               &- (qflux_amp + warmpool_amp)*1.02*10/44*exp(-(lon*180./pi - 147)**2./(2*64))*(exp(-(latorig + 27.)**2./(2*49)))   &
               &+ (qflux_amp + warmpool_amp)*1.02*16.6/44*exp(-(lon*180./pi - 120)**2./(2*900))*exp(-(latorig + 20)**2./(2*36)) &
-              &+ (qflux_amp + warmpool_amp)*1.02*(27.89 - Hawaiiextra*1.412)/44*exp(-(lon*180./pi - 100)**2./(2*100))*exp(-(latorig + 10)**2./(2*16)) &
+              &+ (qflux_amp + warmpool_amp)*1.02*(27.89 - Hawaiiextra*1.412)/44*exp(-(lon*180./pi - 100)**2./(2*100)) &
+                & *exp(-(latorig + 10)**2./(2*16)) &
               &+ (qflux_amp + warmpool_amp)*1.02*4.9/44*exp(-(lon*180./pi - 135)**2./(2*225))*exp(-(latorig + 0)**2./(2*16))  &
               &+ (Pac_SPCZextra*.7137)*exp(-(lon*180./pi - 130)**2./(2*196))*(exp(-(latorig + 8.)**2./(2*81)))
 
         end if
 
-        if (warmpool_localization_choice == 3 .and. gulf_amp .gt. 0.001 .and. latorig .le. 52. .and. latorig .ge. 10.) then !add  Gulf streams
-          if (lon .ge. (warmpool_phase + 135.)*pi/180. .and. lon .lt. (warmpool_phase + 195.)*pi/180.) then !modified by cig, may 13 2019, Atlantic sector is exp
+        !add  Gulf streams
+        if (warmpool_localization_choice == 3 .and. gulf_amp .gt. 0.001 .and. latorig .le. 52. .and. latorig .ge. 10.) then
+          !modified by cig, may 13 2019, Atlantic sector is exp
+          if (lon .ge. (warmpool_phase + 135.)*pi/180. .and. lon .lt. (warmpool_phase + 195.)*pi/180.) then
             flux(i, j) = flux(i, j) &
                &+ gulf_amp*exp(-(lon*180./pi - 2.*latorig - 220.)**2./(2*9.))*exp(-(lon*180./pi + latorig - 335.)**2./(2*625.))
           end if
-          if (lon .ge. (warmpool_phase + 158.)*pi/180. .and. lon .lt. (warmpool_phase + 218.)*pi/180.) then !modified by cig, may 13 2019
+          !modified by cig, may 13 2019
+          if (lon .ge. (warmpool_phase + 158.)*pi/180. .and. lon .lt. (warmpool_phase + 218.)*pi/180.) then
             flux(i, j) = flux(i, j) &
                &- gulf_amp*63.9/70.*exp(-(lon*180./pi - .5*latorig - 325.)**2./(2*9.))*exp(-(latorig - 25.)**2./(2*49.))
           end if
 
         end if
 
-        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001 .and. latorig .le. 77. .and. latorig .ge. -35. .and. lon .ge. 275.*pi/180. .and. gulf_amp .gt. 0.001) then !add more Gulf at expense of tropical Atlantic  modified by cig, may 14 2019
+        !add more Gulf at expense of tropical Atlantic  modified by cig, may 14 2019
+        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001 .and. latorig .le. 77. .and. latorig .ge. -35. &
+          & .and. lon .ge. 275.*pi/180. .and. gulf_amp .gt. 0.001) then
           flux(i, j) = flux(i, j) &
-              &- trop_atlantic_amp*(exp(-(lon*180./pi - 342)**2./(2*81)) + exp(-(lon*180./pi - 360.)**2./(2*64)))*(exp(-(latorig + 5.)**2./(2*25)))   &
+              &- trop_atlantic_amp*(exp(-(lon*180./pi - 342)**2./(2*81)) + exp(-(lon*180./pi - 360.)**2./(2*64))) &
+                & *(exp(-(latorig + 5.)**2./(2*25)))   &
               &- 12.6*(exp(-(lon*180./pi - 345)**2./(2*256)))*(exp(-(latorig + 16.)**2./(2*64)))   &
-              &+ trop_atlantic_amp*30.65/28.*exp(-(lon*180./pi - 2*latorig - 220)**2./(2*100))*exp(-(latorig + lon*180./pi - 375)**2./(2*900))
+              &+ trop_atlantic_amp*30.65/28.*exp(-(lon*180./pi - 2*latorig - 220)**2./(2*100)) &
+                & *exp(-(latorig + lon*180./pi - 375)**2./(2*900))
         end if
         if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001 .and. gulf_amp .gt. 0.001) then
-          if (lon .ge. (318.)*pi/180. .or. lon .lt. (18.)*pi/180.) then !second part of Gulf at expense of South America, replaced greenland perturbation
+          !second part of Gulf at expense of South America, replaced greenland perturbation
+          if (lon .ge. (318.)*pi/180. .or. lon .lt. (18.)*pi/180.) then
             if (abs(latgreen) .le. 1.0) then
               flux(i, j) = flux(i, j) &
                  & + trop_atlantic_amp*36./28*(1.-latgreen**4.)*cos((gulf_k - 1)*(lon - pigulfphase - 38.*pi/180.))
@@ -260,7 +298,9 @@ contains
           end if
         end if
 
-        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001 .and. lon .ge. 250.*pi/180. .and. lon .lt. 344.*pi/180. .and. latorig .le. 40. .and. latorig .ge. -35. .and. gulf_amp .gt. 0.001) then !add Caribean and South America at expense of tropical North/South Atlantic  modified by cig, may 14 2019
+        !add Caribean and South America at expense of tropical North/South Atlantic  modified by cig, may 14 2019
+        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001 .and. lon .ge. 250.*pi/180. &
+          & .and. lon .lt. 344.*pi/180. .and. latorig .le. 40. .and. latorig .ge. -35. .and. gulf_amp .gt. 0.001) then
           flux(i, j) = flux(i, j) &
            &- qflux_amp*.92*exp(-(lon*180./pi - 290)**2./(2*400))*(exp(-(latorig + 20)**2./(2*49)))   &
            &- 16.8*exp(-(lon*180./pi - 325)**2./(2*484))*(exp(-(latorig - 19.5)**2./(2*64)))   &
@@ -272,38 +312,46 @@ contains
            &+ (42.54)*exp(-(lon*180./pi - 325)**2./(2*121))*(exp(-(latorig - 4.2)**2./(2*4)))
         end if
 
-        if (warmpool_localization_choice == 3 .and. africaamp .gt. 0.001 .and. latorig .le. 35. .and. latorig .ge. -60. .and. lon .ge. 2.*pi/180. .and. lon .lt. 100.*pi/180.) then !add Agulhas current add expense of Africa  modified by cig, may 13 2019
+        !add Agulhas current add expense of Africa  modified by cig, may 13 2019
+        if (warmpool_localization_choice == 3 .and. africaamp .gt. 0.001 .and. latorig .le. 35. .and. latorig .ge. -60. &
+          & .and. lon .ge. 2.*pi/180. .and. lon .lt. 100.*pi/180.) then
           flux(i, j) = flux(i, j) &
               &- 30.*exp(-(lon*180./pi - 28)**2./(2*100))*(exp(-(latorig - 18.)**2./(2*50)) + exp(-(latorig + 18)**2./(2*60))) &
               &- (38.5 + Africaextra*.7709)*exp(-(lon*180./pi - 11)**2./(2*4))*exp(-(latorig + 15)**2./(2*100)) &
               &+ (83.+Africaextra)*exp(-(lon*180./pi - 50)**2./(2*625))*exp(-(latorig + 40)**2./(2*16)) &
               &- (64.22 + Africaextra*1.3)*exp(-(lon*180./pi - 50)**2./(2*400))*exp(-(latorig + 48)**2./(2*16)) &
-              &+ (38.0 + Africaextra/3)*exp(-(lon*180./pi - 2./3.*latorig - 57.)**2./(2*16))*exp(-(lon*180./pi + latorig - 10.)**2./(2*225.)) &
+              &+ (38.0 + Africaextra/3)*exp(-(lon*180./pi - 2./3.*latorig - 57.)**2./(2*16)) &
+                & *exp(-(lon*180./pi + latorig - 10.)**2./(2*225.)) &
               &+ 20.*exp(-(lon*180./pi - 14)**2./(2*30))*(exp(-(latorig - 0.)**2./(2*50))) &
               &+ 11.*exp(-(lon*180./pi - 36)**2./(2*30))*(exp(-(latorig - 0.)**2./(2*50)))
 
         end if
 
-        if (warmpool_localization_choice == 3 .and. latorig .le. -30. .and. latorig .ge. -61. .and. abs(Sampeextra) .gt. 0.001) then !add Agulhas current add expense of Africa  modified by cig, feb 19 2020
+        !add Agulhas current add expense of Africa  modified by cig, feb 19 2020
+        if (warmpool_localization_choice == 3 .and. latorig .le. -30. .and. latorig .ge. -61. .and. abs(Sampeextra) .gt. 0.001) then
           flux(i, j) = flux(i, j) &
               &+ (Sampeextra*.8822)*exp(-(latorig + 40)**2./(2*16)) &
               &- (Sampeextra)*exp(-(latorig + 48)**2./(2*16))
 
         end if
-        if (warmpool_localization_choice == 3 .and. latorig .le. -45. .and. latorig .ge. -65. .and. abs(Pac_ITCZextra) .gt. 0.001) then !add zonally symmetric heating modified by cig, June 2 2020
+        !add zonally symmetric heating modified by cig, June 2 2020
+        if (warmpool_localization_choice == 3 .and. latorig .le. -45. .and. latorig .ge. -65. &
+          & .and. abs(Pac_ITCZextra) .gt. 0.001) then
           flux(i, j) = flux(i, j) &
               &+ (Pac_ITCZextra*.74537)*exp(-(latorig + 55)**2./(2*49))
 
         end if
 
-        if (warmpool_localization_choice == 3 .and. latorig .ge. -61. .and. latorig .le. -30. .and. lon .ge. 290.*pi/180.) then !add dipole in south atlantic  modified by cig, august 4 2019
+        !add dipole in south atlantic  modified by cig, august 4 2019
+        if (warmpool_localization_choice == 3 .and. latorig .ge. -61. .and. latorig .le. -30. .and. lon .ge. 290.*pi/180.) then
           flux(i, j) = flux(i, j) &
               &+ (37.4 + Africaextra*0*.9349/2)*exp(-(lon*180./pi - 323)**2./(2*121))*exp(-(latorig + 36)**2./(2*16)) &
               &- (40.+0*Africaextra/2)*exp(-(lon*180./pi - 311)**2./(2*121))*exp(-(latorig + 45)**2./(2*16))
 
         end if
 
-        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001 .and. gulf_amp .gt. 0.001) then !add Norwegian Sea at expense of Africa modified by cig, may 28 2019
+        !add Norwegian Sea at expense of Africa modified by cig, may 28 2019
+        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001 .and. gulf_amp .gt. 0.001) then
           if (lon .ge. 310.*pi/180. .and. latorig .ge. 10. .and. latorig .le. 35.) then
             flux(i, j) = flux(i, j) &
                &- qflux_amp*14.5/26.*exp(-(lon*180./pi - 357.)**2./(2*400))*(exp(-(latorig - 20)**2./(2*49)))
@@ -318,7 +366,8 @@ contains
           end if
         end if
 
-        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001) then !wave1 over Arctic and Hudson Bay modified by cig, may 30 2019
+        !wave1 over Arctic and Hudson Bay modified by cig, may 30 2019
+        if (warmpool_localization_choice == 3 .and. trop_atlantic_amp .gt. 0.001) then
           if (latorig .ge. 69. .and. latorig .le. 83.) then
             flux(i, j) = flux(i, j) &
                & + 25.*(1.-((latorig - 76.)/7.)**4.)*cos(1.*(lon - 10.*pi/180.))

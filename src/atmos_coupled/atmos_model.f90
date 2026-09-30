@@ -101,7 +101,8 @@ module atmos_model_mod
     real, dimension(:, :), pointer :: u_flux => null() ! zonal wind stress
     real, dimension(:, :), pointer :: v_flux => null() ! meridional wind stress
     real, dimension(:, :), pointer :: dtaudu => null() ! derivative of zonal wind stress w.r.t. the lowest zonal level wind speed
-    real, dimension(:, :), pointer :: dtaudv => null() ! derivative of meridional wind stress w.r.t. the lowest meridional level wind speed
+    ! derivative of meridional wind stress w.r.t. the lowest meridional level wind speed
+    real, dimension(:, :), pointer :: dtaudv => null()
     real, dimension(:, :), pointer :: u_star => null() ! friction velocity
     real, dimension(:, :), pointer :: b_star => null() ! bouyancy scale
     real, dimension(:, :), pointer :: q_star => null() ! moisture scale

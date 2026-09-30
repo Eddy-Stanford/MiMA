@@ -84,7 +84,8 @@ module spectral_dynamics_mod
   integer, parameter :: num_time_levels = 2
 
   logical :: module_is_initialized = .false.
-  logical :: robert_complete_for_tracers = .true., robert_complete_for_fields = .true. ! Needed only for error checks during code development
+  ! Needed only for error checks during code development
+  logical :: robert_complete_for_tracers = .true., robert_complete_for_fields = .true.
 
   type(time_type) :: Time_step, Alarm_time, Alarm_interval ! Used to determine when it is time to print global integrals.
 
@@ -93,11 +94,13 @@ module spectral_dynamics_mod
 
   complex, allocatable, dimension(:, :, :, :)   :: vors, divs, ts ! last dimension is for time level
   complex, allocatable, dimension(:, :, :)   :: ln_ps          ! last dimension is for time level
-  complex, allocatable, dimension(:, :, :, :, :) :: spec_tracers   ! 4'th dimension is for time level, last dimension is for tracer number
+  ! 4'th dimension is for time level, last dimension is for tracer number
+  complex, allocatable, dimension(:, :, :, :, :) :: spec_tracers
 
   real, allocatable, dimension(:, :, :) :: psg               ! last dimension is for time level
   real, allocatable, dimension(:, :, :, :) :: ug, vg, tg        ! last dimension is for time level
-  real, allocatable, dimension(:, :, :, :, :) :: grid_tracers      ! 4'th dimension is for time level, last dimension is for tracer number
+  ! 4'th dimension is for time level, last dimension is for tracer number
+  real, allocatable, dimension(:, :, :, :, :) :: grid_tracers
   real, allocatable, dimension(:, :) :: surf_geopotential
   real, allocatable, dimension(:, :, :) :: vorg, divg        ! no time levels needed
 
@@ -840,11 +843,13 @@ contains
         virtual_t = tg(:, :, :, current)
       end if
 
-      call four_in_one(divg, ug(:, :, :, current), vg(:, :, :, current), virtual_t, grid_tracers(:, :, :, current, nhum), psg(:, :, current), &
+      call four_in_one(divg, ug(:, :, :, current), vg(:, :, :, current), virtual_t, grid_tracers(:, :, :, current, nhum), &
+                       psg(:, :, current), &
                        ln_p_half, ln_p_full, p_full, dx_psg, dy_psg, dt_psg_tmp, wg, wg_full, dt_tg_tmp, dt_ug_tmp, dt_vg_tmp, &
                        kegen, kegenq, kegenqtinv)
 
-      call compute_geopotential(tg(:, :, :, current), ln_p_half, ln_p_full, phig_full, phig_half, grid_tracers(:, :, :, current, nhum))
+      call compute_geopotential(tg(:, :, :, current), ln_p_half, ln_p_full, phig_full, phig_half, &
+                                grid_tracers(:, :, :, current, nhum))
 
       dt_ln_psg = dt_psg_tmp/psg(:, :, current)
       call trans_grid_to_spherical(dt_ln_psg, dt_ln_ps)
@@ -960,7 +965,8 @@ contains
       ! Robert filter only alters the old level, so these values are final.
       Time_diag = Time + (Time_step*step_number)/num_steps
       call every_step_diagnostics( &
-        Time_diag, psg(:, :, current), ug(:, :, :, current), vg(:, :, :, current), tg(:, :, :, current), grid_tracers(:, :, :, current, :), &
+        Time_diag, psg(:, :, current), ug(:, :, :, current), vg(:, :, :, current), tg(:, :, :, current), &
+        grid_tracers(:, :, :, current, :), &
         wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp, temperature_correction, water_correction, &
         dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
 
@@ -1079,10 +1085,12 @@ contains
         call trans_grid_to_spherical(dt_tr(:, :, :, ntr), dt_trs)
         call compute_spectral_damping(spec_tracers(:, :, :, previous, ntr), dt_trs, delta_t)
         if (step_number == num_steps) then
-          call leapfrog_2level_A(spec_tracers(:, :, :, :, ntr), dt_trs, previous, current, future, delta_t, tracer_attributes(ntr)%robert_coeff)
+          call leapfrog_2level_A(spec_tracers(:, :, :, :, ntr), dt_trs, previous, current, future, delta_t, &
+                                 tracer_attributes(ntr)%robert_coeff)
           robert_complete_for_tracers = .false.
         else
-          call leapfrog(spec_tracers(:, :, :, :, ntr), dt_trs, previous, current, future, delta_t, tracer_attributes(ntr)%robert_coeff)
+          call leapfrog(spec_tracers(:, :, :, :, ntr), dt_trs, previous, current, future, delta_t, &
+                        tracer_attributes(ntr)%robert_coeff)
           robert_complete_for_tracers = .true.
         end if
         call trans_spherical_to_grid(spec_tracers(:, :, :, future, ntr), grid_tracers(:, :, :, future, ntr))
@@ -1091,18 +1099,22 @@ contains
         dt_tr(:, :, :, ntr) = 0.0
         call a_grid_horiz_advection(ug(:, :, :, current), vg(:, :, :, current), tr_future, delta_t, dt_tr(:, :, :, ntr))
         tr_future = tr_future + delta_t*dt_tr(:, :, :, ntr)
-        dt_hadv(ntr) = mass_weighted_global_integral(dt_tr(:, :, :, ntr), psg(:, :, future)) ! tendency of integrated tracer due to hor adv
+        ! tendency of integrated tracer due to hor adv
+        dt_hadv(ntr) = mass_weighted_global_integral(dt_tr(:, :, :, ntr), psg(:, :, future))
         dp = p_half(:, :, 2:num_levels + 1) - p_half(:, :, 1:num_levels)
         call vert_advection(delta_t, wg, dp, tr_future, dt_tmp, scheme=tracer_vert_advect_scheme(ntr), form=ADVECTIVE_FORM)
         tr_future = tr_future + delta_t*dt_tmp
         dt_vadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to vert adv
         if (step_number == num_steps) then
           grid_tracers(:, :, :, current, ntr) = grid_tracers(:, :, :, current, ntr) + &
-                                                tracer_attributes(ntr)%robert_coeff*(grid_tracers(:, :, :, previous, ntr) - 2.0*grid_tracers(:, :, :, current, ntr))
+                                                tracer_attributes(ntr)%robert_coeff &
+                                                *(grid_tracers(:, :, :, previous, ntr) - 2.0*grid_tracers(:, :, :, current, ntr))
           robert_complete_for_tracers = .false.
         else
           grid_tracers(:, :, :, current, ntr) = grid_tracers(:, :, :, current, ntr) + &
-                                                tracer_attributes(ntr)%robert_coeff*(grid_tracers(:, :, :, previous, ntr) - 2.0*grid_tracers(:, :, :, current, ntr) + tr_future)
+                                                tracer_attributes(ntr)%robert_coeff &
+                                                *(grid_tracers(:, :, :, previous, ntr) &
+                                                  - 2.0*grid_tracers(:, :, :, current, ntr) + tr_future)
           robert_complete_for_tracers = .true.
         end if
         grid_tracers(:, :, :, future, ntr) = tr_future
@@ -1233,7 +1245,8 @@ contains
 
     if (do_water_correction) then
       mean_water_previous = &
-        mass_weighted_global_integral(grid_tracers(:, :, :, previous, nhum) + delta_t*dt_tracers(:, :, :, nhum), psg(:, :, previous))
+        mass_weighted_global_integral(grid_tracers(:, :, :, previous, nhum) &
+                                      + delta_t*dt_tracers(:, :, :, nhum), psg(:, :, previous))
     end if
 
     return
@@ -1422,7 +1435,8 @@ contains
     p_half = .01*p_half
     p_full = .01*p_full
     id_phalf = diag_axis_init('phalf', p_half, 'hPa', 'z', 'approx half pressure level', direction=-1, set_name=mod_name)
-    id_pfull = diag_axis_init('pfull', p_full, 'hPa', 'z', 'approx full pressure level', direction=-1, set_name=mod_name, edges=id_phalf)
+    id_pfull = diag_axis_init('pfull', p_full, 'hPa', 'z', 'approx full pressure level', direction=-1, set_name=mod_name, &
+                              edges=id_phalf)
 
     axes_3d_half = (/id_lon, id_lat, id_phalf/)
     axes_3d_full = (/id_lon, id_lat, id_pfull/)
@@ -1455,7 +1469,8 @@ contains
                                 'vcomp_sq', axes_3d_full, Time, 'meridional wind squared', 'm2/s2', range=(/0., vrange(2)**2/))
 
     id_uv = register_diag_field(mod_name, &
-                                'ucomp_vcomp', axes_3d_full, Time, 'zonal wind * meridional wind', 'm2/s2', range=(/-vrange(2)**2, vrange(2)**2/))
+                                'ucomp_vcomp', axes_3d_full, Time, 'zonal wind * meridional wind', 'm2/s2', &
+                                range=(/-vrange(2)**2, vrange(2)**2/))
 
     id_omega_t = register_diag_field(mod_name, &
                                      'omega_temp', axes_3d_full, Time, 'dp/dt * temperature', 'Pa K/s')

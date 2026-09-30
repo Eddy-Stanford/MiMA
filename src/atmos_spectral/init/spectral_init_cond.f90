@@ -77,7 +77,8 @@ contains
     call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=spectral_init_cond_nml)
 
-    call compute_vert_coord(vert_coord_option, scale_heights, surf_res, exponent, p_press, p_sigma, reference_sea_level_press, pk, bk)
+    call compute_vert_coord(vert_coord_option, scale_heights, surf_res, exponent, p_press, p_sigma, reference_sea_level_press, &
+                            pk, bk)
 
     call get_topography(topography_option, ocean_topog_smoothing, surf_geopotential, ocean_mask)
     call press_and_geopot_init(pk, bk, use_virtual_temperature, vert_difference_option, surf_geopotential)

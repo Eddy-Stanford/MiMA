@@ -101,7 +101,10 @@ module simple_surface_mod
 
   integer :: surface_choice = 1
   integer :: roughness_choice = 4
-  integer :: albedo_choice = 7 ! 1->constant, 2->NH or SH step, 3->N-S symmetric step, 4->profile with albedo_exp,5->tanh with albedo_cntrNH,albedo_cntrSH,albedo_wdth,  6->sin2 increase from equator to pole, 7->as in 5 but with higher albedo for deserts
+  ! 1->constant, 2->NH or SH step, 3->N-S symmetric step, 4->profile with albedo_exp,
+  ! 5->tanh with albedo_cntrNH,albedo_cntrSH,albedo_wdth, 6->sin2 increase from equator to pole,
+  ! 7->as in 5 but with higher albedo for deserts
+  integer :: albedo_choice = 7
   logical :: do_qflux = .true. !mj
   logical :: do_warmpool = .true. !mj
   logical :: do_read_sst = .false. !mj
@@ -231,7 +234,9 @@ contains
         where (.not. lmask_navy) rough_mom = const_roughness*mom_roughness_land
         where (.not. lmask_navy) rough_moist = const_roughness*q_roughness_land
       end if
-    elseif (roughness_choice == 4) then   !cig: set higher roughness values over land as compared to ocean, and more evaporation over tropics and midlatitudes as compared to subtropics
+    elseif (roughness_choice == 4) then
+      !cig: set higher roughness values over land as compared to ocean, and more evaporation over tropics and
+      !midlatitudes as compared to subtropics
       rough_mom = const_roughness
       rough_heat = const_roughness
       rough_moist = const_roughness
@@ -375,7 +380,7 @@ contains
                       dtaudv_atm, dt, & ! Required argument, intent(in). Looks like it should be .false. everywhere.
                       .not. mask, &
                       seawater, & ! Required argument, intent(in). Looks like fudgefactor for salt water. Use .false.
-                      mask)                                               ! Required argument, intent(in). Looks like it should be .true. everywhere.
+                      mask) ! Required argument, intent(in). Looks like it should be .true. everywhere.
 
 ! intent(out):: flux_t, flux_q, flux_lw, flux_u, flux_v, cd_m, cd_t, cd_q, wind, u_star, b_star, q_star,
 ! intent(out):: dhdt_surf, dedt_surf, dedq_surf, drdt_surf, dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm
@@ -698,7 +703,8 @@ contains
         if (abs(lat) < trop_cap_limit) then
           land_sea_heat_capacity(:, j) = trop_capacity
         elseif (abs(lat) < heat_cap_limit) then
-          land_sea_heat_capacity(:, j) = trop_capacity*(1.-(abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)) + (abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)*loc_cap
+          land_sea_heat_capacity(:, j) = trop_capacity*(1.-(abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)) &
+                                         + (abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)*loc_cap
         elseif (lat > heat_cap_limit) then
           land_sea_heat_capacity(:, j) = loc_cap
         end if
@@ -749,7 +755,8 @@ contains
           end do
         end do
       end do
-      ! cig land heat capacity function of ocean_mask (if ocean mask exists), and use MJ's algorithm for deeper ocean mixed layer depth for poles vs tropics
+      ! cig land heat capacity function of ocean_mask (if ocean mask exists), and use MJ's algorithm for deeper ocean mixed layer
+      ! depth for poles vs tropics
     else if (trim(land_option) .eq. 'oceanmaskpole' .and. (trop_capacity .ne. heat_capacity .or. np_cap_factor .ne. 1.0)) then
 
       allocate (lmask_navy(size(land_sea_heat_capacity, 1), size(land_sea_heat_capacity, 2)))
@@ -770,7 +777,8 @@ contains
         if (abs(lat) < trop_cap_limit) then
           land_sea_heat_capacity(:, j) = trop_capacity
         elseif (abs(lat) < heat_cap_limit) then
-          land_sea_heat_capacity(:, j) = trop_capacity*(1.-(abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)) + (abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)*loc_cap
+          land_sea_heat_capacity(:, j) = trop_capacity*(1.-(abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)) &
+                                         + (abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)*loc_cap
         elseif (lat > heat_cap_limit) then
           land_sea_heat_capacity(:, j) = loc_cap
         end if
@@ -815,7 +823,8 @@ contains
         end if
 ! APE "qobs" experiment
         if (Tm .ge. 599.) then
-          sst(:, j) = 273.15 + .5*27.*(1.-sin(1.5*lat)*sin(1.5*lat)) + .5*27.*(1.-sin(1.5*lat)*sin(1.5*lat)*sin(1.5*lat)*sin(1.5*lat))
+          sst(:, j) = 273.15 + .5*27.*(1.-sin(1.5*lat)*sin(1.5*lat)) &
+                      + .5*27.*(1.-sin(1.5*lat)*sin(1.5*lat)*sin(1.5*lat)*sin(1.5*lat))
           if (abs(lat) .ge. pi/3.) sst(:, j) = 273.15
         end if
 ! APE "qobs+5" experiment

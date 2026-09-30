@@ -14,7 +14,8 @@ module mima_diag_integral_mod
 
 !! TODO: (ROB KING)
 !! So not to throw too much shade but i think this module is a bit poop
-!! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if the output_interval is not set.
+!! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if
+!! the output_interval is not set.
 !! If one wanted to do this properly then ideally every timestep the integrals should be calculated rather than let them accumulate.
 !! thoughts... How is AM4 doing this?
 !!
@@ -940,8 +941,10 @@ contains
 !    the integrals valid over the entire period of integration.
 !---------------------------------------------------------------------
       !! TODO: Fix bug here, if time is large or resolution large, then this can easily lead to an integer overflow!
-      !! My thought (Rob K) is that if the alarm interval is unset and there is no file name reqested then writing the field averages is not desired.
-      !! The only other thought would be to promote the field_count array to a 8-byte integer. That should probably be done anyway...
+      !! My thought (Rob K) is that if the alarm interval is unset and there is no file name reqested then writing the field
+      !! averages is not desired.
+      !! The only other thought would be to promote the field_count array to a 8-byte integer. That should probably be done
+      !! anyway...
     if (Alarm_interval == Zero_time) then
 !       if (Alarm_interval /= Zero_time ) then
 !       else

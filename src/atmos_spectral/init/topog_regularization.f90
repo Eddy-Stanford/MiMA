@@ -72,7 +72,8 @@ contains
       write (chtmp1, '(2i4)') shape(unsmoothed_field)
       write (chtmp2, '(2i4)') (/ie - is + 1, je - js + 1/)
       call error_mesg('compute_lambda', &
-                      'Input argument unsmoothed_field has incorrect dimensions. shape(unsmoothed_field)='//chtmp1//'  Should be '//chtmp2, FATAL)
+                      'Input argument unsmoothed_field has incorrect dimensions. shape(unsmoothed_field)='//chtmp1// &
+                      '  Should be '//chtmp2, FATAL)
     end if
 
     lambda_1 = 1.e-7
@@ -91,13 +92,15 @@ contains
     end if
     if (fraction_smoothed_1 > ocean_topog_smoothing .or. fraction_smoothed_2 > ocean_topog_smoothing) then
       call error_mesg('compute_lambda', &
-                      'Iterative scheme for computing lambda may not work unless initial values of lambda_1 and lambda_2 are reduced.', FATAL)
+                      'Iterative scheme for computing lambda may not work unless initial values of lambda_1 and lambda_2 '// &
+                      'are reduced.', FATAL)
     end if
     lambda_1 = ((fraction_smoothed_2 - ocean_topog_smoothing)*lambda_1 + &
                 (ocean_topog_smoothing - fraction_smoothed_1)*lambda_2)/(fraction_smoothed_2 - fraction_smoothed_1)
     if (lambda_1 < 0.) then
       call error_mesg('compute_lambda', &
-                      'Iterative scheme for finding lambda will not work unless initial values of lambda_1 and lambda_2 are reduced.', FATAL)
+                      'Iterative scheme for finding lambda will not work unless initial values of lambda_1 and lambda_2 '// &
+                      'are reduced.', FATAL)
     end if
     call regularize(lambda_1, ocean_mask, unsmoothed_field, smoothed_field_tmp, fraction_smoothed_1)
     do it_lambda = 1, itmax_lambda
@@ -150,12 +153,14 @@ contains
       write (chtmp1, '(2i4)') shape(unsmoothed_field)
       write (chtmp2, '(2i4)') (/ie - is + 1, je - js + 1/)
       call error_mesg('regularize', &
-                      'Input argument unsmoothed_field has incorrect dimensions. shape(unsmoothed_field)='//chtmp1//'  Should be '//chtmp2, FATAL)
+                      'Input argument unsmoothed_field has incorrect dimensions. shape(unsmoothed_field)='//chtmp1// &
+                      '  Should be '//chtmp2, FATAL)
     end if
 
     if (is /= 1 .or. ie /= lon_max) then
       call error_mesg('regularize', &
-                      'subroutine regularize is not yet coded for 2-d decomposition. It was assumed that it will never be needed.', FATAL)
+                      'subroutine regularize is not yet coded for 2-d decomposition. '// &
+                      'It was assumed that it will never be needed.', FATAL)
     end if
 
     Hnm = cmplx(0., 0.)
@@ -290,7 +295,8 @@ contains
       write (chtmp1, '(2i4)') shape(ocean_mask)
       write (chtmp2, '(2i4)') (/ie - is + 1, je - js + 1/)
       call error_mesg('topog_regularization_init', &
-                      'Input argument ocean_mask has incorrect dimensions. shape(ocean_mask)='//chtmp1//'  Should be '//chtmp2, FATAL)
+                      'Input argument ocean_mask has incorrect dimensions. shape(ocean_mask)='//chtmp1// &
+                      '  Should be '//chtmp2, FATAL)
     end if
 
     call get_lon_max(lon_max)

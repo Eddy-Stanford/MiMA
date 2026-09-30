@@ -89,8 +89,10 @@ contains
     allocate (rad_lat_2d(is:ie, js:je))
     allocate (area_2d(is:ie, js:je))
 
-    call pressure_variables(p_half_1d, ln_p_half_1d, radiation_ref_press(1:num_levels, 1), ln_p_full_1d, radiation_ref_press_surf(1))
-    call pressure_variables(p_half_1d, ln_p_half_1d, radiation_ref_press(1:num_levels, 2), ln_p_full_1d, radiation_ref_press_surf(2))
+    call pressure_variables(p_half_1d, ln_p_half_1d, radiation_ref_press(1:num_levels, 1), ln_p_full_1d, &
+                            radiation_ref_press_surf(1))
+    call pressure_variables(p_half_1d, ln_p_half_1d, radiation_ref_press(1:num_levels, 2), ln_p_full_1d, &
+                            radiation_ref_press_surf(2))
     radiation_ref_press(num_levels + 1, :) = radiation_ref_press_surf
 
     call get_reference_sea_level_press(reference_sea_level_press)
@@ -128,7 +130,8 @@ contains
     allocate (grid_tracers(is:ie, js:je, num_levels, num_tracers))
     grid_tracers = 0.
 
-    call physics_driver_init(Time, lon_boundaries, lat_boundaries, grid_domain, axes, radiation_ref_press, grid_tracers, Surf_diff, p_half)
+    call physics_driver_init(Time, lon_boundaries, lat_boundaries, grid_domain, axes, radiation_ref_press, grid_tracers, &
+                             Surf_diff, p_half)
 
     if (sum(grid_tracers) /= 0.) then
       call error_mesg('spectral_physics_init', 'This version of the spectral atmospheric model not coded to handle'// &

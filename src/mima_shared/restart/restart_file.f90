@@ -97,7 +97,8 @@ contains
     end if
     if (.not. open_restart_read) then
       if (file_exists(path(1:len_trim(path) - 3))) call mpp_error(FATAL, 'restart_file_mod: '// &
-                                                                  path(1:len_trim(path) - 3)//' is a native-format restart file, which is no longer '// &
+                                                                  path(1:len_trim(path) - 3)// &
+                                                                  ' is a native-format restart file, which is no longer '// &
                                                                   'supported. Restart from netCDF files ('//trim(path)//').')
       return
     end if
