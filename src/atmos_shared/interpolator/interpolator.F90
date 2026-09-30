@@ -273,6 +273,7 @@ endif
 
 !Read the axes, the fields (nvar of them) and the times in this file
 call get_file_info(ncid, src_file, axes, varfields, time_values, ntime)
+if (ntime == 0) call mpp_error(FATAL, 'interpolator_init : '//trim(src_file)//' has no time records')
 ndim = size(axes)
 nvar = size(varfields)
 clim_type%ncid      = ncid
@@ -504,7 +505,7 @@ do i = 1, ndim
       ntime_in = 1
       if (ntime > 0) then
         allocate(time_in(ntime), clim_type%time_slice(ntime))
-        allocate(clim_type%clim_times(12,ntime/12))
+        allocate(clim_type%clim_times(12,(ntime+11)/12))
         time_in = 0.0
         clim_type%time_slice = set_time(0,0) + base_time
         clim_type%clim_times = set_time(0,0) + base_time
@@ -614,16 +615,21 @@ do i = 1, ndim
           m = (n-1)/12 +1 ; m1 = n- (m-1)*12
           clim_type%clim_times(m1,m) = clim_type%time_slice(n)
         enddo
-      else
-        allocate(time_in(1), clim_type%time_slice(1))
-        allocate(clim_type%clim_times(1,1))
-        time_in = 0.0
-        clim_type%time_slice = set_time(0,0) + base_time
-        clim_type%clim_times(1,1) = set_time(0,0) + base_time
+        deallocate(time_in)
       endif
-      deallocate(time_in)
   end select ! case(name)
 enddo
+
+if (.not. associated(clim_type%time_slice)) then
+  if (ntime > 0) call mpp_error(FATAL, 'interpolator_init : the time dimension of '// &
+                                trim(file_name)//' must be called time')
+! No time dimension: the file holds one time-independent record.
+  ntime = 1
+  allocate(clim_type%time_slice(1), clim_type%clim_times(1,1))
+  base_time = get_base_time()
+  clim_type%time_slice = base_time
+  clim_type%clim_times = base_time
+endif
 
 
 ! -------------------------------------------------------------------
@@ -719,6 +725,8 @@ select case(ntime)
 
  if (non_monthly) then
 ! We have a broken time-line. e.g. We have monthly data but only for years ending in 0. 1960,1970 etc.
+   if (mod(ntime,12) /= 0) call mpp_error(FATAL, 'interpolator_init : '//trim(file_name)// &
+       ' has gaps in time but is not a set of whole years of monthly data')
 !   allocate(clim_type%data(size(lonb_mod(:))-1, size(latb_mod(:))-1, nlev, 2, num_fields))
    allocate(clim_type%pmon_pyear(size(lonb_mod(:))-1, size(latb_mod(:))-1, nlev, num_fields))
    allocate(clim_type%pmon_nyear(size(lonb_mod(:))-1, size(latb_mod(:))-1, nlev, num_fields))
@@ -756,7 +764,7 @@ endif
    clim_type%TIME_FLAG = LINEAR
  case (1:4) 
 ! Assume we have seasonal data and read in all the data.
-! We can apply sine curves to these data.
+! They are interpolated linearly in time, cyclically over the year.
  
    allocate(clim_type%data(size(lonb_mod(:))-1, size(latb_mod(:))-1, nlev, ntime, num_fields))
    clim_type%data = 0.0
@@ -1090,12 +1098,18 @@ end do
       clim_units = clim_type%field_type(i)%units
       clim_units = chomp(clim_units)
     endif
-    if(size(clim_type%time_slice(:)).le. 12 ) then
+    if(size(clim_type%time_slice(:)) == 1) then
+       taum = 1; taup = 1; tweight = 0.0   ! a single record, used at all times
+    else if(size(clim_type%time_slice(:)).le. 12 ) then
        call time_interp(Time, clim_type%time_slice, tweight, taum, taup, modtime=YEAR )
     else
        call time_interp(Time, clim_type%time_slice, tweight, taum, taup )
     endif
 
+    if(clim_type%TIME_FLAG .ne. LINEAR .or. read_all_on_init ) then
+      itaum=taum
+      itaup=taup
+    endif
 
     if(clim_type%TIME_FLAG .eq. BILINEAR ) then
       ! Check if delta-time is greater than delta of first two climatology time-slices.
@@ -1270,15 +1284,13 @@ end do
     endif! TIME_FLAG
 
 select case(clim_type%TIME_FLAG)
-  case (LINEAR)
+  case (LINEAR, SEASONAL)
     do n=1, size(clim_type%field_name(:))
       hinterp_data(:,:,:,n) = (1-tweight)*  &
                 clim_type%data(istart:iend,jstart:jend,:,itaum,n)  +  &
                                  tweight*   &
                 clim_type%data(istart:iend,jstart:jend,:,itaup,n)
     end do
-!  case (SEASONAL)
-! Do sine fit to data at this point
   case (BILINEAR)
     do n=1, size(clim_type%field_name(:))
       hinterp_data(:,:,:,n) = (1-tweight1)*(1-tweight3)*   &
@@ -1466,7 +1478,9 @@ do i= 1,size(clim_type%field_name(:))
       clim_units = clim_type%field_type(i)%units
       clim_units = chomp(clim_units)
     endif
-    if(size(clim_type%time_slice(:)).le. 12 ) then
+    if(size(clim_type%time_slice(:)) == 1) then
+       taum = 1; taup = 1; tweight = 0.0   ! a single record, used at all times
+    else if(size(clim_type%time_slice(:)).le. 12 ) then
        call time_interp(Time, clim_type%time_slice, tweight, taum, taup, modtime=YEAR )
     else
        call time_interp(Time, clim_type%time_slice, tweight, taum, taup )
@@ -1646,11 +1660,9 @@ do i= 1,size(clim_type%field_name(:))
     endif! TIME_FLAG
 
 select case(clim_type%TIME_FLAG)
-  case (LINEAR)
+  case (LINEAR, SEASONAL)
     hinterp_data = (1-tweight) * clim_type%data(istart:iend,jstart:jend,:,itaum,i) + &
                        tweight * clim_type%data(istart:iend,jstart:jend,:,itaup,i)
-!  case (SEASONAL)
-! Do sine fit to data at this point
   case (BILINEAR)
     hinterp_data = &
     (1-tweight1)  * (1-tweight3) * clim_type%pmon_pyear(istart:iend,jstart:jend,:,i) + &
@@ -1820,7 +1832,9 @@ do i= 1,size(clim_type%field_name(:))
       clim_units = clim_type%field_type(i)%units
       clim_units = chomp(clim_units)
     endif
-    if(size(clim_type%time_slice(:)).le. 12 ) then
+    if(size(clim_type%time_slice(:)) == 1) then
+      taum = 1; taup = 1; tweight = 0.0   ! a single record, used at all times
+    else if(size(clim_type%time_slice(:)).le. 12 ) then
       call time_interp(Time, clim_type%time_slice, tweight, taum, taup, modtime=YEAR )
     else
       call time_interp(Time, clim_type%time_slice, tweight, taum, taup )
@@ -1896,12 +1910,12 @@ do i= 1,size(clim_type%field_name(:))
     endif! TIME_FLAG .eq. LINEAR .and. (.not. read_all_on_init)
 
 select case(clim_type%TIME_FLAG)
-  case (LINEAR)
+  case (LINEAR, SEASONAL)
     hinterp_data = (1-tweight)*clim_type%data(istart:iend,jstart:jend,:,itaum,i) &
     + tweight*clim_type%data(istart:iend,jstart:jend,:,itaup,i)
-  case (SEASONAL)
-! Do sine fit to data at this point
   case (BILINEAR)
+    call mpp_error(FATAL, 'interpolator_2D : data with gaps in time (from '// &
+                   trim(clim_type%file_name)//') need the 3-D or 4-D interface')
 
 end select
 
@@ -2136,8 +2150,8 @@ subroutine get_file_info(ncid, file_name, axes, fields, time_values, ntime)
 ! INTENT OUT
 !  axes        :: Every dimension, with the data and attributes of its coordinate variable.
 !  fields      :: Every variable that is not a coordinate variable, in file order.
-!  time_values :: The values of the unlimited (time) coordinate variable.
-!  ntime       :: The length of the unlimited dimension, or -1 if there is none.
+!  time_values :: The values of the record (time) coordinate variable.
+!  ntime       :: The length of the record dimension, or -1 if there is none.
 !
 integer,                            intent(in)  :: ncid
 character(len=*),                   intent(in)  :: file_name
@@ -2158,10 +2172,14 @@ do i = 1, ndims
    allocate(axes(i)%data(axes(i)%len))
    axes(i)%data = 0.0
 enddo
+! Without an unlimited dimension, a fixed-size dimension called time is the record dimension.
+if (recdim <= 0) then
+   if (nf90_inq_dimid(ncid, 'time', dimid) == NF90_NOERR) recdim = dimid
+endif
 ntime = -1
 if (recdim > 0) then
    ntime = axes(recdim)%len
-   ! mpp_io required a coordinate variable for the unlimited dimension
+   ! mpp_io required a coordinate variable for the record dimension
    call nc_check(nf90_inq_varid(ncid, trim(axes(recdim)%name), k), trim(file_name)//' '//axes(recdim)%name)
 endif
 allocate(time_values(max(ntime,0)))
@@ -2427,16 +2445,23 @@ if (size(grdout(:)).ne. (size(datout(:))+1)) &
 
   n = size(grdin(:))
 
+! datin(j) is taken to be at grdin(j), j = 1..n-1. Search only the brackets
+! between those points, so that beyond them the end bracket extrapolates.
+  if (n == 2) then
+     datout(:) = datin(1)
+     return
+  endif
+
   do k= 1, size(datout(:))
 
    ! ascending grid values
      if (grdin(1) < grdin(n)) then
-         do j = 2, size(grdin(:))-1
+         do j = 2, n-2
            if (grdout(k) <= grdin(j)) exit
          enddo
    ! descending grid values
      else
-         do j = size(grdin(:)), 3, -1
+         do j = n-1, 3, -1
            if (grdout(k) <= grdin(j-1)) exit
          enddo
      endif
