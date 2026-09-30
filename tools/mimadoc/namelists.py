@@ -11,7 +11,8 @@ from .fortran import doc_comment, mask_strings, norm_ws
 @dataclass
 class NamelistVar:
     group: str
-    name: str
+    name: str          # lower case
+    spelling: str      # as written in the namelist statement
     type: str          # e.g. 'real', 'character(len=64), dimension(10)'
     default: str       # Fortran text of the default ('' if unset)
     value: object      # Python value of a scalar default, or None
@@ -80,14 +81,15 @@ def namelist_reference(parsed, evaluator):
     for pf in parsed:
         for nl in pf.namelist_stmts:
             rows = out.setdefault(nl.group, [])
-            for v in nl.vars:
+            for v, spelling in zip(nl.vars, nl.spellings):
                 sym, sscope = _declaration(v, nl.scope, evaluator.modtab)
                 if sym is None:
-                    rows.append(NamelistVar(nl.group, v, "", "", None, "", pf.relpath, nl.line))
+                    rows.append(NamelistVar(nl.group, v, spelling, "", "", None, "", pf.relpath,
+                                            nl.line))
                     continue
                 default = _default_text(sym, sscope, evaluator)
                 rows.append(NamelistVar(
-                    nl.group, v, _type_label(sym), default,
+                    nl.group, v, spelling, _type_label(sym), default,
                     fortran_value(default) if not sym.dims else None,
                     doc_comment(pf.lines, sym.line), pf.relpath.replace("\\", "/"), sym.line))
     return out

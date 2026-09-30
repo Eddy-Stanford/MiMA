@@ -191,9 +191,20 @@ def render_diagnostics(rows):
 # --------------------------------------------------------------------------
 
 def render_namelist(variables):
-    out = ["| Variable | Type | Default | Description |", "|---|---|---|---|"]
+    """The table of a namelist group.  Variables declared on the same line
+    with the same documentation share a row."""
+    rows = OrderedDict()
     for v in variables:
-        out.append("| `%s` | %s | %s | %s |" % (
-            v.name, v.type, md_code(v.default) if v.default else "unset",
-            v.doc.replace("|", "\\|")))
+        key = (v.file, v.line, v.doc) if v.doc else id(v)
+        rows.setdefault(key, []).append(v)
+    out = ["| Variable | Type | Default | Description |", "|---|---|---|---|"]
+    for vs in rows.values():
+        types = []
+        for v in vs:
+            if v.type not in types:
+                types.append(v.type)
+        defaults = ", ".join(md_code(v.default) if v.default else "unset" for v in vs)
+        out.append("| %s | %s | %s | %s |" % (
+            ", ".join("`%s`" % v.spelling for v in vs), ", ".join(types), defaults,
+            vs[0].doc.replace("|", "\\|")))
     return "\n".join(out)

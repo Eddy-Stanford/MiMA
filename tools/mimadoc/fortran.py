@@ -239,16 +239,13 @@ def _split_semicolons(buf, start, segs, stmts):
 
 def doc_comment(lines, lineno):
     """The '!!' documentation attached to physical line lineno (1-based): the
-    trailing '!!' comment on that line plus the comment-only '!!' lines that
+    trailing '!!' comment on that line and the comment-only '!!' lines that
     follow it.  Returns '' when there is none."""
     parts = []
     k, _ = comment_start(lines[lineno - 1].rstrip("\n"))
-    if k < 0:
-        return ""
-    trailing = lines[lineno - 1][k:].rstrip()
-    if not trailing.startswith("!!"):
-        return ""
-    parts.append(trailing[2:].strip())
+    trailing = lines[lineno - 1][k:].rstrip() if k >= 0 else ""
+    if trailing.startswith("!!"):
+        parts.append(trailing[2:].strip())
     i = lineno
     while i < len(lines):
         s = lines[i].strip()
@@ -373,11 +370,12 @@ class Scope(object):
 
 class Namelist(object):
     """A namelist group statement: namelist /group/ var, ..."""
-    __slots__ = ("group", "vars", "scope", "line")
+    __slots__ = ("group", "vars", "spellings", "scope", "line")
 
-    def __init__(self, group, vars, scope, line):
+    def __init__(self, group, vars, spellings, scope, line):
         self.group = group
-        self.vars = vars
+        self.vars = vars              # lower case
+        self.spellings = spellings    # as written in the namelist statement
         self.scope = scope
         self.line = line
 
@@ -623,11 +621,12 @@ def parse_file(path, relpath):
             for k, mg in enumerate(heads):
                 end = heads[k + 1].start() if k + 1 < len(heads) else len(body)
                 grp = mg.group(1).lower()
-                names = [v.strip().lower() for v in body[mg.end():end].split(",")]
-                names = [v for v in names if re.match(r"^\w+$", v)]
+                spellings = [v.strip() for v in body[mg.end():end].split(",")]
+                spellings = [v for v in spellings if re.match(r"^\w+$", v)]
+                names = [v.lower() for v in spellings]
                 for v in names:
                     pf.namelists[v] = grp
-                pf.namelist_stmts.append(Namelist(grp, names, scope, st.line))
+                pf.namelist_stmts.append(Namelist(grp, names, spellings, scope, st.line))
             continue
 
         # ---- use statements
