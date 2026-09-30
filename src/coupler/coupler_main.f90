@@ -286,7 +286,7 @@ program coupler_main
 !     Time step in seconds for coupling between ocean and atmospheric models:
 !     must be an integral multiple of dt_atmos and dt_ocean. This is the "slow" timestep.
 !   </DATA>
-!  <DATA NAME="do_atmos, do_ocean, do_ice, do_land, do_flux" TYPE="logical">
+!  <DATA NAME="do_atmos" TYPE="logical">
 !  If true (default), that particular model component (atmos, etc.) is run.
 !  If false, the execution of that component is skipped. This is used when
 !  ALL the output fields sent by that component to the coupler have been
@@ -340,11 +340,10 @@ program coupler_main
 
   integer ::atmos_npes = 0
   logical :: do_atmos = .true.
-  logical :: do_flux = .true.
 ! logical :: concurrent=.FALSE.
 ! logical :: use_lag_fluxes=.TRUE.
   namelist /coupler_nml/ current_date, calendar, force_date_from_namelist, months, days, hours, &
-    minutes, seconds, dt_atmos, do_atmos, do_flux, atmos_npes
+    minutes, seconds, dt_atmos, do_atmos, atmos_npes
 
   integer :: initClock, mainClock, termClock
 
@@ -417,11 +416,6 @@ program coupler_main
                         Land_ice_atmos_boundary%dtaudv, &
                         Land_ice_atmos_boundary%u_star, &
                         Land_ice_atmos_boundary%b_star)
-
-!           if (do_flux) then
-!             call sfc_boundary_layer( REAL(dt_atmos), Time_atmos, &
-!                                      Atm, Land, Ice, Land_ice_atmos_boundary )
-!           end if
 
 !      ---- atmosphere down ----
 

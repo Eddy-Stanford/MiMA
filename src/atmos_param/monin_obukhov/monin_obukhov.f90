@@ -269,12 +269,11 @@ module mima_monin_obukhov_mod
 
   real    :: rich_crit = 2.0
   real    :: drag_min = 4.e-05
-  real    :: relax_time = 0.
   logical :: neutral = .false.
   integer :: stable_option = 1
   real    :: zeta_trans = 0.5
 
-  namelist /monin_obukhov_nml/ rich_crit, neutral, drag_min, relax_time, &
+  namelist /monin_obukhov_nml/ rich_crit, neutral, drag_min, &
     stable_option, zeta_trans
 
 !=======================================================================
@@ -464,30 +463,13 @@ contains
         drag_q_eq = us*qs
       end where
 
-      if (relax_time .ne. 0.0) then
-        call error_mesg('mo_drag', &
-                        'Non-zero relax_time not allowed in this version of monin_obukhov', FATAL)
-!    xi   = dt/relax_time
-!    xi_1 = 1.0/(1.0 + xi)
-!    xi_2 =  xi/(1.0 + xi)
-!    where (avail)
-!      drag_m = xi_1*drag_m + xi_2*drag_m_eq
-!      drag_t = xi_1*drag_t + xi_2*drag_t_eq
-!      drag_q = xi_1*drag_q + xi_2*drag_q_eq
-!      us = sqrt(drag_m)
-!      bs = drag_t/us
-!      u_star = us*speed
-!      b_star = bs*delta_b
-!   end where
-      else
-        where (avail)
-          drag_m = drag_m_eq
-          drag_t = drag_t_eq
-          drag_q = drag_q_eq
-          u_star = us*speed
-          b_star = bs*delta_b
-        end where
-      end if
+      where (avail)
+        drag_m = drag_m_eq
+        drag_t = drag_t_eq
+        drag_q = drag_q_eq
+        u_star = us*speed
+        b_star = bs*delta_b
+      end where
 
     end if
 

@@ -65,23 +65,12 @@ module gray_radiation_mod
   real    :: del_lon = 90.0
   real    :: fcng_pert = 0.0
 
-  real    :: wave_amp = 0.0
-  real    :: wave_lon = 180.0
-  real    :: wave_lat = 0.0
-  real    :: wave_del_lon = 30.0
-  real    :: wave_del_lat = 20.0
-  real    :: wave_period = 20.0
-  real    :: wave_env = 80.0
-  logical :: wave_source = .false.
-
   real, save :: pi, deg_to_rad, rad_to_deg
 
   namelist /gray_radiation_nml/ solar_constant, del_sol, &
     ir_tau_eq, ir_tau_pole, atm_abs, sw_diff, long_pert, del_long, &
     size_pert, linear_tau, del_sw, &
-    lat_pert, lon_pert, del_lat, del_lon, fcng_pert, &
-    wave_amp, wave_lon, wave_lat, wave_del_lon, &
-    wave_del_lat, wave_period, wave_env, wave_source
+    lat_pert, lon_pert, del_lat, del_lon, fcng_pert
 
 !==================================================================================
 !-------------------- diagnostics fields -------------------------------
@@ -216,7 +205,7 @@ contains
     real, dimension(size(t, 1), size(t, 2), size(t, 3) + 1)   :: tau, solar_tau, dtrans
     real, dimension(size(t, 1), size(t, 2))   :: long_forcing, olr, swin
 
-    real, dimension(size(t, 1), size(t, 2))              :: walker_forcing, wave_forc
+    real, dimension(size(t, 1), size(t, 2))              :: walker_forcing
 
     integer :: i, j, k, n
 
@@ -305,8 +294,6 @@ contains
       do j = 1, size(t, 2)
         do i = 1, size(t, 1)
 !    solar_down(i,j,k) = (solar(j)+long_forcing(i,j))*exp(-solar_tau(j,k))
-!         solar_down(i,j,k) = (walker_forcing(i,j)+wave_forc(i,j)  &
-!              + solar(j))*exp(-solar_tau(j,k))
           solar_down(i, j, k) = (walker_forcing(i, j) + long_forcing(i, j) &
                                  + solar(j))*exp(-solar_tau(i, j, k))
         end do

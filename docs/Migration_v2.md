@@ -102,12 +102,15 @@ Delete these from your `input.nml`. Variables marked with * were set in the v1 `
 | `moist_conv_nml` | `beta`*, `use_df_stuff`* | detrainment into stratiform cloud removed |
 | `lscale_cond_nml` | `use_df_stuff`* | |
 | `diffusivity_nml` | `do_entrain`*, `use_df_stuff`*, `entr_ratio`, `parcel_buoy`, `znom`, `free_atm_diff`, `free_atm_skyhi_diff`, `pbl_mcm`, `rich_crit_diff`, `mix_len`, `rich_prandtl`, `ampns`, `ampns_max` | free-atmosphere diffusion, PBL-top entrainment, parcel PBL depth and MCM option removed. The group is no longer in the shipped `input.nml`. |
-| `surface_flux_nml` | `use_df_stuff`* | |
+| `surface_flux_nml` | `use_df_stuff`*, `raoult_sat_vap` | `raoult_sat_vap` had no effect (the surface never flags sea water) |
 | `vert_turb_driver_nml` | `do_mellor_yamada`*, `do_shallow_conv`*, `use_df_stuff`*, `do_edt`, `do_entrain`, `do_stable_bl` | only the non-local K scheme remains |
 | `vert_diff_driver_nml` | `do_mcm_no_neg_q`, `do_mcm_plev`, `do_mcm_vert_diff_tq` | MCM options removed |
 | `damping_driver_nml` | `do_topo_drag` | `topo_drag` was a fatal stub |
 | `mg_drag_nml` | `do_mcm_mg_drag`, `do_netcdf_restart` | |
 | `cg_drag_nml` | `weighttop`*, `weightminus1`*, `weightminus2`*, `Bt_aug`, `Bt_eq_width`, `calculate_ked`, `num_diag_pts_ij`, `num_diag_pts_latlon`, `i_coords_gl`, `j_coords_gl`, `lat_coords_gl`, `lon_coords_gl` | read but never used |
+| `coupler_nml` | `do_flux` | not used |
+| `gray_radiation_nml` | `wave_amp`, `wave_lon`, `wave_lat`, `wave_del_lon`, `wave_del_lat`, `wave_period`, `wave_env`, `wave_source` | the travelling-wave forcing they configured was disabled in the code |
+| `monin_obukhov_nml` | `relax_time` | any value other than 0 was a fatal error |
 | `rrtm_radiation_nml` | `do_read_radiation`, `radiation_file`, `do_read_sw_flux`, `sw_flux_file`, `do_read_lw_flux`, `lw_flux_file`, `do_read_h2o`, `h2o_file`, `do_fixed_water`, `fixed_water`, `fixed_water_pres`, `fixed_water_lat`, `rad_missing_value` | file-driven radiation and water vapour removed (reading ozone, `do_read_ozone`, stays) |
 | `simple_surface_nml` | `do_oflx`, `max_of`, `lonmax_of`, `latmax_of`, `latwidth_of`, `lonwidth_of`, `do_oflxmerid`, `maxofmerid`, `latmaxofmerid` | superseded by `&qflux_nml` |
 | `atmos_model_nml` | `do_netcdf_restart` | |

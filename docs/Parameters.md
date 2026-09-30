@@ -43,7 +43,6 @@ Run length, time step and calendar (`coupler/coupler_main.f90`).
  `dt_atmos` | `500` | model time step [s]
  `atmos_npes` | `0` | number of processes for the atmosphere (0: all)
  `do_atmos` | `.true.` | run the atmosphere
- `do_flux` | `.true.` | not used
 
 ### `atmos_model_nml`
 
@@ -235,7 +234,6 @@ The gray radiation of [Frierson, Held and Zurita-Gotor (2006)](https://doi.org/1
  `sw_diff` | `0.0` | equator-to-pole reduction of the shortwave optical depth
  `size_pert`, `long_pert`, `del_long` | `0.`, `180.`, `30.` | amplitude [W/m2], longitude [deg] and width [deg] of a zonally localized insolation perturbation
  `fcng_pert`, `lat_pert`, `lon_pert`, `del_lat`, `del_lon` | `0.`, `0.`, `180.`, `30.`, `90.` | amplitude [W/m2], centre [deg] and half-widths [deg] of a localized (Walker-type) insolation perturbation
- `wave_amp`, `wave_lon`, `wave_lat`, `wave_del_lon`, `wave_del_lat`, `wave_period`, `wave_env`, `wave_source` | `0.`, `180.`, `0.`, `30.`, `20.`, `20.`, `80.`, `.false.` | no effect (the travelling-wave forcing is disabled in the code)
 
 ## Surface
 
@@ -313,7 +311,6 @@ Surface fluxes (`coupler/surface_flux.f90`).
  `no_neg_q` | `.false.` | set negative lowest-level humidity to zero
  `use_mixing_ratio` | `.false.` | Manabe Climate Model form of the moisture flux (legacy)
  `ncar_ocean_flux` | `.false.` | NCAR (Large and Yeager) ocean flux formulation
- `raoult_sat_vap` | `.false.` | reduce the saturation vapour pressure over sea water (no effect: `simple_surface` does not flag sea water)
  `no_surface_momentum_flux` | `.false.` | switch off the surface momentum flux
  `no_surface_moisture_flux` | `.false.` | switch off the surface moisture flux
  `no_surface_heat_flux` | `.false.` | switch off the surface sensible heat flux
@@ -330,7 +327,6 @@ Monin-Obukhov similarity for the surface layer (`atmos_param/monin_obukhov/monin
  `neutral` | `.false.` | neutral stability everywhere
  `stable_option` | `1` | stability function for stable conditions (1 or 2)
  `zeta_trans` | `0.5` | transition value of z/L for `stable_option = 2`
- `relax_time` | `0.` | must be 0 (other values are a fatal error)
 
 ## Boundary layer
 

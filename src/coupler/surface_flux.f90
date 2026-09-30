@@ -238,9 +238,6 @@ module surface_flux_mod
 !    Use NCAR climate model turbulent flux calculation described by
 !    Large and Yeager, NCAR Technical Document, in prep., 2003
 !   </DATA>
-!   <DATA NAME="raoult_sat_vap"  TYPE="logical"  DEFAULT=".false.">
-!    Reduce saturation vapor pressures to account for seawater salinity.
-!   </DATA>
 ! </NAMELIST>
 
   logical :: no_neg_q = .false.  ! for backwards compatibility
@@ -250,7 +247,6 @@ module surface_flux_mod
   logical :: use_mixing_ratio = .false.
   real    :: gust_const = 1.0
   logical :: ncar_ocean_flux = .false.
-  logical :: raoult_sat_vap = .false.
   logical :: no_surface_momentum_flux = .false. !epg: option to turn off surface momentum fluxes
   logical :: no_surface_moisture_flux = .false. !epg: option to turn off surface moisture fluxes
   logical :: no_surface_heat_flux = .false. !epg: option to turn off surface heat fluxes
@@ -263,7 +259,6 @@ module surface_flux_mod
     old_dtaudv, &
     use_mixing_ratio, &
     ncar_ocean_flux, &
-    raoult_sat_vap, &
     no_surface_momentum_flux, &
     no_surface_moisture_flux, &
     no_surface_heat_flux, &
@@ -408,8 +403,6 @@ contains
     elsewhere
       q_surf0 = q_sat  ! everything else assumes saturated sfc humidity
     end where
-
-    if (raoult_sat_vap) where (seawater) q_surf0 = 0.98*q_surf0
 
     ! check for negative atmospheric humidities
     where (avail) q_atm = q_atm_in
