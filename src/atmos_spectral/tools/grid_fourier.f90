@@ -1,3 +1,5 @@
+!> Fourier transforms in longitude (on the first dimension of 2d or 3d grid fields) and the
+!> grid longitudes.
 module grid_fourier_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
@@ -6,11 +8,6 @@ module grid_fourier_mod
   use constants_mod, only: pi
 
   use fft_mod, only: fft_init, fft_grid_to_fourier, fft_fourier_to_grid
-
-!    provides one-dimensional grid-to-fourier and fourier-to-grid
-!    transforms on the first dimension of two- or three-dimensional fields.
-!
-!----------------------------------------------------------------------------
 
   implicit none
   private
@@ -21,10 +18,14 @@ module grid_fourier_mod
   public :: grid_fourier_init, grid_fourier_end, trans_grid_to_fourier, trans_fourier_to_grid
   public :: get_lon_max, get_longitude_origin, get_deg_lon
 
+  !> Returns the Fourier coefficients (zonal wavenumbers 0 to `num_lon`/2) of a grid field
+  !> with `num_lon` longitudes in its first dimension.
   interface trans_grid_to_fourier
     module procedure trans_grid_to_fourier_3d, trans_grid_to_fourier_2d
   end interface
 
+  !> Returns the grid field (`num_lon` longitudes) from its Fourier coefficients (zonal
+  !> wavenumbers 0 to `num_lon`/2).
   interface trans_fourier_to_grid
     module procedure trans_fourier_to_grid_3d, trans_fourier_to_grid_2d
   end interface
@@ -44,11 +45,17 @@ contains
 
 !------------------------------------------------------------------------------------------------------
 
+  !> Sets the number of longitudes (which must be even), computes the grid longitudes and
+  !> initializes the FFT.
   subroutine grid_fourier_init(num_lon_in, fourier_inc, check, longitude_origin)
 
     integer, intent(in) :: num_lon_in, fourier_inc
+    !! `num_lon_in`: number of longitudes; `fourier_inc`: zonal wavenumber increment (the grid spans
+    !! 360/`fourier_inc` degrees)
     logical, intent(in), optional   :: check
-    real, intent(in), optional   :: longitude_origin
+    !! stop if the m = 0 or m = `num_lon`/2 coefficient passed to `trans_fourier_to_grid` has a
+    !! nonzero imaginary part (default `.false.`)
+    real, intent(in), optional   :: longitude_origin  !! longitude of the first grid point [rad] (default 0)
     integer :: i
     character(len=8) :: chtmp
     real :: total_degrees
@@ -243,9 +250,10 @@ contains
 
 !------------------------------------------------------------------------------------------------------
 
+  !> Returns the number of longitudes.
   subroutine get_lon_max(lon_max_out)
 
-    integer, intent(out) :: lon_max_out
+    integer, intent(out) :: lon_max_out  !! number of longitudes
 
     if (.not. module_is_initialized) then
       call error_mesg('get_lon_max', 'module grid_fourier not initialized', FATAL)
@@ -258,9 +266,10 @@ contains
 
 !------------------------------------------------------------------------------------------------------
 
+  !> Returns the longitude of the first grid point.
   subroutine get_longitude_origin(longitude_origin_out)
 
-    real, intent(out) :: longitude_origin_out
+    real, intent(out) :: longitude_origin_out  !! longitude of the first grid point [rad]
 
     if (.not. module_is_initialized) then
       call error_mesg('get_longitude_origin', 'module grid_fourier not initialized', FATAL)
@@ -273,9 +282,10 @@ contains
 
 !------------------------------------------------------------------------------------------------------
 
+  !> Returns the grid longitudes in degrees.
   subroutine get_deg_lon(deg_lon_out)
 
-    real, intent(out), dimension(:) :: deg_lon_out
+    real, intent(out), dimension(:) :: deg_lon_out  !! longitudes of the grid points [deg]
     character(len=8) :: chtmp1, chtmp2
 
     if (.not. module_is_initialized) then
@@ -295,6 +305,7 @@ contains
 
 !------------------------------------------------------------------------------------------------------
 
+  !> Deallocates the longitudes.
   subroutine grid_fourier_end
 
     if (.not. module_is_initialized) return

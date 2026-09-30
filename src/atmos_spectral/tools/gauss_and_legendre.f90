@@ -1,14 +1,10 @@
+!> Gaussian latitudes and weights, and the associated Legendre functions.
 module gauss_and_legendre_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
                      write_version_number
 
   use constants_mod, only: pi
-
-!-----------------------------------------------------------------------
-!   computes Gaussian latitudes and associated Legendre polynomials
-!
-!-----------------------------------------------------------------------
 
   implicit none
   private
@@ -23,14 +19,21 @@ module gauss_and_legendre_mod
 contains
 
 !-----------------------------------------------------------------------
+  !> Computes the normalized associated Legendre functions at the given latitudes by recursion.
+  !>
+  !> `legendre(m, n, j)` is the function of zonal wavenumber `M = m*fourier_inc` and degree
+  !> `M + n` at latitude j, normalized so that its square integrates to 1 over
+  !> sin(latitude) from -1 to 1.
   subroutine compute_legendre(legendre, num_fourier, fourier_inc, &
                               num_spherical, sin_lat, n_lat)
 !-----------------------------------------------------------------------
 
     integer, intent(in) :: num_fourier, fourier_inc, num_spherical, n_lat
-    real, intent(in), dimension(n_lat) :: sin_lat
+    !! `num_fourier`, `num_spherical`: largest indices m and n; `fourier_inc`: zonal wavenumber
+    !! increment; `n_lat`: number of latitudes
+    real, intent(in), dimension(n_lat) :: sin_lat  !! sines of the latitudes
 
-    real, intent(out), dimension(0:num_fourier, 0:num_spherical, n_lat)  :: legendre
+    real, intent(out), dimension(0:num_fourier, 0:num_spherical, n_lat)  :: legendre  !! associated Legendre functions
 
     integer :: j, m, n, fourier_max
     real, dimension(0:num_fourier*fourier_inc, 0:num_spherical) :: poly, eps, m2, l2
@@ -87,17 +90,17 @@ contains
   end subroutine compute_legendre
 
 !----------------------------------------------------------------------
+  !> Computes the Gaussian latitudes and weights of one hemisphere by Newton iteration
+  !> (Press et al., 1990, Numerical Recipes).
+  !>
+  !> The latitudes are the roots of the Legendre polynomial of degree `2*n_hem`, ordered from
+  !> the pole towards the equator; the weights of the whole globe sum to 2.
   subroutine compute_gaussian(sin_hem, wts_hem, n_hem)
 !----------------------------------------------------------------------
-!
-!     reference:
-!       press, h. william, et. al., numerical recipes (fortran version),
-!       cambridge, england: cambridge university press (1990)
-!
-!------------------------------------------------------------------------
 
-    integer, intent(in) :: n_hem
+    integer, intent(in) :: n_hem  !! number of latitudes in one hemisphere
     real, intent(out), dimension(n_hem) :: sin_hem, wts_hem
+    !! `sin_hem`: sines of the Gaussian latitudes; `wts_hem`: Gaussian weights
 
     real :: converg
     integer :: itermax

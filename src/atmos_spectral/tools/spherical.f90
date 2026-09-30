@@ -1,26 +1,19 @@
+!> Operations on spherical harmonic fields that do not require transforms: derivatives,
+!> Laplacian, winds from vorticity and divergence and back, and truncation.
+!>
+!> Spectral fields are complex with horizontal dimensions (0:num_fourier, 0:num_spherical),
+!> where the zonal wavenumber of (m, n) is `M = m*fourier_inc`, the "meridional"
+!> wavenumber is n and the total wavenumber is `L = M + n`. `spherical_init` works on the
+!> global domain; the other operators detect whether their argument is global
+!> (0:num_fourier, 0:num_spherical) or this processor's part (ms:me, ns:ne).
+!>
+!> Original authors: V. Balaji (parallel version, transpose method).
 module spherical_mod
-
-!Balaji: parallel spectral model using transpose method
-!initialize spherical operates on global domain
-!all other operators attempt to detect whether argument is global (0:M,0:N)
-!                                                       or local (ms:me,ns:ne)
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
                      write_version_number
 
   use spec_mpp_mod, only: get_spec_domain
-
-!-------------------------------------------------------------------------
-!   provides operations on spectral spherical harmonics fields that do not
-!      require transforms
-!
-!   spectral fields are complex with horizontal dimensions
-!        (0:num_fourier,0:num_spherical)
-!       where the zonal wavenumber of (m,n) is M = m*fourier_inc
-!             the "meridional" wavenumber is n
-!             the "total", 2D, spherical wavenumber L = M+n
-!
-!-----------------------------------------------------------------------
 
   implicit none
   private
@@ -28,41 +21,57 @@ module spherical_mod
   character(len=128), parameter :: version = '$Id: spherical.f90,v 10.0 2003/10/24 22:01:03 fms Exp $'
   character(len=128), parameter :: tagname = '$Name: lima $'
 
+  !> Returns the spectral coefficients of cos(lat) times the eastward derivative,
+  !> `(1/a) d/dlon`, of a spectral field.
   interface compute_lon_deriv_cos
     module procedure compute_lon_deriv_cos_2d, &
       compute_lon_deriv_cos_3d
   end interface
 
+  !> Returns the spectral coefficients of cos(lat) times the northward derivative,
+  !> `(cos(lat)/a) d/dlat`, of a spectral field (global in n).
   interface compute_lat_deriv_cos
     module procedure compute_lat_deriv_cos_2d, &
       compute_lat_deriv_cos_3d
   end interface
 
+  !> Computes the eastward and northward derivatives of a spectral field, both times
+  !> cos(lat) (`compute_lon_deriv_cos` and `compute_lat_deriv_cos`).
   interface compute_gradient_cos
     module procedure compute_gradient_cos_2d, &
       compute_gradient_cos_3d
   end interface
 
+  !> Returns the Laplacian of a spectral field, or the Laplacian to the optional integer
+  !> `power` (negative powers give the inverse Laplacian, with zero for L = 0).
   interface compute_laplacian
     module procedure compute_laplacian_2d, &
       compute_laplacian_3d
   end interface
 
+  !> Computes the spectral coefficients of u cos(lat) and v cos(lat) from the spectral
+  !> vorticity and divergence.
   interface compute_ucos_vcos
     module procedure compute_ucos_vcos_2d, &
       compute_ucos_vcos_3d
   end interface
 
+  !> Computes the spectral vorticity and divergence from the spectral coefficients of
+  !> u/cos(lat) and v/cos(lat).
   interface compute_vor_div
     module procedure compute_vor_div_2d, &
       compute_vor_div_3d
   end interface
 
+  !> Returns the spectral vorticity from the spectral coefficients of u/cos(lat) and
+  !> v/cos(lat).
   interface compute_vor
     module procedure compute_vor_2d, &
       compute_vor_3d
   end interface
 
+  !> Returns the spectral divergence from the spectral coefficients of u/cos(lat) and
+  !> v/cos(lat).
   interface compute_div
     module procedure compute_div_2d, &
       compute_div_3d
@@ -73,11 +82,16 @@ module spherical_mod
       compute_alpha_operator_3d
   end interface
 
+  !> Sets to zero the coefficients with total wavenumber L > `num_spherical - 1`, or
+  !> L > the optional `trunc`.
   interface triangular_truncation
     module procedure triangular_truncation_2d, &
       triangular_truncation_3d
   end interface
 
+  !> Sets to zero the coefficients with n = `num_spherical`, or (with the optional
+  !> `trunc_fourier` and `trunc_spherical`) those with M > `trunc_fourier` or
+  !> n > `trunc_spherical`.
   interface rhomboidal_truncation
     module procedure rhomboidal_truncation_2d, &
       rhomboidal_truncation_3d
@@ -111,10 +125,14 @@ module spherical_mod
 contains
 
 !--------------------------------------------------------------------------
+  !> Computes the wavenumbers, the Laplacian eigenvalues and the coefficients of the
+  !> derivative operators.
   subroutine spherical_init(radius, num_fourier_in, fourier_inc_in, num_spherical_in)
 
-    real, intent(in) :: radius
+    real, intent(in) :: radius  !! radius of the planet [m]
     integer, intent(in) :: num_fourier_in, fourier_inc_in, num_spherical_in
+    !! `num_fourier_in`: largest index m; `fourier_inc_in`: zonal wavenumber increment;
+    !! `num_spherical_in`: largest index n
 
     integer :: m, n
 
@@ -185,10 +203,11 @@ contains
   end subroutine spherical_init
 
 !---------------------------------------------------------------------------
+  !> Returns the total wavenumber L of each coefficient (global or this processor's part).
   subroutine get_spherical_wave(spherical_wave_out)
 !---------------------------------------------------------------------------
 
-    integer, intent(out), dimension(:, :) :: spherical_wave_out
+    integer, intent(out), dimension(:, :) :: spherical_wave_out  !! total wavenumber `L = m*fourier_inc + n`
 
     if (size(spherical_wave_out, 1) .eq. num_fourier + 1 .and. size(spherical_wave_out, 2) .eq. num_spherical + 1) then
       spherical_wave_out = spherical_wave
@@ -202,10 +221,11 @@ contains
   end subroutine get_spherical_wave
 
 !---------------------------------------------------------------------------
+  !> Returns the zonal wavenumber M of each coefficient (global or this processor's part).
   subroutine get_fourier_wave(fourier_wave_out)
 !---------------------------------------------------------------------------
 
-    integer, intent(out), dimension(:, :) :: fourier_wave_out
+    integer, intent(out), dimension(:, :) :: fourier_wave_out  !! zonal wavenumber `M = m*fourier_inc`
 
     if (size(fourier_wave_out, 1) .eq. num_fourier + 1 .and. size(fourier_wave_out, 2) .eq. num_spherical + 1) then
       fourier_wave_out = fourier_wave
@@ -219,10 +239,12 @@ contains
   end subroutine get_fourier_wave
 
 !---------------------------------------------------------------------------
+  !> Returns minus the eigenvalues of the Laplacian, L(L+1)/a**2 (global or this processor's
+  !> part).
   subroutine get_eigen_laplacian(eigen_laplacian_out)
 !---------------------------------------------------------------------------
 
-    real, intent(out), dimension(:, :) :: eigen_laplacian_out
+    real, intent(out), dimension(:, :) :: eigen_laplacian_out  !! L(L+1)/a**2 [1/m2]
 
     if (size(eigen_laplacian_out, 1) .eq. num_fourier + 1 .and. size(eigen_laplacian_out, 2) .eq. num_spherical + 1) then
       eigen_laplacian_out = eigen_laplacian
@@ -846,6 +868,7 @@ contains
   end subroutine rhomboidal_truncation_2d
 
 !-----------------------------------------------------------------------
+  !> Deallocates the module arrays.
   subroutine spherical_end
 
     if (.not. module_is_initialized) return

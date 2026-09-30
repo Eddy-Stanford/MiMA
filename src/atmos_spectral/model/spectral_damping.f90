@@ -1,3 +1,12 @@
+!> Scale-selective hyperdiffusion and top-level sponge for the spectral fields.
+!>
+!> The damping rate of spherical harmonic (m, n) is `damping_coeff*(eigen/eigen_max)**damping_order`
+!> (`'resolution_dependent'`, where `eigen_max` is the eigenvalue of the largest total
+!> wavenumber) or `damping_coeff*eigen**damping_order` (`'resolution_independent'`), with
+!> `eigen` the eigenvalue of the (negative) Laplacian. Vorticity and divergence may have
+!> their own coefficients and orders. At the top level only, a del^2 sponge with separate
+!> coefficients for the eddy (m /= 0) components and for the zonal means of vorticity (zonal
+!> wind) and divergence (meridional wind) is applied. The damping is implicit in time.
 module spectral_damping_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
@@ -9,6 +18,8 @@ module spectral_damping_mod
 
   private
 
+  !> Adds the hyperdiffusion (with the coefficient and order for the fields other than
+  !> vorticity and divergence) to the tendency of a spectral field, implicitly in time.
   interface compute_spectral_damping
     module procedure compute_spectral_damping_2d, compute_spectral_damping_3d
   end interface
@@ -26,16 +37,25 @@ module spectral_damping_mod
 
 contains
 !----------------------------------------------------------------------------------------------------------------
+  !> Computes the damping rates of each spherical harmonic.
   subroutine spectral_damping_init(damping_coeff, damping_order, damping_option, num_fourier, num_spherical, &
                                    num_levels_in, eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff, &
                                    damping_coeff_vor, damping_order_vor, damping_coeff_div, damping_order_div)
 
-    real, intent(in) :: damping_coeff
+    real, intent(in) :: damping_coeff  !! hyperdiffusion coefficient (1/s with `'resolution_dependent'`)
     integer, intent(in) :: damping_order, num_fourier, num_spherical, num_levels_in
+    !! `damping_order`: power of the Laplacian; `num_fourier`, `num_spherical`: spectral truncation;
+    !! `num_levels_in`: number of levels
     real, intent(in) :: eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff
-    character(len=*), intent(in) :: damping_option
+    !! `eddy_sponge_coeff`, `zmu_sponge_coeff`, `zmv_sponge_coeff`: coefficients of the top-level
+    !! sponge for the eddies, the zonal-mean zonal wind and the zonal-mean meridional wind
+    character(len=*), intent(in) :: damping_option  !! `'resolution_dependent'` or `'resolution_independent'`
     real, intent(in), optional :: damping_coeff_vor, damping_coeff_div
+    !! `damping_coeff_vor`, `damping_coeff_div`: coefficients for vorticity and divergence
+    !! (default: `damping_coeff`)
     integer, intent(in), optional :: damping_order_vor, damping_order_div
+    !! `damping_order_vor`, `damping_order_div`: orders for vorticity and divergence
+    !! (default: `damping_order`)
 
     real    :: damping_coeff_vor_local, damping_coeff_div_local
     integer :: damping_order_vor_local, damping_order_div_local
@@ -136,12 +156,15 @@ contains
     return
   end subroutine compute_spectral_damping_3d
 !-----------------------------------------------------------------
+  !> Adds the hyperdiffusion and the top-level eddy and zonal-mean zonal-wind sponge to the
+  !> vorticity tendency, implicitly in time.
   subroutine compute_spectral_damping_vor(vor, dt_vor, current_dt, dt_vor_damp)
 
-    complex, intent(in), dimension(ms:me, ns:ne, num_levels) :: vor
-    real, intent(in) :: current_dt
-    complex, intent(inout), dimension(ms:me, ns:ne, num_levels) :: dt_vor
+    complex, intent(in), dimension(ms:me, ns:ne, num_levels) :: vor  !! spectral vorticity at the previous time level [1/s]
+    real, intent(in) :: current_dt  !! time step of the leapfrog step [s]
+    complex, intent(inout), dimension(ms:me, ns:ne, num_levels) :: dt_vor  !! vorticity tendency [1/s2]
     complex, intent(out), dimension(ms:me, ns:ne, num_levels), optional :: dt_vor_damp
+    !! change of the tendency due to the hyperdiffusion (without the sponge) [1/s2]
 
     real, dimension(ms:me, ns:ne) :: coeff
 
@@ -183,11 +206,14 @@ contains
   end subroutine compute_spectral_damping_vor
 !-----------------------------------------------------------------
 
+  !> Adds the hyperdiffusion and the top-level eddy and zonal-mean meridional-wind sponge to
+  !> the divergence tendency, implicitly in time.
   subroutine compute_spectral_damping_div(div, dt_div, current_dt, dt_div_damp)
-    complex, intent(in), dimension(ms:me, ns:ne, num_levels) :: div
-    real, intent(in) :: current_dt
-    complex, intent(inout), dimension(ms:me, ns:ne, num_levels) :: dt_div
+    complex, intent(in), dimension(ms:me, ns:ne, num_levels) :: div  !! spectral divergence at the previous time level [1/s]
+    real, intent(in) :: current_dt  !! time step of the leapfrog step [s]
+    complex, intent(inout), dimension(ms:me, ns:ne, num_levels) :: dt_div  !! divergence tendency [1/s2]
     complex, intent(out), dimension(ms:me, ns:ne, num_levels), optional :: dt_div_damp
+    !! change of the tendency due to the hyperdiffusion (without the sponge) [1/s2]
 
     real, dimension(ms:me, ns:ne) :: coeff
 
@@ -256,6 +282,7 @@ contains
   end subroutine compute_spectral_damping_2d
 
 !-----------------------------------------------------------------
+  !> Deallocates the damping rates.
   subroutine spectral_damping_end
 
     if (.not. module_is_initialized) return

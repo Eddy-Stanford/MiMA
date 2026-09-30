@@ -1,3 +1,4 @@
+!> Hole filling for grid-point tracers: negative values are filled from the neighbouring points.
 module water_borrowing_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, write_version_number, error_mesg, FATAL
@@ -15,13 +16,19 @@ module water_borrowing_mod
 
 contains
 
+  !> Modifies the tendency so that negative values of `qg` are set to zero, taking the
+  !> tracer mass from the four neighbouring points in longitude and in the vertical.
+  !>
+  !> A hole is filled only if the total including the neighbours is positive; the
+  !> neighbours are then reduced in proportion. The direction of the longitude sweep
+  !> alternates with `current`. The whole latitude circle must be on one processor.
   subroutine water_borrowing(dt_qg, qg, current, p_half, delta_t)
 
-    real, intent(inout), dimension(:, :, :) :: dt_qg
-    real, intent(in), dimension(:, :, :) :: qg
-    integer, intent(in)                      :: current
-    real, intent(in), dimension(:, :, :) :: p_half
-    real, intent(in)                      :: delta_t
+    real, intent(inout), dimension(:, :, :) :: dt_qg  !! tendency of the tracer [(tracer units)/s]
+    real, intent(in), dimension(:, :, :) :: qg  !! tracer
+    integer, intent(in)                      :: current  !! current time-level index (sets the sweep direction)
+    real, intent(in), dimension(:, :, :) :: p_half  !! pressure at half levels [Pa]
+    real, intent(in)                      :: delta_t  !! time step [s]
 
     integer :: num_lon, num_lat, num_levels, ibeg, iend, inc, i, j, k, is, ie, js, je
     real :: neighboring_water, total_water, ratio
@@ -89,7 +96,7 @@ contains
           end if
 !     if(total_water < 0. .and. neighboring_water > 0.) then
 
-!!!!!!!  Put all neighboring water into water hole and zero out neighboring water (pjp)
+!------  Put all neighboring water into water hole and zero out neighboring water (pjp)
 
 !       dt_qg(i,j,k) = dt_qg(i,j,k) + neighboring_water/(dp(i,k)*delta_t)
 !       if(i == 1) then

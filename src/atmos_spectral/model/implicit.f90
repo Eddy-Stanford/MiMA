@@ -1,7 +1,16 @@
+!> Semi-implicit correction of the gravity-wave terms of the spectral tendencies.
+!>
+!> The divergence, temperature and log surface pressure equations are linearized about a
+!> reference state (a temperature profile, 300 K at all levels as set by `spectral_dynamics`,
+!> and a surface pressure, `reference_sea_level_press`). The gravity-wave terms are treated
+!> implicitly with weight `alpha` (`alpha_implicit` in `spectral_dynamics_nml`): for each
+!> total wavenumber L the divergence tendency is multiplied by the inverse of
+!> `I + (alpha*dt)**2 * L(L+1)/a**2 * D`, where D couples the levels, and the temperature and
+!> surface-pressure tendencies are corrected to match.
+!> `implicit_init` works with global fields, the rest on the spectral domain.
 module implicit_mod
 !||zn, pjk 5/13/99
 !following vb's changes to old implicit_mod.
-!implicit_init works with global fields, everything else on domain
 
   use fms_mod, only: error_mesg, FATAL, write_version_number
 
@@ -55,17 +64,23 @@ contains
 
 !------------------------------------------------------------------------
 
+  !> Stores the vertical coordinate and the reference state, and builds the matrix that
+  !> couples the levels in the linearized divergence equation.
   subroutine implicit_init(pk_in, bk_in, ref_temperature_implicit_in, ref_surf_p_implicit_in, &
                            num_total_wavenumbers_in, eigen_in, wavenumber_in, alpha_in, &
                            vert_difference_option_in)
 
     real, intent(in), dimension(:)     :: pk_in, bk_in, ref_temperature_implicit_in
-    real, intent(in), dimension(0:, 0:) :: eigen_in
-    integer, intent(in), dimension(0:, 0:) :: wavenumber_in
+    !! `pk_in` [Pa], `bk_in`: coefficients of the half-level pressures `pk + bk*ps`;
+    !! `ref_temperature_implicit_in`: reference temperature at each level [K]
+    real, intent(in), dimension(0:, 0:) :: eigen_in  !! eigenvalues L(L+1)/a**2 of minus the Laplacian [1/m2]
+    integer, intent(in), dimension(0:, 0:) :: wavenumber_in  !! total wavenumber L of each spectral coefficient
 
     real, intent(in) :: ref_surf_p_implicit_in, alpha_in
-    integer, intent(in) :: num_total_wavenumbers_in
-    character(len=*), intent(in) :: vert_difference_option_in
+    !! `ref_surf_p_implicit_in`: reference surface pressure [Pa]; `alpha_in`: implicitness
+    !! (0.5: centred, 1: backward)
+    integer, intent(in) :: num_total_wavenumbers_in  !! largest total wavenumber
+    character(len=*), intent(in) :: vert_difference_option_in  !! vertical differencing (`'simmons_and_burridge'`)
 
     real, dimension(size(ref_temperature_implicit_in, 1)) :: p_full_work_1, p_full_work_2, ln_p_full_work_1, ln_p_full_work_2
     real, dimension(size(ref_temperature_implicit_in, 1) + 1) :: p_half_work_1, p_half_work_2, ln_p_half_work_1, ln_p_half_work_2
@@ -197,6 +212,7 @@ contains
 
 !-------------------------------------------------------------------------
 
+  !> Builds and inverts the implicit matrix for each total wavenumber.
   subroutine build_wave_matrices
 
     real :: factor, det
@@ -217,15 +233,21 @@ contains
 
 !---------------------------------------------------------------------
 
+  !> Replaces the explicit tendencies of divergence, temperature and log surface pressure by
+  !> the semi-implicit ones.
+  !>
+  !> The matrices for each total wavenumber are rebuilt when the time step changes.
   subroutine implicit_correction(dt_divs, dt_ts, dt_ln_ps, divs, ts, ln_ps, dt_in, previous, current)
 !in parallel, wavenumber (0,0) actually means (ms,ns)
 !it is necessary to use the (0:,0:) dimensioning here because of the m-n loop below
     complex, intent(inout), dimension(0:, 0:, :) :: dt_divs, dt_ts
-    complex, intent(inout), dimension(0:, 0:) :: dt_ln_ps
+    !! `dt_divs`, `dt_ts`: spectral tendencies of divergence [1/s2] and temperature [K/s]
+    complex, intent(inout), dimension(0:, 0:) :: dt_ln_ps  !! spectral tendency of log surface pressure [1/s]
     complex, intent(in), dimension(0:, 0:, :, :) :: divs, ts
-    complex, intent(in), dimension(0:, 0:, :) :: ln_ps
-    real, intent(in) :: dt_in
-    integer, intent(in) :: previous, current
+    !! `divs`, `ts`: spectral divergence [1/s] and temperature [K] (last dimension: time level)
+    complex, intent(in), dimension(0:, 0:, :) :: ln_ps  !! spectral log surface pressure (last dimension: time level)
+    real, intent(in) :: dt_in  !! time step of the leapfrog step (from `previous` to the future level) [s]
+    integer, intent(in) :: previous, current  !! `previous`, `current`: indices of the previous and current time levels
 
     complex, dimension(0:size(divs, 1) - 1, 0:size(divs, 2) - 1, size(divs, 3)) :: dt_ts_temp
     complex, dimension(num_levels) ::  work
@@ -265,6 +287,8 @@ contains
   end subroutine implicit_correction
 
 !---------------------------------------------------------------------
+  !> Adds the implicit gravity-wave terms of the previous and current levels to the
+  !> divergence tendency.
   subroutine adjust_dt_divs(dt_divs, dt_ts, dt_ln_ps, divs, ts, ln_ps, previous, current)
     !||zn, pjk 5/13/99, following vb's dmsm/implicit.f90. (0:,0:) -> (:,:)
     complex, intent(inout), dimension(:, :, :) :: dt_divs
@@ -466,6 +490,7 @@ contains
     return
   end subroutine linear_tp_tendency_1d
 !-----------------------------------------------------------------------
+  !> Deallocates the module arrays.
   subroutine implicit_end
 
     if (.not. module_is_initialized) return

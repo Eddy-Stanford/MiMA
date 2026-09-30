@@ -1,3 +1,4 @@
+!> Mass-weighted global integral of a grid-point field.
 module global_integral_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, &
@@ -25,15 +26,14 @@ contains
 
 !---------------------------------------------------------------------------------------------
 
+  !> Returns the mass-weighted vertical integral of `field`, averaged over the globe.
+  !>
+  !> The units of the result are (units of `field`) * kg/m2.
   function mass_weighted_global_integral(field, surf_press)
 
-!  This function returns the mass weighted vertical integral of field,
-!  area averaged over the globe. The units of the result are:
-!  (units of field)*(Kg/meters**2)
-
-    real :: mass_weighted_global_integral
-    real, intent(in), dimension(:, :, :) :: field
-    real, intent(in), dimension(:, :)   :: surf_press
+    real :: mass_weighted_global_integral  !! global mean of the vertical integral [(units of `field`) kg/m2]
+    real, intent(in), dimension(:, :, :) :: field  !! field on the model levels
+    real, intent(in), dimension(:, :)   :: surf_press  !! surface pressure [Pa]
     real, dimension(size(field, 1), size(field, 2), size(field, 3)) :: dp
     real, dimension(size(field, 1), size(field, 2), size(field, 3) + 1) :: p_half
 

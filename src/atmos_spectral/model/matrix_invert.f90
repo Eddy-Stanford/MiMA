@@ -1,3 +1,6 @@
+!> Inversion of a small nonsingular matrix, with its determinant.
+!>
+!> Original authors: Triveni N. Upadhyay.
 module matrix_invert_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
@@ -8,48 +11,27 @@ module matrix_invert_mod
   public  :: invert
   integer, private :: maxmag
 
-  character(len=128), parameter :: version = '$Id matrix_invert.f90 $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
-  logical :: entry_to_logfile_done = .false.
+  character(len=128), parameter :: version = '$Id matrix_invert.f90 $'  !! version string
+  character(len=128), parameter :: tagname = '$Name: lima $'  !! tag name
+  logical :: entry_to_logfile_done = .false.  !! whether the version has been written to the log file
 
 contains
 
+  !> Inverts an n by n nonsingular matrix in place and returns its determinant.
+  !>
+  !> Uses elementary transformations with the pivotal-element method (column interchanges
+  !> to put the largest element of the row on the diagonal). If the magnitude of the
+  !> determinant falls below 1e-30 the matrix is taken to be singular and the model stops.
   subroutine invert(matrix, det)
 
-    real, intent(inout), dimension(:, :) :: matrix
-    real, intent(out) :: det
+    real, intent(inout), dimension(:, :) :: matrix  !! the matrix on input, its inverse on output
+    real, intent(out) :: det  !! determinant of the input matrix
 
     real, dimension(2*size(matrix, 1)) :: dd, h
     real, dimension(2*size(matrix, 1), size(matrix, 1)) :: ac, temp
     real :: min_det = 1.0e-30
     character(len=24) :: chtmp
     integer :: n, i, j, L, m, k
-
-! *******************************************************************
-!
-! **** matrix_invert (MATRIX INVERSION AND DETERMINANT)
-!
-! **** QUESTIONS:  TRIVENI N. UPADHYAY, AUSTIN,TEXAS  X2207,MS 2186
-!
-! **** PURPOSE:
-!        THIS SUBROUTINE INVERTS n by n NONSINGULAR MATRIX AND
-!        FINDS IT'S DETERMINANT.
-!
-! **** ARGUMENTS:
-!        matrix : INPUT MATRIX OF DIMENSION n by n TO BE INVERTED
-!        n      : DIMENSION OF MATRIX
-!        det    : DETERMINANT OF MATRIX
-!
-! **** PROCEDURE AND LIMITATIONS :
-!          THIS SUBROUTINE USES THE METHOD OF ELEMENTARY
-!        TRANFORMATIONS TO FIND THE INVERSE OF A MATRIX.
-!        THE INPUT MATRIX IS DESTROYED IN COMPUTATION AND THE INVERSE
-!        MATRIX TAKES ITS PLACE. FOR NUMERICAL ACCURACY, ELEMENTARY
-!        TRANSFORMATIONS ARE PERFORMED IN CONJUNCTION WITH THE
-!        'PIVOTAL' ELEMENT METHOD.
-!          IF THE INPUT MATRIX IS SINGULAR (DETERMINANT LESS
-!        THAN min_det), AN ERROR MESSAGE IS PRINTED OUT AND THE
-!        PROGRAM IS TERMINATED.
 
     if (.not. entry_to_logfile_done) then
       call write_version_number(version, tagname)
@@ -108,10 +90,12 @@ contains
     return
   end subroutine invert
 
+  !> Returns the offset from the start of `h` (0 for the first element) of the element with
+  !> the largest magnitude.
   function max_mag(h, m) result(max)
 
-    integer, intent(in) :: m
-    real, intent(in) :: h(m)
+    integer, intent(in) :: m  !! length of `h`
+    real, intent(in) :: h(m)  !! values to search
     integer :: max, i
     real :: rmax
 

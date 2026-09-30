@@ -1,6 +1,15 @@
+!> Legendre transforms between spherical harmonics and zonal Fourier coefficients on the
+!> Gaussian latitudes, and the Gaussian grid itself.
+!>
+!> Spherical fields are complex, dimension(0:num_fourier, 0:num_spherical), where the zonal
+!> wavenumber of (m, n) is `M = m*fourier_inc`, the "meridional" wavenumber is n and the
+!> total wavenumber is `L = M + n`. Fourier fields are complex, dimension(0:num_fourier,
+!> lat_max). The transforms use the symmetry of the Legendre functions about the equator,
+!> so each latitude is handled together with its mirror latitude. The module also makes
+!> the public procedures of `spherical_mod` and `gauss_and_legendre_mod` available.
+!>
+!> Original authors: V. Balaji (parallel version, transpose method).
 module spherical_fourier_mod
-
-!Balaji: parallel spectral model using transpose method
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number
 
@@ -22,30 +31,22 @@ module spherical_fourier_mod
 
   use gauss_and_legendre_mod, only: compute_legendre, compute_gaussian
 
-!-------------------------------------------------------------------------
-!  provides latitudinal transforms from spherical harmonics to
-!       (zonal fourier, latitude (gaussian) grid) space , and
-!       related operations
-!       works within the window provided by windows module
-!
-!       spherical fields are complex, dimension(0:num_fourier, 0:num_spherical)
-!         where the zonal wavenumber of (m,n) is M = m*fourier_inc
-!             the "meridional" wavenumber is n
-!             the "total", 2D, spherical wavenumber L = M+n
-!       "fourier fields" are complex, dimension(0:num_fourier, lat_max)
-!
-!------------------------------------------------------------------------
-
   implicit none
   private
 
   character(len=128), parameter :: version = '$Id: spherical_fourier.f90,v 11.0 2004/09/28 19:31:02 fms Exp $'
   character(len=128), parameter :: tagname = '$Name: lima $'
 
+  !> Transforms spherical harmonic coefficients `spherical` (this processor's m and n range)
+  !> to Fourier coefficients `fourier` at all latitudes; the last dimension of `fourier` is
+  !> the grid domain in latitude and its second dimension the latitude within that domain.
   interface trans_spherical_to_fourier
     module procedure trans_spherical_to_fourier_3d, &
       trans_spherical_to_fourier_2d
   end interface
+  !> Transforms Fourier coefficients `fourier` at all latitudes (arranged as for
+  !> `trans_spherical_to_fourier`) to spherical harmonic coefficients `spherical` by Gaussian
+  !> quadrature.
   interface trans_fourier_to_spherical
     module procedure trans_fourier_to_spherical_3d, &
       trans_fourier_to_spherical_2d
@@ -104,16 +105,18 @@ module spherical_fourier_mod
 contains
 
 !-----------------------------------------------------------------------
+  !> Initializes `spherical_mod` and computes the Gaussian latitudes and weights and the
+  !> Legendre functions.
   subroutine spherical_fourier_init(radius, lat_max_in, num_fourier_in, &
                                     fourier_inc_in, num_spherical_in, south_to_north)
 !-----------------------------------------------------------------------
 
-    real, intent(in) :: radius
-    integer, intent(in) :: lat_max_in
-    integer, intent(in) :: num_fourier_in
-    integer, intent(in) :: fourier_inc_in
-    integer, intent(in) :: num_spherical_in
-    logical, intent(in), optional :: south_to_north
+    real, intent(in) :: radius  !! radius of the planet [m]
+    integer, intent(in) :: lat_max_in  !! number of latitudes
+    integer, intent(in) :: num_fourier_in  !! number of zonal waves retained
+    integer, intent(in) :: fourier_inc_in  !! zonal wavenumber increment
+    integer, intent(in) :: num_spherical_in  !! number of meridional waves retained
+    logical, intent(in), optional :: south_to_north  !! order the latitudes from south to north (default `.true.`)
 
     call write_version_number(version, tagname)
 
@@ -403,10 +406,11 @@ contains
   end subroutine define_gaussian
 
 !-----------------------------------------------------------------------
+  !> Returns whether the latitudes are ordered from south to north.
   subroutine get_south_to_north(south_to_north_out)
 !-----------------------------------------------------------------------
 
-    logical, intent(out) :: south_to_north_out
+    logical, intent(out) :: south_to_north_out  !! `.true.` if the latitudes are ordered from south to north
 
     if (.not. module_is_initialized) then
       call error_mesg('get_south_to_north', 'failed to define package', FATAL)
@@ -418,10 +422,12 @@ contains
   end subroutine get_south_to_north
 
 !-----------------------------------------------------------------------
+  !> Returns the sines of the Gaussian latitudes, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
   subroutine get_sin_lat(sin_lat_out)
 !-----------------------------------------------------------------------
 
-    real, intent(out), dimension(:) :: sin_lat_out
+    real, intent(out), dimension(:) :: sin_lat_out  !! sines of the latitudes
 
     if (.not. module_is_initialized) then
       call error_mesg('get_sin_lat', 'failed to define package', FATAL)
@@ -437,10 +443,12 @@ contains
   end subroutine get_sin_lat
 
 !-----------------------------------------------------------------------
+  !> Returns the cosines of the Gaussian latitudes, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
   subroutine get_cos_lat(cos_lat_out)
 !-----------------------------------------------------------------------
 
-    real, intent(out), dimension(:) :: cos_lat_out
+    real, intent(out), dimension(:) :: cos_lat_out  !! cosines of the latitudes
 
     if (.not. module_is_initialized) then
       call error_mesg('get_cos_lat', 'failed to define package', FATAL)
@@ -456,10 +464,12 @@ contains
   end subroutine get_cos_lat
 
 !-----------------------------------------------------------------------
+  !> Returns 1/cos of the Gaussian latitudes, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
   subroutine get_cosm_lat(cosm_lat_out)
 !-----------------------------------------------------------------------
 
-    real, intent(out), dimension(:) :: cosm_lat_out
+    real, intent(out), dimension(:) :: cosm_lat_out  !! 1/cos(latitude)
 
     if (.not. module_is_initialized) then
       call error_mesg('get_cosm_lat', 'failed to define package', FATAL)
@@ -475,10 +485,12 @@ contains
   end subroutine get_cosm_lat
 
 !-----------------------------------------------------------------------
+  !> Returns 1/cos**2 of the Gaussian latitudes, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
   subroutine get_cosm2_lat(cosm2_lat_out)
 !-----------------------------------------------------------------------
 
-    real, intent(out), dimension(:) :: cosm2_lat_out
+    real, intent(out), dimension(:) :: cosm2_lat_out  !! 1/cos(latitude)**2
 
     if (.not. module_is_initialized) then
       call error_mesg('get_cosm2_lat', 'failed to define package', FATAL)
@@ -494,10 +506,12 @@ contains
   end subroutine get_cosm2_lat
 
 !-----------------------------------------------------------------------
+  !> Returns the Gaussian latitudes in degrees, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
   subroutine get_deg_lat(deg_lat_out)
 !-----------------------------------------------------------------------
 
-    real, intent(out), dimension(:) :: deg_lat_out
+    real, intent(out), dimension(:) :: deg_lat_out  !! latitudes [deg]
 
     if (.not. module_is_initialized) then
       call error_mesg('get_deg_lat', 'failed to define package', FATAL)
@@ -513,10 +527,12 @@ contains
   end subroutine get_deg_lat
 
 !-----------------------------------------------------------------------
+  !> Returns the Gaussian weights (summing to 2 over the globe), of the whole grid or (if the
+  !> size is not `lat_max`) of this processor's part.
   subroutine get_wts_lat(wts_lat_out)
 !-----------------------------------------------------------------------
 
-    real, intent(out), dimension(:) :: wts_lat_out
+    real, intent(out), dimension(:) :: wts_lat_out  !! Gaussian weights
 
     if (.not. module_is_initialized) then
       call error_mesg('get_wts_lat', 'failed to define package', FATAL)
@@ -532,6 +548,7 @@ contains
   end subroutine get_wts_lat
 
 !----------------------------------------------------------------------
+  !> Deallocates the module arrays and finalizes `spherical_mod`.
   subroutine spherical_fourier_end
 
     if (.not. module_is_initialized) return

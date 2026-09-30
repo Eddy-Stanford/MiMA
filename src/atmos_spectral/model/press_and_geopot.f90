@@ -1,18 +1,20 @@
+!> Pressures and geopotential heights on the model levels.
+!>
+!> The vertical coordinate has half-level pressures `p_half(k) = pk(k) + bk(k)*ps`, where
+!> `pk` and `bk` define the levels and `ps` is the surface pressure. The full-level values
+!> follow Simmons and Burridge (1981):
+!> `ln(p_full(k)) = ln(p_half(k+1)) - alpha`, with
+!> `alpha = 1 - p_half(k)*(ln(p_half(k+1)) - ln(p_half(k)))/(p_half(k+1) - p_half(k))`.
+!> If the top half level is at zero pressure, `ln(p_full(1)) = ln(p_half(2)) - 1`.
+!> The geopotential is computed by integrating the hydrostatic and ideal-gas equations
+!> exactly with the temperature (or virtual temperature) constant in each layer.
+!>
+!> References:
+!>
+!> * Simmons, A. J., and D. M. Burridge, 1981: An energy and angular-momentum conserving
+!>   vertical finite-difference scheme and hybrid vertical coordinates. Mon. Wea. Rev.,
+!>   109, 758-766.
 module press_and_geopot_mod
-
-! This module provides utilities that computes half- and full-
-! level pressure values, given the surface pressure, and
-! geopotential heights -- assuming a vertical coordinate in which
-! the half level values are p_half(k) = pk(k) + bk(k)*surface_pressure,
-! where the constants pk, bk define the coordinate levels.
-!
-! The full-level values are given by the expression recommended by
-! Simmons and Burridge. (See Mon. Weather Review: Vol. 109, No. 4, pp. 758-766)
-!  alpha  = 1.0  - p_half(k)*( ln(p_half(k+1)) - ln(p_half(k)) )/(p_half(k+1) - p_half(k))
-!  ln(p_full(k)) = ln(p_half(k+1)) - alpha
-!
-! Geopotentials are computed by assuming isothermal temperatures and in each layer
-! integrating the hydrostatic/ideal gas equations exactly
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
                      write_version_number
@@ -26,11 +28,15 @@ module press_and_geopot_mod
   public :: press_and_geopot_init, press_and_geopot_end, pressure_variables, half_level_pressures
   public :: compute_geopotential, compute_pressures_and_heights, compute_z_bot
 
+  !> Returns the half-level pressures `pk + bk*surface_p` [Pa] for a surface pressure field
+  !> or a single value.
   interface half_level_pressures
     module procedure half_level_pressures_1d, &
       half_level_pressures_3d
   end interface
 
+  !> Computes the pressures and log pressures at the half and full levels [Pa] for a surface
+  !> pressure field or a single value.
   interface pressure_variables
     module procedure pressure_variables_1d, &
       pressure_variables_3d
@@ -57,12 +63,14 @@ contains
 
 !------------------------------------------------------------------------------
 
+  !> Stores the vertical coordinate, the surface geopotential and the options.
   subroutine press_and_geopot_init(pk_in, bk_in, use_virtual_temperature_in, vert_difference_option_in, surf_geopotential_in)
 
     real, intent(in), dimension(:)   :: pk_in, bk_in
-    logical, intent(in)                 :: use_virtual_temperature_in
-    character(len=*), intent(in)        :: vert_difference_option_in
-    real, intent(in), dimension(:, :) :: surf_geopotential_in
+    !! `pk_in` [Pa], `bk_in`: coefficients of the half-level pressures `pk + bk*ps`
+    logical, intent(in)                 :: use_virtual_temperature_in  !! use virtual temperature in the geopotential
+    character(len=*), intent(in)        :: vert_difference_option_in  !! vertical differencing (`'simmons_and_burridge'`)
+    real, intent(in), dimension(:, :) :: surf_geopotential_in  !! surface geopotential [m2/s2]
 
     integer :: k
 
@@ -183,10 +191,13 @@ contains
   end subroutine pressure_variables_3d
 
 !-------------------------------------------------------------------------------------
+  !> Computes the height of the lowest full level above the surface.
   subroutine compute_z_bot(psg, tg, z_bot, qg)
     real, intent(in), dimension(:, :) :: psg, tg
-    real, intent(out), dimension(:, :) :: z_bot
+    !! `psg`: surface pressure [Pa]; `tg`: temperature at the lowest level [K]
+    real, intent(out), dimension(:, :) :: z_bot  !! height of the lowest full level above the surface [m]
     real, intent(in), optional, dimension(:, :) :: qg
+    !! specific humidity at the lowest level [kg/kg] (required with virtual temperature)
 
     real, dimension(size(psg, 1), size(psg, 2)) ::    p_half_bot, p_half_nxt
     real, dimension(size(psg, 1), size(psg, 2)) :: ln_p_half_bot, ln_p_half_nxt
@@ -244,11 +255,16 @@ contains
 
 !-----------------------------------------------------------------------
 
+  !> Computes the geopotential at the full and half levels, upward from the surface
+  !> geopotential.
   subroutine compute_geopotential(t_grid, ln_p_half, ln_p_full, geopot_full, geopot_half, q_grid)
 
     real, intent(in), dimension(:, :, :) :: t_grid, ln_p_half, ln_p_full
+    !! `t_grid`: temperature [K]; `ln_p_half`, `ln_p_full`: log of the half- and full-level pressures
     real, intent(out), dimension(:, :, :) :: geopot_full, geopot_half
+    !! `geopot_full`, `geopot_half`: geopotential at the full and half levels [m2/s2]
     real, intent(in), optional, dimension(:, :, :) :: q_grid
+    !! specific humidity [kg/kg] (required with virtual temperature)
 
     real, dimension(size(t_grid, 1), size(t_grid, 2), size(t_grid, 3)) :: virtual_t
 
@@ -292,14 +308,18 @@ contains
 
 !-----------------------------------------------------------------------
 
+  !> Computes the pressures and the geopotential heights at the full and half levels.
   subroutine compute_pressures_and_heights(t_grid, ps_grid, z_full, z_half, p_full, p_half, q_grid)
 
-    real, intent(in), dimension(:, :, :) :: t_grid
-    real, intent(in), dimension(:, :) :: ps_grid
+    real, intent(in), dimension(:, :, :) :: t_grid  !! temperature [K]
+    real, intent(in), dimension(:, :) :: ps_grid  !! surface pressure [Pa]
     real, intent(in), optional, dimension(:, :, :) :: q_grid
+    !! specific humidity [kg/kg] (required with virtual temperature)
 
     real, intent(out), dimension(size(t_grid, 1), size(t_grid, 2), size(t_grid, 3)) :: z_full, p_full
+    !! `z_full`: geopotential height [m] and `p_full`: pressure [Pa] at the full levels
     real, intent(out), dimension(size(t_grid, 1), size(t_grid, 2), size(t_grid, 3) + 1) :: z_half, p_half
+    !! `z_half`: geopotential height [m] and `p_half`: pressure [Pa] at the half levels
 
     real, dimension(size(t_grid, 1), size(t_grid, 2), size(t_grid, 3)) :: ln_p_full
     real, dimension(size(t_grid, 1), size(t_grid, 2), size(t_grid, 3) + 1) :: ln_p_half
@@ -319,6 +339,7 @@ contains
   end subroutine compute_pressures_and_heights
 
 !-----------------------------------------------------------------------
+  !> Deallocates the module arrays.
   subroutine press_and_geopot_end
 
     if (.not. module_is_initialized) return

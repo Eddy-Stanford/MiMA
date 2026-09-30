@@ -1,3 +1,20 @@
+!> Spectral transforms between the Gaussian grid and spherical harmonics, and related
+!> utilities.
+!>
+!> Fields are transformed from the grid to spherical harmonics and back by
+!> `trans_grid_to_spherical` and `trans_spherical_to_grid` (a Fourier transform in longitude
+!> followed by a Legendre transform in latitude, with a transpose between the latitude
+!> decomposition of the grid and the zonal-wavenumber decomposition of the spectral
+!> coefficients). `divide_by_cos` and `divide_by_cos2` divide grid fields by cos(lat) and
+!> cos(lat)**2 without the need to retrieve the Gaussian latitudes. `trans_filter` transforms
+!> a grid field to spherical harmonics, multiplies it by a filter and transforms it back.
+!> The module also computes winds from vorticity and divergence and back, the spectral
+!> horizontal advection and the area-weighted global mean, and makes the public
+!> procedures of `spherical_fourier_mod`, `spherical_mod`, `grid_fourier_mod` and
+!> `spec_mpp_mod` available.
+!>
+!> Namelist: `transforms_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#transforms_nml)).
 module transforms_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, stdlog, &
@@ -32,64 +49,60 @@ module transforms_mod
   use grid_fourier_mod, only: grid_fourier_init, grid_fourier_end, trans_grid_to_fourier, &
                               trans_fourier_to_grid, get_lon_max, get_longitude_origin, get_deg_lon
 
-!---------------------------------------------------------------------------
-! This module is initialized by transforms_init
-!
-! The partial re-initializations required when one changes either the
-!   the number of longitudes in the transform grid
-!   is provided by reset_num_lon_in_transform
-!
-! Fields are transformed from the transform grid to spherical harmonics
-!   and back by trans_spherical_to_grid and trans_grid_to_spherical
-!
-! The two utilities, divide_by_cos and divide_by_cos2, provide convenient
-!   ways of dividing grid fields by cos(lat) and cos(lat)**2,
-!   as is often required when transforming to and fro in different contexts,
-!   without having to compute or retrieve the gaussian latitudes explicitly.
-!
-! trans_filter transforms a grid field to the spectral domain, multiplies
-!   by a filter in the spectral domain, and then transforms back
-!
-!---------------------------------------------------------------------------
-
   implicit none
   private
 
+  !> Transforms spherical harmonic coefficients `spherical` (this processor's part, 2d or
+  !> 3d) to the grid field `grid`.
   interface trans_spherical_to_grid
     module procedure trans_spherical_to_grid_3d, &
       trans_spherical_to_grid_2d
   end interface
 
+  !> Transforms the grid field `grid` (2d or 3d) to spherical harmonic coefficients
+  !> `spherical`, truncated (triangular or rhomboidal, as set in `transforms_init`) unless
+  !> the optional `do_truncation` is `.false.`.
   interface trans_grid_to_spherical
     module procedure trans_grid_to_spherical_3d, &
       trans_grid_to_spherical_2d
   end interface
 
+  !> Transforms the grid field `grid` to spherical harmonics, multiplies the coefficients by
+  !> the optional `filter` and transforms the result back to `grid`.
   interface trans_filter
     module procedure trans_filter_3d, &
       trans_filter_2d
   end interface
 
+  !> Divides the grid field `grid` by the cosine of latitude.
   interface divide_by_cos
     module procedure divide_by_cos_3d, &
       divide_by_cos_2d
   end interface
 
+  !> Divides the grid field `grid` by the square of the cosine of latitude.
   interface divide_by_cos2
     module procedure divide_by_cos2_3d, &
       divide_by_cos2_2d
   end interface
 
+  !> Computes the grid winds `u_grid`, `v_grid` [m/s] from the spectral vorticity `vor_spec`
+  !> and divergence `div_spec` [1/s].
   interface uv_grid_from_vor_div
     module procedure uv_grid_from_vor_div_2d, &
       uv_grid_from_vor_div_3d
   end interface
 
+  !> Computes the spectral vorticity `vor_spec` and divergence `div_spec` [1/s] from the grid
+  !> winds `u_grid`, `v_grid` [m/s], with triangular truncation (or rhomboidal if the
+  !> optional `triang` is `.false.`).
   interface vor_div_from_uv_grid
     module procedure vor_div_from_uv_grid_2d, &
       vor_div_from_uv_grid_3d
   end interface
 
+  !> Adds the horizontal advection `-(u d/dx + v d/dy)` of the spectral field `field_spec` by
+  !> the grid winds `u_grid`, `v_grid` [m/s] to the grid tendency `tendency`.
   interface horizontal_advection
     module procedure horizontal_advection_2d, &
       horizontal_advection_3d
@@ -182,11 +195,15 @@ module transforms_mod
   real :: global_sum_of_wts
 
   logical :: check_fourier_imag = .false.
+  !! debugging check in the Fourier transforms: stop if the imaginary part of the m = 0 or
+  !! m = `num_lon`/2 Fourier coefficient is not zero
   namelist /transforms_nml/ check_fourier_imag
 
 contains
 
 !---------------------------------------------------------------------------
+  !> Reads `transforms_nml`, defines the domains (`spec_mpp_init`), initializes the Fourier
+  !> and spherical transforms and computes the grid-cell boundaries.
   subroutine transforms_init(radius, &
                              lat_max_in, &
                              num_lon_in, &
@@ -198,15 +215,17 @@ contains
                              longitude_origin)
 !---------------------------------------------------------------------------
 
-    real, intent(in) :: radius
-    integer, intent(in) :: lat_max_in
-    integer, intent(in) :: num_lon_in
-    integer, intent(in) :: num_fourier_in
-    integer, intent(in) :: fourier_inc_in
-    integer, intent(in) :: num_spherical_in
+    real, intent(in) :: radius  !! radius of the planet [m]
+    integer, intent(in) :: lat_max_in  !! number of latitudes
+    integer, intent(in) :: num_lon_in  !! number of longitudes
+    integer, intent(in) :: num_fourier_in  !! number of zonal waves retained
+    integer, intent(in) :: fourier_inc_in  !! zonal wavenumber increment (sector model if > 1)
+    integer, intent(in) :: num_spherical_in  !! number of meridional waves retained
 
     logical, intent(in), optional :: south_to_north, triang_trunc
-    real, intent(in), optional :: longitude_origin
+    !! `south_to_north`: order the latitudes from south to north (default `.true.`); `triang_trunc`:
+    !! triangular (default) or rhomboidal truncation
+    real, intent(in), optional :: longitude_origin  !! longitude of the first grid point [rad] (default 0)
     integer :: namelist_unit, ierr, io
 
     real, allocatable :: wts_lat(:)
@@ -293,6 +312,7 @@ contains
   end subroutine transforms_init
 
 !--------------------------------------------------------------------------------------------------------------
+  !> Returns whether `transforms_init` has been called.
   logical function transforms_are_initialized()
 !--------------------------------------------------------------------------------------------------------------
 
@@ -302,12 +322,14 @@ contains
   end function transforms_are_initialized
 
 !--------------------------------------------------------------------------------------------------------------
+  !> Changes the number of longitudes of the transform grid and the zonal truncation (single
+  !> processor only).
   subroutine reset_num_lon_in_transform(num_lon_in, trunc_fourier_in, longitude_origin)
 !--------------------------------------------------------------------------------------------------------------
 
-    integer, intent(in) :: num_lon_in
-    integer, intent(in) :: trunc_fourier_in
-    real, intent(in), optional    :: longitude_origin
+    integer, intent(in) :: num_lon_in  !! number of longitudes
+    integer, intent(in) :: trunc_fourier_in  !! largest zonal index kept (at most `num_fourier`)
+    real, intent(in), optional    :: longitude_origin  !! longitude of the first grid point [rad] (default 0)
 
     num_lon = num_lon_in
     trunc_fourier = trunc_fourier_in
@@ -770,10 +792,11 @@ contains
   end subroutine horizontal_advection_3d
 
 !-------------------------------------------------------------------------
+  !> Returns the number of latitudes.
   subroutine get_lat_max(lat_max_out)
 !-------------------------------------------------------------------------
 
-    integer, intent(out) :: lat_max_out
+    integer, intent(out) :: lat_max_out  !! number of latitudes
 
     if (.not. module_is_initialized) then
       call error_mesg('get_lat_max', 'transforms module is not initialized', FATAL)
@@ -785,10 +808,11 @@ contains
   end subroutine get_lat_max
 
 !-------------------------------------------------------------------------
+  !> Returns whether the truncation is triangular.
   subroutine get_triang_trunc(triang_trunc_out)
 !-------------------------------------------------------------------------
 
-    logical, intent(out) :: triang_trunc_out
+    logical, intent(out) :: triang_trunc_out  !! `.true.` for triangular, `.false.` for rhomboidal truncation
 
     if (.not. module_is_initialized) then
       call error_mesg('get_triang_trunc', 'transforms module is not initialized', FATAL)
@@ -800,10 +824,11 @@ contains
   end subroutine get_triang_trunc
 
 !-------------------------------------------------------------------------
+  !> Returns the number of zonal waves retained.
   subroutine get_num_fourier(num_fourier_out)
 !-------------------------------------------------------------------------
 
-    integer, intent(out) :: num_fourier_out
+    integer, intent(out) :: num_fourier_out  !! number of zonal waves retained
 
     if (.not. module_is_initialized) then
       call error_mesg('get_num_fourier', 'transforms module is not initialized', FATAL)
@@ -815,10 +840,11 @@ contains
   end subroutine get_num_fourier
 
 !-------------------------------------------------------------------------
+  !> Returns the zonal wavenumber increment.
   subroutine get_fourier_inc(fourier_inc_out)
 !-------------------------------------------------------------------------
 
-    integer, intent(out) :: fourier_inc_out
+    integer, intent(out) :: fourier_inc_out  !! zonal wavenumber increment
 
     if (.not. module_is_initialized) then
       call error_mesg('get_fourier_inc', 'transforms module is not initialized', FATAL)
@@ -830,10 +856,11 @@ contains
   end subroutine get_fourier_inc
 
 !-------------------------------------------------------------------------
+  !> Returns the number of meridional waves retained.
   subroutine get_num_spherical(num_spherical_out)
 !-------------------------------------------------------------------------
 
-    integer, intent(out) :: num_spherical_out
+    integer, intent(out) :: num_spherical_out  !! number of meridional waves retained
 
     if (.not. module_is_initialized) then
       call error_mesg('get_num_spherical', 'transforms module is not initialized', FATAL)
@@ -845,11 +872,17 @@ contains
   end subroutine get_num_spherical
 
 !-------------------------------------------------------------------------
+  !> Returns the longitudes and latitudes of the grid-cell boundaries, of this processor's
+  !> part of the grid or of the whole grid.
+  !>
+  !> The latitude boundaries are chosen so that the cell areas are proportional to the
+  !> Gaussian weights.
   subroutine get_grid_boundaries(lon_boundaries, lat_boundaries, global)
 !-------------------------------------------------------------------------
 
     real, intent(out), dimension(:) :: lon_boundaries, lat_boundaries
-    logical, intent(in), optional :: global
+    !! `lon_boundaries`, `lat_boundaries`: longitudes and latitudes of the cell boundaries [rad]
+    logical, intent(in), optional :: global  !! return the whole grid (default `.false.`)
 
     logical :: global_tmp
     character(len=3) :: chtmp1, chtmp2
@@ -1002,10 +1035,11 @@ contains
   end subroutine transpose_fourier
 
 !-------------------------------------------------------------------------
+  !> Returns the area-weighted (Gaussian-weighted) global mean of a grid field.
   function area_weighted_global_mean(field)
 !-------------------------------------------------------------------------
-    real :: area_weighted_global_mean
-    real, intent(in), dimension(:, :) :: field
+    real :: area_weighted_global_mean  !! global mean of `field`
+    real, intent(in), dimension(:, :) :: field  !! this processor's part of the grid field
     real, dimension(size(field, 2))   :: wts_lat
     real, dimension(size(field, 1), size(field, 2)) :: weighted_field_local
     real, dimension(num_lon, lat_max) :: weighted_field_global
@@ -1023,6 +1057,7 @@ contains
   end function area_weighted_global_mean
 
 !-------------------------------------------------------------------------
+  !> Finalizes the transforms and the modules they use.
   subroutine transforms_end
 !-------------------------------------------------------------------------
 

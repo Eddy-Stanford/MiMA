@@ -1,3 +1,12 @@
+!> Diagnostics of the dynamical core sent at every dynamics (sub)step (module name
+!> `dynamics_every`).
+!>
+!> Besides the state (`ps_every`, `u_every`, ...) these include fluxes weighted by `ps/p00`,
+!> static energies, the tendencies from the hyperdiffusion and the energy and water
+!> corrections, the global advection tendencies of the tracers, eddy fluxes and two residual
+!> mean streamfunctions (`psi_star`, `psi_dwc`). The amplitude of the 2*dt computational
+!> mode (the mean of `(-1)**n` times the field over all steps n) is sent as a static field
+!> (`2dt_*`) at the end of the run.
 module every_step_diagnostics_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number
@@ -72,11 +81,13 @@ contains
 
 !===============================================================================================
 
+  !> Defines the `dynamics_every` axes and registers the diagnostics.
   subroutine every_step_diagnostics_init(Time, lon_max, lat_max, num_levels_in, reference_sea_level_press)
 
-    type(time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time  !! current time
     integer, intent(in) :: lon_max, lat_max, num_levels_in
-    real, intent(in) :: reference_sea_level_press
+    !! `lon_max`, `lat_max`, `num_levels_in`: numbers of longitudes, latitudes and levels
+    real, intent(in) :: reference_sea_level_press  !! surface pressure of the `pfull_every` axis values [Pa]
 
     integer, dimension(2) :: axes_2d
     integer, dimension(2) :: axes_zm !mj
@@ -216,25 +227,38 @@ contains
     return
   end subroutine every_step_diagnostics_init
 !===================================================================================
+  !> Sends the `dynamics_every` diagnostics and accumulates the 2*dt wave amplitudes.
+  !>
+  !> Called at the end of each dynamics (sub)step. `Time` is the end of the (sub)step, where
+  !> `p_surf`, `u_grid`, `v_grid`, `t_grid` and `tr_grid` (the new time level) are valid.
+  !> `wg_full`, `p_full`, `p_half`, `z_full`, `kegen*` and the damping tendencies were
+  !> evaluated at the start of the (sub)step; like the physics tendencies, which are sent at
+  !> `Time_next`, they are attributed to the end of the step over which they act.
   subroutine every_step_diagnostics(Time, p_surf, u_grid, v_grid, t_grid, tr_grid, &
                                     wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp, &
                                     temperature_correction, water_correction, dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
 
-! Called at the end of each dynamics (sub)step. Time is the end of the (sub)step, where
-! p_surf, u_grid, v_grid, t_grid and tr_grid (the new time level) are valid. wg_full, p_full,
-! p_half, z_full, kegen* and the damping tendencies were evaluated at the start of the
-! (sub)step; like the physics tendencies, which are sent at Time_next, they are attributed
-! to the end of the step over which they act.
-    type(time_type), intent(in) :: Time
-    real, intent(in), dimension(is:ie, js:je)                         :: p_surf
+    type(time_type), intent(in) :: Time  !! end of the (sub)step
+    real, intent(in), dimension(is:ie, js:je)                         :: p_surf  !! surface pressure [Pa]
     real, intent(in), dimension(is:ie, js:je, num_levels)             :: u_grid, v_grid, t_grid
-    real, intent(in), dimension(is:ie, js:je, num_levels, num_tracers) :: tr_grid
+    !! `u_grid`, `v_grid`: zonal and meridional wind [m/s]; `t_grid`: temperature [K]
+    real, intent(in), dimension(is:ie, js:je, num_levels, num_tracers) :: tr_grid  !! grid-point tracers
     real, intent(in), dimension(is:ie, js:je, num_levels)             :: wg_full, p_full, z_full
+    !! `wg_full`: vertical pressure velocity [Pa/s]; `p_full`: pressure [Pa]; `z_full`: height [m];
+    !! all at full levels
     real, intent(in), dimension(is:ie, js:je, num_levels)             :: dt_ug_damp, dt_vg_damp, dt_tg_damp
-    real, intent(in), dimension(is:ie, js:je, num_levels + 1)           :: p_half
+    !! `dt_ug_damp`, `dt_vg_damp`, `dt_tg_damp`: tendencies of zonal and meridional wind [m/s2] and
+    !! temperature [K/s] from the hyperdiffusion
+    real, intent(in), dimension(is:ie, js:je, num_levels + 1)           :: p_half  !! pressure at half levels [Pa]
     real, intent(in)                                                  :: temperature_correction
+    !! temperature change of the energy correction, the same at all points [K]
     real, intent(in), dimension(num_tracers)                          :: dt_hadv, dt_vadv
+    !! `dt_hadv`, `dt_vadv`: global mean column-integrated tracer tendencies due to horizontal and
+    !! vertical advection [(tracer units) kg/m2/s]
     real, intent(in), dimension(is:ie, js:je, num_levels)             :: water_correction, kegen, kegenq, kegenqtinv
+    !! `water_correction`: humidity tendency of the water correction [kg/kg/s]; `kegen`:
+    !! kappa omega T/p [K/s]; `kegenq`: `kegen` times specific humidity [K/s kg/kg]; `kegenqtinv`:
+    !! kappa omega q/p [kg/kg/s] (T is the virtual temperature with `use_virtual_temperature`)
 
     real, dimension(is:ie, js:je, num_levels) :: tempdiag_3d, dse, q_grid
     real, dimension(is:ie, js:je)             :: tempdiag_2d
@@ -426,8 +450,8 @@ contains
     end if
 !mj
     if (id_psi_dwc > 0) then
-  !! F1 = -u'v' + d_puv'Th'/d_pTh
-  !! F2 = fhat*v'Th'/d_pTh - u'w'
+  ! F1 = -u'v' + d_puv'Th'/d_pTh
+  ! F2 = fhat*v'Th'/d_pTh - u'w'
       ! Thta = Theta_bar
       Thta = t_grid*(p00/p_full)**kappa
       do i = is, ie
@@ -651,8 +675,10 @@ contains
     return
   end subroutine every_step_diagnostics
 !===================================================================================
+  !> Sends the 2*dt wave amplitudes and deallocates the module arrays.
   subroutine every_step_diagnostics_end(Time_in)
     type(time_type), intent(in), optional :: Time_in
+    !! time for `send_data` (default: the time of the last call of `every_step_diagnostics`)
     logical :: used
     integer :: ntr
     type(time_type) :: Time

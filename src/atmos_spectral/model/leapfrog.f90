@@ -1,3 +1,12 @@
+!> Leapfrog time stepping with a Robert filter.
+!>
+!> The time levels are held in the last dimension of the field and are selected by the
+!> indices `previous`, `current` and `future`. When `previous == current` (the first step)
+!> the step is a forward step. The Robert filter of the current level is
+!> `a(current) + robert_coeff*(a(previous) - 2*a(current) + a(future))`.
+!> `leapfrog` does the step and the whole filter; `leapfrog_2level_A` does the step and the
+!> part of the filter without `a(future)`, and `leapfrog_2level_B` adds that last part once
+!> the new level is final.
 module leapfrog_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number
@@ -7,16 +16,22 @@ module leapfrog_mod
   private
 !===================================================================================================
 
+  !> Steps a spectral field from the previous to the future level and Robert-filters the
+  !> current level.
   interface leapfrog
     module procedure leapfrog_2d_complex, leapfrog_3d_complex
   end interface
 
+  !> Steps a field from the previous to the future level and applies the first part of the
+  !> Robert filter to the current level (the part that does not involve the future level).
   interface leapfrog_2level_A
     module procedure leapfrog_2level_A_2d_complex, &
       leapfrog_2level_A_3d_complex, &
       leapfrog_2level_A_3d_real
   end interface
 
+  !> Completes the Robert filter started by `leapfrog_2level_A`: adds `robert_coeff` times the
+  !> new level to the filtered level.
   interface leapfrog_2level_B
     module procedure leapfrog_2level_B_2d_complex, &
       leapfrog_2level_B_3d_complex, &

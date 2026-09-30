@@ -1,3 +1,11 @@
+!> Finite-volume horizontal advection of grid-point tracers on the Gaussian grid.
+!>
+!> Used for the tracers with `numerical_representation = 'grid'` in the field table. The
+!> winds are averaged to the cell edges and the tracer is advected with van Leer fluxes
+!> (monotone slopes) in longitude and latitude, each applied to a field first advected by
+!> half a step in the other direction. Fluxes across the poles are zero, and zonal Courant
+!> numbers larger than 1 are handled by integer shifts. The advection uses its own domain
+!> decomposition, `advection_domain`, in latitude only, with a halo of 2 rows.
 module fv_advection_mod
 
   use fms_mod, only: mpp_pe, mpp_npes, mpp_root_pe, error_mesg, FATAL, write_version_number
@@ -13,7 +21,7 @@ module fv_advection_mod
   character(len=128), parameter :: version = '$Id: fv_advection.f90,v 10.0 2003/10/24 22:01:00 fms Exp $'
   character(len=128), parameter :: tagname = '$Name: lima $'
 
-  type(domain2D), save, public :: advection_domain
+  type(domain2D), save, public :: advection_domain  !! domain decomposition (in latitude only) used by the advection
 
   logical :: module_is_initialized = .false.
   logical :: monotone = .true.
@@ -25,6 +33,12 @@ module fv_advection_mod
   public :: fv_advection_init, fv_advection_end
   public :: a_grid_horiz_advection
 
+  !> Adds the horizontal advection tendency of a grid-point tracer to `dq_dt`.
+  !>
+  !> Arguments: `ua`, `va`: zonal and meridional wind on the grid [m/s]; `q`: tracer;
+  !> `dt`: time step [s]; `dq_dt`: tracer tendency [(tracer units)/s]; `flux` (optional,
+  !> default `.false.`): if `.true.`, return the flux-form tendency, otherwise add `q` times
+  !> the wind divergence to give the advective form.
   interface a_grid_horiz_advection
     module procedure a_grid_horiz_advection_3d
     module procedure a_grid_horiz_advection_2d
@@ -34,12 +48,13 @@ module fv_advection_mod
 contains
 !===========================================================================================
 
+  !> Sets up the grid geometry and the advection domain.
   subroutine fv_advection_init(nx_in, ny_in, yy_in, degrees_lon, advection_layout)
 
-    integer, intent(in) ::  nx_in, ny_in
-    real, intent(in), dimension(:) :: yy_in
-    real, intent(in) :: degrees_lon
-    integer, intent(in), optional :: advection_layout(2)
+    integer, intent(in) ::  nx_in, ny_in  !! `nx_in`, `ny_in`: numbers of longitudes and latitudes
+    real, intent(in), dimension(:) :: yy_in  !! latitudes of the cell edges (`ny_in`+1 values) [rad]
+    real, intent(in) :: degrees_lon  !! longitude range of the grid [deg] (less than 360 in a sector model)
+    integer, intent(in), optional :: advection_layout(2)  !! processor layout (default: `1, npes`)
 
     integer :: i, j
     integer :: layout(2)
@@ -414,7 +429,7 @@ contains
 !===========================================================================================
 
   subroutine find_cell_x(ii, b)
-!!dir$ INLINEALWAYS find_cell_x
+! dir$ INLINEALWAYS find_cell_x
     integer, intent(out), dimension(:, :, :) :: ii
     real, intent(in), dimension(:, :, :) :: b
 
@@ -557,6 +572,7 @@ contains
   end subroutine solid_body
 
 !===========================================================================================
+  !> Deallocates the grid geometry arrays.
   subroutine fv_advection_end
 
     if (.not. module_is_initialized) return
