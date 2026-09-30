@@ -36,6 +36,7 @@ See [Getting started](docs/GettingStarted.md) for details on the build options, 
 * [Model configurations](docs/Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
 * [Parameter settings](docs/Parameters.md): default and recommended namelist values
 * [Diagnostics](docs/Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
+* [Fortran API reference](docs/FortranAPI.md): the modules and procedures of the source code, and how to document them
 * [Version history](docs/Versions.md)
 * [Migrating from v1 to v2.0](docs/Migration_v2.md)
 * [References](docs/README.md#references)
