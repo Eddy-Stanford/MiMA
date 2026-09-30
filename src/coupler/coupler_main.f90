@@ -1,13 +1,41 @@
-!
-!  coupler_main couples component models and controls the time integration
-!
-!mj add module to have time step available without any tricks throughout
-!   the code
+! (module added by mj)
+!> The model time step `dt_atmos`, available throughout the code.
+!>
+!> `dt_atmos` is set by `coupler_nml`, which is read by the program `coupler_main`.
 module coupler_mod
-  integer :: dt_atmos = 500
+  integer :: dt_atmos = 500  !! [s] model time step
 end module coupler_mod
 !jm
 
+!> Main program: couples the atmosphere to the surface and controls the time integration.
+!>
+!> Reads `coupler_nml` and sets the calendar and the start date: from `INPUT/coupler.res`
+!> if it exists (unless `force_date_from_namelist`), otherwise from `current_date`. The
+!> initial time of the experiment is the base date of the `diag_table` (or the start date
+!> if that is zero); it must not be later than the start date. The run length is the sum of
+!> `months`, `days`, `hours`, `minutes` and `seconds`, and should be a whole multiple of
+!> `dt_atmos`.
+!>
+!> The atmosphere and the surface use the same time step and are coupled for the implicit
+!> vertical diffusion of heat and moisture, with the atmosphere split into down and up
+!> calls that correspond to the down and up sweeps of the tridiagonal elimination. Each
+!> time step calls
+!>
+!> 1. `compute_flux`: surface fluxes at the current surface temperature;
+!> 2. `update_atmos_model_down`: radiation and vertical diffusion down to the surface;
+!> 3. `update_simple_surface`: new surface temperature (skipped without a boundary layer,
+!>    see `surface_is_coupled`);
+!> 4. `update_atmos_model_up`: vertical diffusion up from the surface, moist processes and
+!>    dynamics.
+!>
+!> The start and end dates are written to `time_stamp.out`; at the end the component
+!> restart files and `RESTART/coupler.res` (calendar, initial and current date) are
+!> written. The `RESTART` directory must exist.
+!>
+!> Namelist: `coupler_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#coupler_nml)).
+!>
+!> Original authors: Bruce Wyman, V. Balaji.
 program coupler_main
 !-----------------------------------------------------------------------
 !                   GNU General Public License
@@ -27,113 +55,6 @@ program coupler_main
 !           675 Mass Ave, Cambridge, MA 02139, USA.
 ! or see:   http://www.gnu.org/licenses/gpl.html
 !-----------------------------------------------------------------------
-! <CONTACT EMAIL="Bruce.Wyman@noaa.gov"> Bruce Wyman </CONTACT>
-! <CONTACT EMAIL="V.Balaji@noaa.gov"> V. Balaji </CONTACT>
-
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-
-! <OVERVIEW>
-!  A main program that couples component models for atmosphere, ocean, land,
-!  and sea ice on independent grids.
-! </OVERVIEW>
-
-! <DESCRIPTION>
-!  This version couples model components representing atmosphere, ocean, land
-!  and sea ice on independent grids. Each model component is represented by a
-!  data type giving the instantaneous model state.
-!
-!  The component models are coupled to allow implicit vertical diffusion of
-!  heat and moisture at the interfaces of the atmosphere, land, and ice models.
-!  As a result, the atmosphere, land, and ice models all use the same time step.
-!  The atmospheric model has been separated into down and up calls that
-!  correspond to the down and up sweeps of the standard tridiagonal elimination.
-!
-!  The ocean interface uses explicit mixing. Fluxes to and from the ocean must
-!  be passed through the ice model. This includes atmospheric fluxes as well as
-!  fluxes from the land to the ocean (runoff).
-!
-!  This program contains the model's main time loop. Each iteration of the
-!  main time loop is one coupled (slow) time step. Within this slow time step
-!  loop is a fast time step loop, using the atmospheric time step, where the
-!  tridiagonal vertical diffusion equations are solved. Exchange between sea
-!  ice and ocean occurs once every slow timestep.
-!
-! <PRE>
-!      MAIN PROGRAM EXAMPLE
-!      --------------------
-!
-!         DO slow time steps (ocean)
-!
-!              call flux_ocean_to_ice
-!
-!              call ICE_SLOW_UP
-!
-!              DO fast time steps (atmos)
-!
-!                   call flux_calculation
-!
-!                   call ATMOS_DOWN
-!
-!                   call flux_down_from_atmos
-!
-!                   call LAND_FAST
-!
-!                   call ICE_FAST
-!
-!                   call flux_up_to_atmos
-!
-!                   call ATMOS_UP
-!
-!              END DO
-!
-!              call ICE_SLOW_DN
-!
-!              call flux_ice_to_ocean
-!
-!              call OCEAN
-!
-!         END DO
-
-!  </PRE>
-
-! </DESCRIPTION>
-! <INFO>
-!   <NOTE>
-!     <PRE>
-!   1.If no value is set for current_date, start_date, or calendar (or default value
-!     specified) then the value from restart file "INPUT/coupler.res" will be used.
-!     If neither a namelist value or restart file value exist the program will fail.
-!   2.The actual run length will be the sum of months, days, hours, minutes, and
-!     seconds. A run length of zero is not a valid option.
-!   3.The run length must be an intergal multiple of the coupling timestep dt_cpld.
-!     </PRE>
-!   </NOTE>
-
-!   <ERROR MSG="no namelist value for current_date " STATUS="FATAL">
-!     A namelist value for current_date must be given if no restart file for
-!     coupler_main (INPUT/coupler.res) is found.
-!   </ERROR>
-!   <ERROR MSG="invalid namelist value for calendar" STATUS="FATAL">
-!     The value of calendar must be 'julian', 'noleap', or 'thirty_day'.
-!     See the namelist documentation.
-!   </ERROR>
-!   <ERROR MSG="no namelist value for calendar" STATUS="FATAL">
-!     If no restart file is present, then a namelist value for calendar
-!     must be specified.
-!   </ERROR>
-!   <ERROR MSG="initial time is greater than current time" STATUS="FATAL">
-!     If a restart file is present, then the namelist value for either
-!     current_date or start_date was incorrectly set.
-!   </ERROR>
-!   <ERROR MSG="run length must be multiple of ocean time step " STATUS="FATAL">
-!     There must be an even number of ocean time steps for the requested run length.
-!   </ERROR>
-!   <ERROR MSG="final time does not match expected ending time " STATUS="WARNING">
-!     This error should probably not occur because of checks done at initialization time.
-!   </ERROR>
-
-! </INFO>
-
   use constants_mod, only: constants_init
   use time_manager_mod, only: time_type, set_calendar_type, set_time, &
                               set_date, get_date, days_in_month, month_name, &
@@ -244,102 +165,23 @@ program coupler_main
 !-----------------------------------------------------------------------
 !------ namelist interface -------
 
-! <NAMELIST NAME="coupler_nml">
-!   <DATA NAME="current_date"  TYPE="integer, dimension(6)"  DEFAULT="0">
-!     The date that the current integration starts with.
-!   </DATA>
-!   <DATA NAME="force_date_from_namelist"  TYPE="logical"  DEFAULT=".false.">
-!     Flag that determines whether the namelist variable current_date should
-!     override the date in the restart file INPUT/coupler.res. If the restart
-!     file does not exist then force_date_from_namelist has not effect, the value of current_date
-!     will be used.
-!   </DATA>
-!   <DATA NAME="calendar"  TYPE="character(maxlen=17)"  DEFAULT="''">
-!     The calendar type used by the current integration. Valid values are consistent
-!     with the time_manager module: 'julian', 'noleap', or 'thirty_day'. The value
-!     'no_calendar' can not be used because the time_manager's date  function are used.
-!     All values must be lowercase.
-!   </DATA>
-!   <DATA NAME="months "  TYPE="integer"  DEFAULT="0">
-!     The number of months that the current integration will be run for.
-!   </DATA>
-!   <DATA NAME="days "  TYPE="integer"  DEFAULT="0">
-!     The number of days that the current integration will be run for.
-!   </DATA>
-!   <DATA NAME="hours"  TYPE="integer"  DEFAULT="0">
-!     The number of hours that the current integration will be run for.
-!   </DATA>
-!   <DATA NAME="minutes "  TYPE="integer"  DEFAULT="0">
-!     The number of minutes that the current integration will be run for.
-!   </DATA>
-!   <DATA NAME="seconds"  TYPE="integer"  DEFAULT="0">
-!     The number of seconds that the current integration will be run for.
-!   </DATA>
-!   <DATA NAME="dt_atmos"  TYPE="integer"  DEFAULT="0">
-!     Atmospheric model time step in seconds, including the fast coupling with
-!     land and sea ice.
-!   </DATA>
-!   <DATA NAME="dt_ocean"  TYPE="integer"  DEFAULT="0">
-!     Ocean model time step in seconds.
-!   </DATA>
-!   <DATA NAME="dt_cpld"  TYPE="integer"  DEFAULT="0">
-!     Time step in seconds for coupling between ocean and atmospheric models:
-!     must be an integral multiple of dt_atmos and dt_ocean. This is the "slow" timestep.
-!   </DATA>
-!  <DATA NAME="do_atmos" TYPE="logical">
-!  If true (default), that particular model component (atmos, etc.) is run.
-!  If false, the execution of that component is skipped. This is used when
-!  ALL the output fields sent by that component to the coupler have been
-!  overridden using the data_override feature. For advanced users only:
-!  if you're not sure, you should leave these values at TRUE.
-!  </DATA>
-!  <DATA NAME="concurrent" TYPE="logical">
-!  If true, the ocean executes concurrently with the atmosphere-land-ocean
-!   on a separate set of PEs.
-!  If false (default), the execution is serial: call atmos... followed by
-!  call ocean...
-!  If using concurrent execution, you must set one of
-!   atmos_npes and ocean_npes, see below.
-!  </DATA>
-!  <DATA NAME="atmos_npes, ocean_npes" TYPE="integer">
-!  If concurrent is set to true, we use these to set the list of PEs on which
-!   each component runs.
-!  At least one of them must be set to a number between 0 and NPES.
-!  If exactly one of these two is set non-zero, the other is set to the
-!   remainder from NPES.
-!  If both are set non-zero they must add up to NPES.
-!  </DATA>
-!  <DATA NAME="use_lag_fluxes" TYPE="logical">
-!  If true, then mom4 is forced with SBCs from one coupling timestep ago
-!  If false, then mom4 is forced with most recent SBCs.
-!  For a leapfrog MOM coupling with dt_cpld=dt_ocean, lag fluxes
-!  can be shown to be stable and current fluxes to be unconditionally unstable.
-!  For dt_cpld>dt_ocean there is probably sufficient damping.
-!  use_lag_fluxes is set to TRUE by default.
-!  </DATA>
-!   <NOTE>
-!     <PRE>
-!     1.If no value is set for current_date, start_date, or calendar (or default value specified) then the value from restart
-!       file "INPUT/coupler.res" will be used. If neither a namelist value or restart file value exist the program will fail.
-!     2.The actual run length will be the sum of months, days, hours, minutes, and seconds. A run length of zero is not a
-!       valid option.
-!     3.The run length must be an intergal multiple of the coupling timestep dt_cpld.
-!     </PRE>
-!   </NOTE>
-! </NAMELIST>
-
   integer, dimension(6) :: current_date = (/1, 1, 1, 0, 0, 0/)
+  !! start date (year, month, day, hour, minute, second); used on a cold start, or on a restart if
+  !! `force_date_from_namelist = .true.`
   character(len=17) :: calendar = 'thirty_day       '
-  logical :: force_date_from_namelist = .false.  ! override restart values for date
+  !! `'thirty_day'` (12 months of 30 days), `'julian'`, `'noleap'` or `'no_calendar'`
+  logical :: force_date_from_namelist = .false.  !! take the date from `current_date` even when `INPUT/coupler.res` exists
   integer :: months = 0, days = 360, hours = 0, minutes = 0, seconds = 0
+  !! `months`, `days`, `hours`, `minutes`, `seconds`: run length; it should be a whole multiple of
+  !! `dt_atmos`
 !mj exported dt_atmos into coupler_mod
 !  integer :: dt_atmos = 0  ! fluxes passed between atmosphere & ice/land
 ! integer :: dt_ocean = 0  ! ocean tracer timestep
 ! integer :: dt_cpld  = 0  ! fluxes passed between ice & ocean
   integer, dimension(3)           :: locmax, locmin
 
-  integer ::atmos_npes = 0
-  logical :: do_atmos = .true.
+  integer ::atmos_npes = 0  !! number of processes for the atmosphere (0: all)
+  logical :: do_atmos = .true.  !! run the atmosphere
 ! logical :: concurrent=.FALSE.
 ! logical :: use_lag_fluxes=.TRUE.
   namelist /coupler_nml/ current_date, calendar, force_date_from_namelist, months, days, hours, &
@@ -530,11 +372,10 @@ contains
 
 !#######################################################################
 
+  !> Reads `coupler_nml` and the restart date, sets the calendar, the PE list, the
+  !> diagnostics manager and the run length, and initializes the atmosphere and the surface.
   subroutine coupler_init
 
-!-----------------------------------------------------------------------
-!   initialize all defined exchange grids and all boundary maps
-!-----------------------------------------------------------------------
     integer :: unit, log_unit, ierr, io, id, jd, kd, m, i
     integer :: date(6)
     type(time_type) :: Run_length
@@ -924,6 +765,8 @@ contains
 
 !#######################################################################
 
+  !> Terminates the atmosphere and the surface (writing their restart files) and writes
+  !> `RESTART/coupler.res`.
   subroutine coupler_end
 
     integer :: unit, date(6)

@@ -1,3 +1,15 @@
+!> Cold-start initial state of the spectral dynamical core.
+!>
+!> Sets up the vertical coordinate (`vert_coordinate_mod`), the surface geopotential
+!> (flat, Gaussian mountains, realistic topography interpolated from the `topography_nml`
+!> file and optionally regularized over the ocean, or `zsurf` from
+!> `INPUT/topography.data.nc`), and the initial fields (`spectral_initialize_fields_mod`):
+!> an isothermal atmosphere at rest with a small vorticity perturbation, or the state read
+!> from `INPUT/initial_conditions.nc`. It then checks that the pressure levels do not
+!> intersect.
+!>
+!> Namelist: `spectral_init_cond_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#spectral_init_cond_nml)).
 module spectral_init_cond_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, stdlog, &
@@ -34,7 +46,7 @@ module spectral_init_cond_mod
 
   public :: spectral_init_cond
 
-  real :: initial_temperature = 264.
+  real :: initial_temperature = 264.  !! [K] temperature of the isothermal atmosphere on a cold start
 
   namelist /spectral_init_cond_nml/ initial_temperature
 
@@ -42,24 +54,39 @@ contains
 
 !=========================================================================================================================
 
+  !> Computes the vertical coordinate, the surface geopotential and the cold-start initial
+  !> fields, in grid and spectral space; reads `spectral_init_cond_nml`.
   subroutine spectral_init_cond(reference_sea_level_press, triang_trunc, use_virtual_temperature, topography_option, &
                                 vert_coord_option, vert_difference_option, scale_heights, surf_res, &
                                 p_press, p_sigma, exponent, ocean_topog_smoothing, pk, bk, vors, divs, &
                                 ts, ln_ps, ug, vg, tg, psg, vorg, divg, surf_geopotential, ocean_mask, specify_initial_conditions)
 
-    real, intent(in) :: reference_sea_level_press
+    real, intent(in) :: reference_sea_level_press  !! initial surface pressure where the surface height is 0 [Pa]
     logical, intent(in) :: triang_trunc, use_virtual_temperature
+    !! `triang_trunc`: triangular (`.true.`) or rhomboidal truncation; `use_virtual_temperature`:
+    !! use virtual temperature in the geopotential
     character(len=*), intent(in) :: topography_option, vert_coord_option, vert_difference_option
+    !! options of `spectral_dynamics_nml` for the topography, the vertical levels and the
+    !! vertical differencing
     real, intent(in) :: scale_heights, surf_res, p_press, p_sigma, exponent, ocean_topog_smoothing
+    !! `scale_heights`, `surf_res`, `p_press`, `p_sigma`, `exponent`: parameters of the vertical
+    !! levels; `ocean_topog_smoothing`: fractional smoothing of the topography over the ocean
+    !! (0: spectral truncation only)
     real, intent(out), dimension(:) :: pk, bk
+    !! `pk` [Pa], `bk`: vertical coordinate; the half-level pressures are `pk + bk*ps`
     complex, intent(out), dimension(:, :, :) :: vors, divs, ts
-    complex, intent(out), dimension(:, :) :: ln_ps
+    !! spectral vorticity [1/s], divergence [1/s] and temperature [K]
+    complex, intent(out), dimension(:, :) :: ln_ps  !! spectral log of surface pressure
     real, intent(out), dimension(:, :, :) :: ug, vg, tg
-    real, intent(out), dimension(:, :) :: psg
-    real, intent(out), dimension(:, :, :) :: vorg, divg
-    real, intent(out), dimension(:, :) :: surf_geopotential
+    !! grid zonal and meridional wind [m/s] and temperature [K]
+    real, intent(out), dimension(:, :) :: psg  !! grid surface pressure [Pa]
+    real, intent(out), dimension(:, :, :) :: vorg, divg  !! grid vorticity and divergence [1/s]
+    real, intent(out), dimension(:, :) :: surf_geopotential  !! surface geopotential [m2/s2]
     logical, optional, intent(in), dimension(:, :) :: ocean_mask
-    logical, intent(in) :: specify_initial_conditions   !epg+ray
+    !! ocean points, used for the topography regularization instead of the mask of
+    !! `topography_nml`
+    logical, intent(in) :: specify_initial_conditions   !! read the initial state from `INPUT/initial_conditions.nc`
+    ! epg+ray
 
 ! epg+ray: choice_of_init is used by spectral_initialize_fields to actually set up initial conditions
     integer :: choice_of_init = 2

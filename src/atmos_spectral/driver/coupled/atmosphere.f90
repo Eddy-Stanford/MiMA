@@ -1,3 +1,12 @@
+!> Spectral atmosphere: the interface between the atmosphere driver (`atmos_model_mod`)
+!> and the spectral dynamical core and physics.
+!>
+!> Holds the grid-point state at two time levels for the leapfrog scheme. Each time step
+!> is split in two calls, which correspond to the down and up sweeps of the implicit
+!> vertical diffusion: `atmosphere_down` calls the first part of the physics (radiation,
+!> vertical diffusion down to the surface), and `atmosphere_up` finishes the physics
+!> (vertical diffusion up from the surface, moist processes), then steps the dynamics.
+!> The state is saved in the restart file `RESTART/atmosphere.res.nc`.
 module atmosphere_mod
 
   use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_SYNC
@@ -78,10 +87,15 @@ contains
 
 !####################################################################################################################
 
+  !> Initializes the dynamics and the physics, and reads the state from
+  !> `INPUT/atmosphere.res.nc` if it exists (otherwise the cold-start fields of the dynamics
+  !> are used).
   subroutine atmosphere_init(Time_init, Time, Time_step_in, Surf_diff)
 
     type(time_type), intent(in)    :: Time_init, Time, Time_step_in
-    type(surf_diff_type), intent(inout) :: Surf_diff
+    !! `Time_init`: initial time of the experiment (not used); `Time`: current time;
+    !! `Time_step_in`: atmospheric time step
+    type(surf_diff_type), intent(inout) :: Surf_diff  !! surface data of the implicit vertical diffusion
 
     integer :: j, k, time_level, lon_max, lat_max, ntr, nt
     integer, dimension(4) :: siz
@@ -177,16 +191,28 @@ contains
   end subroutine atmosphere_init
 !#################################################################################################################################
 
+  !> Computes the first part of the physics tendencies (`physics_driver_down`): radiation,
+  !> and vertical diffusion down to the surface.
+  !>
+  !> The physics time step is twice the model time step (leapfrog), except on the first
+  !> step of a cold start.
   subroutine atmosphere_down(Time, frac_land, t_surf, albedo, &
                              rough_mom, u_star, b_star, q_star, dtau_du, dtau_dv, tau_x, tau_y, &
                              gust, flux_sw, flux_lw, Surf_diff)
 
-    type(time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time  !! current time
     real, intent(in), dimension(:, :) :: frac_land, t_surf, albedo
+    !! `frac_land`: land fraction; `t_surf`: surface temperature [K]; `albedo`: surface albedo
     real, intent(in), dimension(:, :) :: rough_mom, u_star, b_star, q_star, dtau_du, dtau_dv
-    real, intent(inout), dimension(:, :) :: tau_x, tau_y
+    !! `rough_mom`: roughness length for momentum [m]; `u_star`: friction velocity [m/s];
+    !! `b_star`: buoyancy scale [m/s2]; `q_star`: moisture scale [kg/kg]; `dtau_du`, `dtau_dv`:
+    !! derivatives of the zonal and meridional surface stress with respect to the
+    !! lowest-level wind [kg/m2/s]
+    real, intent(inout), dimension(:, :) :: tau_x, tau_y  !! zonal and meridional surface stress [Pa]
     real, intent(out), dimension(:, :) :: flux_sw, flux_lw, gust
-    type(surf_diff_type), intent(inout)                 :: Surf_diff
+    !! `flux_sw`: net downward shortwave flux at the surface [W/m2]; `flux_lw`: downward
+    !! longwave flux at the surface [W/m2]; `gust`: gustiness [m/s]
+    type(surf_diff_type), intent(inout)                 :: Surf_diff  !! surface data of the implicit vertical diffusion
 
     integer :: days, seconds
 
@@ -220,12 +246,18 @@ contains
   end subroutine atmosphere_down
 !#################################################################################################################################
 
+  !> Finishes the physics (`physics_driver_up`: vertical diffusion up from the surface and
+  !> moist processes), steps the dynamics, completes the Robert filter and sends the
+  !> dynamics diagnostics.
   subroutine atmosphere_up(Time, frac_land, Surf_diff, lprec, fprec, gust)
 
-    type(time_type), intent(in)                          :: Time
-    real, intent(in), dimension(is:ie, js:je) :: frac_land
+    type(time_type), intent(in)                          :: Time  !! current time
+    real, intent(in), dimension(is:ie, js:je) :: frac_land  !! land fraction
     type(surf_diff_type), intent(inout)                       :: Surf_diff
+    !! surface data of the implicit vertical diffusion, including the changes of the
+    !! lowest-level temperature and humidity from the surface
     real, intent(out), dimension(is:ie, js:je) :: lprec, fprec, gust
+    !! `lprec`, `fprec`: liquid and frozen precipitation rate [kg/m2/s]; `gust`: gustiness [m/s]
 
     if (.not. module_is_initialized) then
       call error_mesg('atmosphere_up', 'atmosphere module has not been initialized.', FATAL)
@@ -263,9 +295,15 @@ contains
   end subroutine atmosphere_up
 !####################################################################################################################
 
+  !> Returns the temperature, humidity, pressure and height of the lowest model level, and
+  !> the surface pressure, at the previous time level (the level the implicit vertical
+  !> diffusion steps from).
   subroutine get_bottom_mass(t_bot, q_bot, p_bot, z_bot_out, p_surf)
 
     real, intent(out), dimension(:, :) :: t_bot, q_bot, p_bot, z_bot_out, p_surf
+    !! `t_bot`: temperature [K]; `q_bot`: specific humidity [kg/kg]; `p_bot`: pressure [Pa];
+    !! `z_bot_out`: height above the surface [m], all at the lowest level; `p_surf`: surface
+    !! pressure [Pa]
 
     real, dimension(size(t_bot, 1), size(t_bot, 2), num_levels) :: p_full_prev, z_full_prev
     real, dimension(size(t_bot, 1), size(t_bot, 2), num_levels + 1) :: p_half_prev, z_half_prev
@@ -292,9 +330,10 @@ contains
   end subroutine get_bottom_mass
 !####################################################################################################################
 
+  !> Returns the wind at the lowest model level, at the previous time level.
   subroutine get_bottom_wind(u_bot, v_bot)
 
-    real, intent(out), dimension(:, :) :: u_bot, v_bot
+    real, intent(out), dimension(:, :) :: u_bot, v_bot  !! zonal and meridional wind [m/s]
 
     if (.not. module_is_initialized) then
       call error_mesg('get_bottom_wind', 'atmosphere module has not been initialized.', FATAL)
@@ -307,10 +346,12 @@ contains
   end subroutine get_bottom_wind
 !####################################################################################################################
 
+  !> Returns the number of longitudes and latitudes of the global grid or of this PE's
+  !> subdomain.
   subroutine atmosphere_resolution(num_lon_out, num_lat_out, global)
 
-    integer, intent(out)          :: num_lon_out, num_lat_out
-    logical, intent(in), optional :: global
+    integer, intent(out)          :: num_lon_out, num_lat_out  !! number of longitudes and latitudes
+    logical, intent(in), optional :: global  !! `.true.`: global grid; `.false.` (default): this PE's subdomain
     logical :: global_tmp
 
     if (.not. module_is_initialized) then
@@ -335,8 +376,9 @@ contains
   end subroutine atmosphere_resolution
 !####################################################################################################################
 
+  !> Returns the diagnostic axis ids of the atmosphere grid.
   subroutine get_atmosphere_axes(axes_out)
-    integer, intent(out), dimension(:) :: axes_out
+    integer, intent(out), dimension(:) :: axes_out  !! axis ids (lon, lat, pfull, phalf)
 
     if (.not. module_is_initialized) then
       call error_mesg('get_atmosphere_axes', 'atmosphere module has not been initialized.', FATAL)
@@ -348,10 +390,12 @@ contains
   end subroutine get_atmosphere_axes
 !####################################################################################################################
 
+  !> Returns the longitudes and latitudes of the grid-box boundaries.
   subroutine atmosphere_boundary(lon_boundaries, lat_boundaries, global)
 
     real, intent(out), dimension(:) :: lon_boundaries, lat_boundaries
-    logical, intent(in), optional     :: global
+    !! longitudes and latitudes of the grid-box boundaries [rad]
+    logical, intent(in), optional     :: global  !! `.true.`: global grid; `.false.` (default): this PE's subdomain
 
     logical :: global_tmp
 
@@ -369,8 +413,9 @@ contains
     return
   end subroutine atmosphere_boundary
 !####################################################################################################################
+  !> Returns the domain decomposition of the atmosphere grid.
   subroutine atmosphere_domain(domain)
-    type(domain2d), intent(out) :: domain
+    type(domain2d), intent(out) :: domain  !! domain decomposition of the grid
 
     if (.not. atmos_domain_is_computed) then
       call error_mesg('atmosphere_domain', 'spec_mpp has not been initialized.', FATAL)
@@ -381,8 +426,10 @@ contains
   end subroutine atmosphere_domain
 !####################################################################################################################
 
+  !> Writes the restart file `RESTART/atmosphere.res.nc` and terminates the physics and the
+  !> dynamics.
   subroutine atmosphere_end(Time)
-    type(time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time  !! current time
     integer :: ntr, nt
     character(len=64) :: tr_name
     type(restart_file_type) :: rst

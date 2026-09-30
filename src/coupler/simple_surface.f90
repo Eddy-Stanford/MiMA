@@ -1,4 +1,22 @@
 
+!> Mixed-layer (slab) ocean and surface properties.
+!>
+!> Sets the surface albedo, the roughness lengths and the land-sea contrast of the heat
+!> capacity, computes the surface fluxes (`surface_flux_mod`) at the current surface
+!> temperature, and steps the surface temperature with the implicit coupling to the
+!> atmosphere's vertical diffusion. The surface energy budget includes the net radiation,
+!> the sensible and latent heat fluxes, the melting of snowfall, prescribed ocean heat fluxes
+!> (`qflux_mod`) and optional local surface heating (`local_heating_mod`). The surface
+!> temperature can instead be held fixed or prescribed from a file. It also sends the
+!> surface diagnostics, including the reference-height diagnostics `t_ref`, `rh_ref`,
+!> `u_ref` and `v_ref`, and saves the state in `RESTART/simple_surface.res.nc`.
+!>
+!> On a cold start the initial SST is `Tm - deltaT*(3 sin^2(lat) - 1)/3` (uniform `-Tm` if
+!> `Tm` <= 0), or read from `sst_file`; values of `Tm` of 399 and above select the
+!> Aqua-Planet Experiment and other idealized profiles coded in `simple_surface_init`.
+!>
+!> Namelist: `simple_surface_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#simple_surface_nml)).
 module simple_surface_mod
 
 !use atmos_coupled_mod, only: atmos_boundary_data_type
@@ -73,46 +91,67 @@ module simple_surface_mod
 
 !-----------------------------------------------------------------------
 
-  real ::   z_ref_heat = 2., &
-          z_ref_mom = 10., &
-          heat_capacity = 3.e08, &
-          land_capacity = 1.e07, & !mj
-          trop_capacity = 1.e08, & !mj
-          trop_cap_limit = 20., & !mj
-          heat_cap_limit = 60., & !mj
-          zsurf_cap_limit = 10., & !mj
-          np_cap_factor = 1., & !mj
-          const_roughness = 3.21e-05, &
-          const_albedo = 0.23, &
-          albedo_exp = 2., & !mj
-          albedo_cntrSH = 64., & !mj
-          albedo_cntrNH = 68., & !cig
-          albedo_desert = 0.20, & !cig
-          albedo_wdth = 5., & !mj
-          higher_albedo = 0.80, &
-          lat_glacier = -70., &
+  real ::   z_ref_heat = 2., & !! [m] reference height of the diagnostics `t_ref` and `rh_ref`
+          z_ref_mom = 10., & !! [m] reference height of the diagnostics `u_ref` and `v_ref`
+          heat_capacity = 3.e08, & !! [J/m2/K] mixed-layer heat capacity (poleward of `heat_cap_limit`)
+          land_capacity = 1.e07, & !! [J/m2/K] heat capacity over land (as set by `land_option`); <= 0: `heat_capacity`
+          trop_capacity = 1.e08, &
+          !! [J/m2/K] heat capacity equatorward of `trop_cap_limit`, varying linearly to
+          !! `heat_capacity` at `heat_cap_limit`; <= 0: `heat_capacity`
+          trop_cap_limit = 20., & !! [deg] latitude of the tropical heat capacity `trop_capacity`
+          heat_cap_limit = 60., & !! [deg] latitude of the extratropical heat capacity `heat_capacity`
+          zsurf_cap_limit = 10., & !! [m] with `land_option = 'zsurf'`, points higher than this are land
+          np_cap_factor = 1., & !! factor on `heat_capacity` in the Northern Hemisphere
+          const_roughness = 3.21e-05, & !! [m] roughness length
+          const_albedo = 0.23, & !! surface albedo (low-latitude value for choices 2-7)
+          albedo_exp = 2., & !! exponent for choice 4
+          albedo_cntrSH = 64., & !! [deg] centre latitude of the Southern Hemisphere albedo increase for choices 5 and 7
+          albedo_cntrNH = 68., & !! [deg] centre latitude of the Northern Hemisphere albedo increase for choices 5 and 7
+          albedo_desert = 0.20, & !! albedo added over the deserts for choice 7
+          albedo_wdth = 5., & !! [deg] width of the albedo increase for choices 5 and 7
+          higher_albedo = 0.80, & !! high-latitude albedo for choices 2-7
+          lat_glacier = -70., & !! [deg] latitude of the albedo step for choices 2 and 3
           Tm = 285., &
-          deltaT = 40., &
+          !! [K] initial SST profile `Tm - deltaT*(3 sin^2(lat) - 1)/3`; if `Tm` <= 0, a uniform SST
+          !! of `-Tm`
+          deltaT = 40., & !! [K] equator-to-pole difference of the initial SST
           qflux_amp = 30., & !mj
           qflux_width = 16.        !mj
+  ! mj: land_capacity, trop_capacity, trop_cap_limit, heat_cap_limit, zsurf_cap_limit,
+  ! np_cap_factor, albedo_exp, albedo_cntrSH, albedo_wdth; cig: albedo_cntrNH, albedo_desert
+  ! (qflux_amp and qflux_width are not used; the Q-flux parameters are in qflux_nml)
 !cig
-  real ::   mom_roughness_land = 5.e3, &
-          q_roughness_land = 1.e-12
+  real ::   mom_roughness_land = 5.e3, & !! factor for the land momentum roughness with `roughness_choice` = 3, 4
+          q_roughness_land = 1.e-12 !! factor for the land moisture roughness with `roughness_choice` = 3, 4
 
-  integer :: surface_choice = 1
+  integer :: surface_choice = 1  !! 1: slab mixed layer (interactive SST); 2: SST fixed at its initial value
   integer :: roughness_choice = 4
-  ! 1->constant, 2->NH or SH step, 3->N-S symmetric step, 4->profile with albedo_exp,
-  ! 5->tanh with albedo_cntrNH,albedo_cntrSH,albedo_wdth, 6->sin2 increase from equator to pole,
-  ! 7->as in 5 but with higher albedo for deserts
+  !! 1: `const_roughness` everywhere; 3: over land, momentum and moisture roughness
+  !! multiplied by `mom_roughness_land` and `q_roughness_land`; 4: as 3, with larger moisture
+  !! roughness over tropical and midlatitude land than over subtropical land. 3 and 4 need
+  !! `land_option = 'interpolated'` or `'oceanmaskpole'`.
   integer :: albedo_choice = 7
-  logical :: do_qflux = .true. !mj
-  logical :: do_warmpool = .true. !mj
-  logical :: do_read_sst = .false. !mj
-  logical :: do_sc_sst = .false. !mj
-  character(len=256) :: sst_file
+  !! 1: `const_albedo`; 2: `higher_albedo` poleward of `lat_glacier` in one hemisphere (NH if
+  !! `lat_glacier` > 0); 3: `higher_albedo` poleward of `lat_glacier` in both hemispheres; 4:
+  !! increase as `(lat/90)^albedo_exp`; 5: tanh increase centred at `albedo_cntrNH`,
+  !! `albedo_cntrSH` with width `albedo_wdth`; 6: sin^2 increase from equator to pole; 7: as
+  !! 5, plus `albedo_desert` over the Sahara, Gobi and Australian deserts
+  logical :: do_qflux = .true. !! add the meridional ocean heat flux of `qflux_nml`
+  logical :: do_warmpool = .true. !! add the zonally asymmetric ocean heat fluxes of `qflux_nml`
+  logical :: do_read_sst = .false. !! take the initial SST from `sst_file` (cold start)
+  logical :: do_sc_sst = .false. !! prescribe the SST from `sst_file` at every step (implies `do_read_sst`)
+  ! mj: do_qflux, do_warmpool, do_read_sst, do_sc_sst
+  character(len=256) :: sst_file  !! SST file name, without `.nc`, in `INPUT/`
   character(len=256) :: land_option = 'interpolated'
+  !! where the land is: `'none'`; `'interpolated'`: Navy land-sea mask (the `water_file` of
+  !! `topography_nml`); `'oceanmaskpole'`: as `'interpolated'`, with the latitude-dependent
+  !! ocean heat capacity; `'zsurf'`: surface height above `zsurf_cap_limit`; `'lonlat'`: the
+  !! boxes `slandlon`..`elandlon`, `slandlat`..`elandlat`; `'input'`: land-sea mask file
+  !! `INPUT/lmask.nc`
   character(len=256) :: land_sea_mask_file = 'lmask'
   real, dimension(10) :: slandlon = 0, slandlat = 0, elandlon = -1, elandlat = -1
+  !! with `land_option = 'lonlat'`, start and end longitude and latitude [deg] of up to 10
+  !! land boxes
 
   namelist /simple_surface_nml/ z_ref_heat, z_ref_mom, &
     surface_choice, heat_capacity, &
@@ -154,21 +193,31 @@ contains
 
 !#######################################################################
 
+  !> Sets the roughness lengths and the albedo, and computes the surface fluxes and their
+  !> derivatives at the current surface temperature (`surface_flux`); sends the flux
+  !> diagnostics.
+  !>
+  !> The fluxes and derivatives needed by `update_simple_surface` are kept in module storage.
   subroutine compute_flux(dt, Time, Atm, land_frac, &
                           t_surf_atm, albedo, rough_mom, &
                           flux_u_atm, flux_v_atm, dtaudu_atm, &
                           dtaudv_atm, u_star, b_star)
 
-    real, intent(in)  :: dt
-    type(time_type), intent(in)  :: Time
-    type(atmos_data_type), intent(in)  :: Atm
+    real, intent(in)  :: dt  !! time step [s]
+    type(time_type), intent(in)  :: Time  !! current time
+    type(atmos_data_type), intent(in)  :: Atm  !! atmospheric state at the lowest level
     real, dimension(:, :), intent(out) :: albedo, rough_mom, &
                                           land_frac, dtaudu_atm, &
                                           dtaudv_atm, &
                                           flux_u_atm, flux_v_atm, &
                                           u_star, b_star
+    !! `albedo`: surface albedo; `rough_mom`: roughness length for momentum [m]; `land_frac`:
+    !! land fraction (set to 0); `dtaudu_atm`, `dtaudv_atm`: derivatives of the zonal and
+    !! meridional surface stress with respect to the lowest-level wind [kg/m2/s];
+    !! `flux_u_atm`, `flux_v_atm`: zonal and meridional surface stress on the atmosphere
+    !! [Pa]; `u_star`: friction velocity [m/s]; `b_star`: buoyancy scale [m/s2]
 
-    real, dimension(:, :), intent(out) :: t_surf_atm
+    real, dimension(:, :), intent(out) :: t_surf_atm  !! surface temperature [K]
 
     real, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
       u_surf, v_surf, rough_heat, rough_moist, &
@@ -423,6 +472,7 @@ contains
 
 !#######################################################################
 
+  !> Sends the diagnostics at the reference heights `z_ref_heat` and `z_ref_mom`.
   subroutine reference_height_diagnostics(Time, Atm, t_surf, q_surf, &
                                           u_surf, v_surf, rough_mom, &
                                           rough_heat, rough_moist, &
@@ -488,13 +538,25 @@ contains
 
 !#######################################################################
 
+  !> Steps the surface temperature and completes the implicit coupling with the vertical
+  !> diffusion of the atmosphere; sends the surface diagnostics.
+  !>
+  !> Called after the down sweep of the vertical diffusion. With `surface_choice = 1`
+  !> the change of the mixed-layer temperature follows from the implicit surface energy
+  !> budget (or from `sst_file` with `do_sc_sst`); with `surface_choice = 2` it is zero. The
+  !> local surface heating of `local_heating_nml` is then added. The fluxes are updated
+  !> to the new surface temperature.
   subroutine update_simple_surface(dt, Time, Atm, dt_t_atm, dt_q_atm)
 
-    real, intent(in) :: dt
-    type(time_type), intent(in)  :: Time
+    real, intent(in) :: dt  !! time step [s]
+    type(time_type), intent(in)  :: Time  !! current time
     type(atmos_data_type), intent(in)  :: Atm
+    !! atmospheric state, including the surface radiation and precipitation and the data of
+    !! the down sweep of the vertical diffusion (`Atm%Surf_diff`)
 
     real, dimension(:, :), intent(out) :: dt_t_atm, dt_q_atm
+    !! changes of the lowest-level temperature and specific humidity for the up sweep of the
+    !! vertical diffusion (passed to `Surf_diff%delta_t`, `Surf_diff%delta_q`)
 
     real, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
       gamma, dtmass, delta_t, delta_q, dflux_t, dflux_q, &
@@ -630,10 +692,13 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `simple_surface_nml`, sets up the heat capacity and the
+  !> land-sea mask, the initial SST (from `INPUT/simple_surface.res.nc` if it exists) and the
+  !> Q-fluxes, and registers the diagnostics.
   subroutine simple_surface_init(Time, Atm)
 
-    type(time_type), intent(in)  :: Time
-    type(atmos_data_type), intent(in)  :: Atm
+    type(time_type), intent(in)  :: Time  !! current time
+    type(atmos_data_type), intent(in)  :: Atm  !! atmospheric grid and domain
 
     integer :: ierr, io
 
@@ -1154,9 +1219,10 @@ contains
 
 !########################################################################
 
+  !> Writes the restart file `RESTART/simple_surface.res.nc` (SST and surface stress).
   subroutine simple_surface_end(Atm)
 
-    type(atmos_data_type), intent(in)  :: Atm
+    type(atmos_data_type), intent(in)  :: Atm  !! atmospheric grid and domain
     type(restart_file_type) :: rst
 
     call open_restart_write(rst, 'RESTART/simple_surface.res.nc', Atm%domain)

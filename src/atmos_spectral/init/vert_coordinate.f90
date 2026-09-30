@@ -1,14 +1,16 @@
 
+!> Coefficients `a` and `b` of the generalized (hybrid sigma-pressure) vertical coordinate.
+!>
+!> The pressure at the level interfaces is `a + b*ps`, with `ps` the surface pressure.
+!> The levels are equally spaced in sigma (`'even_sigma'`), set by `surf_res`,
+!> `scale_heights` and `exponent` (`'uneven_sigma'`), the same with a transition to
+!> pressure levels between `p_sigma` and `p_press` (`'hybrid'`), or read from
+!> `vert_coordinate_nml` (`'input'`); the option is `vert_coord_option` in
+!> `spectral_dynamics_nml`.
+!>
+!> Namelist: `vert_coordinate_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#vert_coordinate_nml)).
 module vert_coordinate_mod
-
-!=======================================================================
-!
-!                          VERT_COORDINATE MODULE
-!
-!                Sets the coefficients a and b that define
-!                    the generalized vertical coordinate
-!
-!=======================================================================
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
                      write_version_number, stdlog, &
@@ -21,27 +23,6 @@ module vert_coordinate_mod
 
   public :: compute_vert_coord
 
-!=======================================================================
-! subroutine compute_vert_coord (vert_coord_option, scale_heights, surf_res, exponent, p_press, p_sigma, a, b)
-!
-! output:
-!
-!    real, dimension(:) :: a, b
-!
-!          a and b should be dimensioned by the number of interfaces
-!                  = 1 + number of levels
-!
-!          these constants are intended for use in a model in which
-!             the pressure at the interfaces will then be given
-!
-!                     p = a*p_ref + b*p_surf
-!
-!         where p_ref  is a constant reference pressure
-!           and p_surf is the instantaneous surface pressure
-!
-!
-!=======================================================================
-
   character(len=128), parameter :: version = &
                                    '$Id: vert_coordinate.f90,v 11.0 2004/09/28 19:29:23 fms Exp $'
 
@@ -53,6 +34,8 @@ module vert_coordinate_mod
 
   integer, parameter :: max_levels = 100
   real, dimension(max_levels + 1) :: pk, bk
+  !! `pk`: [Pa] `num_levels`+1 values; the interface pressures are `pk + bk*ps`. `bk`:
+  !! `num_levels`+1 sigma values between 0 and 1; `bk(num_levels+1)` must be 1
 
   namelist /vert_coordinate_nml/ pk, bk
 
@@ -60,11 +43,19 @@ contains
 
 !=======================================================================
 
+  !> Computes the coefficients of the vertical coordinate for `vert_coord_option`.
   subroutine compute_vert_coord(vert_coord_option, scale_heights, surf_res, exponent, p_press, p_sigma, reference_press, a, b)
 
     character(len=*), intent(in) :: vert_coord_option
+    !! `'even_sigma'`, `'uneven_sigma'`, `'hybrid'` or `'input'`
     real, intent(in) :: scale_heights, surf_res, exponent, p_press, p_sigma, reference_press
+    !! `scale_heights`, `surf_res`, `exponent`: parameters of the `'uneven_sigma'` and
+    !! `'hybrid'` levels; `p_press`, `p_sigma`: sigma values between which the `'hybrid'`
+    !! levels change from pressure to sigma levels; `reference_press`: reference pressure of
+    !! the pressure levels of `'hybrid'` [Pa]
     real, intent(out), dimension(:) :: a, b
+    !! the interface pressures are `a + b*ps`; `a` [Pa]. Both have `num_levels`+1 elements,
+    !! from the top down
 
     real, dimension(size(a, 1)) :: a_sigma, b_sigma, a_press, b_press, f
     character(len=32) :: chtmp = 'size(a)=      size(b)=          '
@@ -128,6 +119,8 @@ contains
 
 !-------------------------------------------------------------------------
 
+  !> Returns the weight of the sigma coordinate: 0 where `p` <= `p_press`, 1 where
+  !> `p` >= `p_sigma`, and a sin**2 transition in between.
   function transition(p, p_sigma, p_press) result(t)
 
     real, intent(in), dimension(:) :: p
@@ -154,6 +147,7 @@ contains
 
 !-----------------------------------------------------------------------
 
+  !> Reads `pk` and `bk` from `vert_coordinate_nml` and checks the number of levels.
   subroutine read_namelist(a, b)
 
     real, intent(out), dimension(:) :: a, b
@@ -205,6 +199,9 @@ contains
 
 !-------------------------------------------------------------------------
 
+  !> Computes sigma levels `b = exp(-z*scale_heights)`, with
+  !> `z = surf_res*zeta + (1 - surf_res)*zeta**exponent` and `zeta` decreasing linearly from
+  !> 1 at the top to 0 at the surface.
   subroutine compute_uneven_sigma(a, b, scale_heights, surf_res, exponent, zero_top)
 
     real, intent(out), dimension(:) :: a, b

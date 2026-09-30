@@ -1,33 +1,21 @@
+!> Driver for the atmospheric model: advances the atmospheric state by one time step.
+!>
+!> Designed around the implicit vertical diffusion scheme of the GCM, it needs two calls to
+!> advance the model one time step. They correspond to the down and up sweeps of the
+!> tridiagonal solver: `update_atmos_model_down` computes the radiation and the vertical
+!> diffusion down to the surface, and `update_atmos_model_up` finishes the vertical
+!> diffusion, computes the moist processes and steps the dynamics.
+!>
+!> The fields exchanged with the surface are held in derived types. A variable of type
+!> `atmos_data_type` is returned by `atmos_model_init`; its contents should only be
+!> modified by the atmospheric model. The precipitation and gustiness (and optionally the
+!> lowest-level temperature and humidity) are saved in `RESTART/atmos_coupled.res.nc`.
+!>
+!> Namelist: `atmos_model_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#atmos_model_nml)).
+!>
+!> Original authors: Bruce Wyman.
 module atmos_model_mod
-!<CONTACT EMAIL="Bruce.Wyman@noaa.gov"> Bruce Wyman
-!</CONTACT>
-! <REVIEWER EMAIL="Zhi.Liang@noaa.gov">
-!  Zhi Liang
-! </REVIEWER>
-!-----------------------------------------------------------------------
-!<OVERVIEW>
-!  Driver for the atmospheric model, contains routines to advance the
-!  atmospheric model state by one time step.
-!</OVERVIEW>
-
-!<DESCRIPTION>
-!     This version of atmos_model_mod has been designed around the implicit
-!     version diffusion scheme of the GCM. It requires two routines to advance
-!     the atmospheric model one time step into the future. These two routines
-!     correspond to the down and up sweeps of the standard tridiagonal solver.
-!     Most atmospheric processes (dynamics,radiation,etc.) are performed
-!     in the down routine. The up routine finishes the vertical diffusion
-!     and computes moisture related terms (convection,large-scale condensation,
-!     and precipitation).
-
-!     The boundary variables needed by other component models for coupling
-!     are contained in a derived data type. A variable of this derived type
-!     is returned when initializing the atmospheric model. It is used by other
-!     routines in this module and by coupling routines. The contents of
-!     this derived type should only be modified by the atmospheric model.
-
-!</DESCRIPTION>
-
   use mpp_mod, only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
   use mpp_mod, only: mpp_clock_end, CLOCK_COMPONENT, mpp_error
   use mpp_domains_mod, only: domain2d
@@ -59,71 +47,70 @@ module atmos_model_mod
   public ice_atmos_boundary_type
 !-----------------------------------------------------------------------
 
-!<PUBLICTYPE >
+  !> State of the atmosphere seen by the surface and the coupler: grid, lowest-level
+  !> fields, surface fluxes computed by the atmosphere, and time.
   type atmos_data_type
-    type(domain2d)               :: domain             ! domain decomposition
-    integer                       :: axes(4)            ! axis indices (returned by diag_manager) for the atmospheric grid
-    ! (they correspond to the x, y, pfull, phalf axes)
-    real, pointer, dimension(:)   :: glon_bnd => null() ! global longitude axis grid box boundaries in radians.
-    real, pointer, dimension(:)   :: glat_bnd => null() ! global latitude axis grid box boundaries in radians.
-    real, pointer, dimension(:)   :: lon_bnd => null() ! local longitude axis grid box boundaries in radians.
-    real, pointer, dimension(:)   :: lat_bnd => null() ! local latitude axis grid box boundaries in radians.
-    real, pointer, dimension(:, :) :: t_bot => null() ! temperature at lowest model level
-    real, pointer, dimension(:, :) :: q_bot => null() ! specific humidity at lowest model level
-    real, pointer, dimension(:, :) :: z_bot => null() ! height above the surface for the lowest model level
-    real, pointer, dimension(:, :) :: p_bot => null() ! pressure at lowest model level
-    real, pointer, dimension(:, :) :: u_bot => null() ! zonal wind component at lowest model level
-    real, pointer, dimension(:, :) :: v_bot => null() ! meridional wind component at lowest model level
-    real, pointer, dimension(:, :) :: p_surf => null() ! surface pressure
-    real, pointer, dimension(:, :) :: gust => null() ! gustiness factor
-    real, pointer, dimension(:, :) :: flux_sw => null() ! net shortwave flux (W/m2) at the surface
-    real, pointer, dimension(:, :) :: flux_lw => null() ! net longwave flux (W/m2) at the surface
-    real, pointer, dimension(:, :) :: lprec => null() ! liquid precipitation rate over the last time step (kg/m2/s)
-    real, pointer, dimension(:, :) :: fprec => null() ! frozen precipitation rate over the last time step (kg/m2/s)
-    type(surf_diff_type)         :: Surf_diff          ! store data needed by the multi-step version of the diffusion algorithm
-    type(time_type)              :: Time               ! current time
-    type(time_type)              :: Time_step          ! atmospheric time step.
-    type(time_type)              :: Time_init          ! reference time.
-    integer, pointer              :: pelist(:) => null() ! pelist where atmosphere is running.
-    logical                       :: pe                 ! current pe.
+    type(domain2d)               :: domain             !! domain decomposition
+    integer                       :: axes(4)            !! diagnostic axis ids of the grid (lon, lat, pfull, phalf)
+    real, pointer, dimension(:)   :: glon_bnd => null() !! longitudes of the grid-box boundaries, global grid [rad]
+    real, pointer, dimension(:)   :: glat_bnd => null() !! latitudes of the grid-box boundaries, global grid [rad]
+    real, pointer, dimension(:)   :: lon_bnd => null() !! longitudes of the grid-box boundaries, this PE's subdomain [rad]
+    real, pointer, dimension(:)   :: lat_bnd => null() !! latitudes of the grid-box boundaries, this PE's subdomain [rad]
+    real, pointer, dimension(:, :) :: t_bot => null() !! temperature at the lowest model level [K]
+    real, pointer, dimension(:, :) :: q_bot => null() !! specific humidity at the lowest model level [kg/kg]
+    real, pointer, dimension(:, :) :: z_bot => null() !! height of the lowest model level above the surface [m]
+    real, pointer, dimension(:, :) :: p_bot => null() !! pressure at the lowest model level [Pa]
+    real, pointer, dimension(:, :) :: u_bot => null() !! zonal wind at the lowest model level [m/s]
+    real, pointer, dimension(:, :) :: v_bot => null() !! meridional wind at the lowest model level [m/s]
+    real, pointer, dimension(:, :) :: p_surf => null() !! surface pressure [Pa]
+    real, pointer, dimension(:, :) :: gust => null() !! gustiness [m/s]
+    real, pointer, dimension(:, :) :: flux_sw => null() !! net downward shortwave flux at the surface [W/m2]
+    real, pointer, dimension(:, :) :: flux_lw => null() !! downward longwave flux at the surface [W/m2]
+    real, pointer, dimension(:, :) :: lprec => null() !! liquid precipitation rate over the last time step [kg/m2/s]
+    real, pointer, dimension(:, :) :: fprec => null() !! frozen precipitation rate over the last time step [kg/m2/s]
+    type(surf_diff_type)         :: Surf_diff          !! data of the implicit vertical diffusion at the surface
+    type(time_type)              :: Time               !! current time
+    type(time_type)              :: Time_step          !! atmospheric time step
+    type(time_type)              :: Time_init          !! initial time of the experiment
+    integer, pointer              :: pelist(:) => null() !! PEs on which the atmosphere runs
+    logical                       :: pe                 !! `.true.` if the atmosphere runs on this PE
   end type
-!</PUBLICTYPE >
 
-!<PUBLICTYPE >
+  !> Fields passed from the surface to the atmosphere.
+  !>
+  !> Declared and allocated by `coupler_main`.
   type land_ice_atmos_boundary_type
-    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
-!quantities going from land+ice to atmos
-    real, dimension(:, :), pointer :: t => null() ! surface temperature for radiation calculations
-    real, dimension(:, :), pointer :: albedo => null() ! surface albedo for radiation calculations
-    real, dimension(:, :), pointer :: land_frac => null() ! fraction amount of land in a grid box
-    real, dimension(:, :), pointer :: dt_t => null() ! temperature tendency at the lowest level
-    real, dimension(:, :), pointer :: dt_q => null() ! specific humidity tendency at the lowest level
-    real, dimension(:, :), pointer :: u_flux => null() ! zonal wind stress
-    real, dimension(:, :), pointer :: v_flux => null() ! meridional wind stress
-    real, dimension(:, :), pointer :: dtaudu => null() ! derivative of zonal wind stress w.r.t. the lowest zonal level wind speed
-    ! derivative of meridional wind stress w.r.t. the lowest meridional level wind speed
+    real, dimension(:, :), pointer :: t => null() !! surface temperature [K]
+    real, dimension(:, :), pointer :: albedo => null() !! surface albedo
+    real, dimension(:, :), pointer :: land_frac => null() !! land fraction of the grid box
+    real, dimension(:, :), pointer :: dt_t => null()
+    !! change of the lowest-level temperature for the up sweep of the vertical diffusion [K]
+    real, dimension(:, :), pointer :: dt_q => null()
+    !! change of the lowest-level specific humidity for the up sweep of the vertical diffusion [kg/kg]
+    real, dimension(:, :), pointer :: u_flux => null() !! zonal surface stress on the atmosphere [Pa]
+    real, dimension(:, :), pointer :: v_flux => null() !! meridional surface stress on the atmosphere [Pa]
+    real, dimension(:, :), pointer :: dtaudu => null()
+    !! derivative of the zonal surface stress with respect to the lowest-level zonal wind [kg/m2/s]
     real, dimension(:, :), pointer :: dtaudv => null()
-    real, dimension(:, :), pointer :: u_star => null() ! friction velocity
-    real, dimension(:, :), pointer :: b_star => null() ! bouyancy scale
-    real, dimension(:, :), pointer :: q_star => null() ! moisture scale
-    real, dimension(:, :), pointer :: rough_mom => null() ! surface roughness (used for momentum)
-    real, dimension(:, :, :), pointer :: data => null() !collective field for "named" fields above
-    integer                         :: xtype                   !REGRID, REDIST or DIRECT
+    !! derivative of the meridional surface stress with respect to the lowest-level meridional wind
+    !! [kg/m2/s]
+    real, dimension(:, :), pointer :: u_star => null() !! friction velocity [m/s]
+    real, dimension(:, :), pointer :: b_star => null() !! buoyancy scale [m/s2]
+    real, dimension(:, :), pointer :: q_star => null() !! moisture scale [kg/kg] (not set by `simple_surface_mod`)
+    real, dimension(:, :), pointer :: rough_mom => null() !! roughness length for momentum [m]
+    real, dimension(:, :, :), pointer :: data => null() !! collective field for the named fields above (not used)
+    integer                         :: xtype                   !! `REGRID`, `REDIST` or `DIRECT` (not used)
   end type land_ice_atmos_boundary_type
-!</PUBLICTYPE >
 
-!<PUBLICTYPE >
+  !> Fields passed from the land alone to the atmosphere (none at present).
   type :: land_atmos_boundary_type
-    real, dimension(:, :), pointer :: data => null() ! quantities going from land alone to atmos (none at present)
+    real, dimension(:, :), pointer :: data => null() !! not used
   end type land_atmos_boundary_type
-!</PUBLICTYPE >
 
-!<PUBLICTYPE >
-!quantities going from ice alone to atmos (none at present)
+  !> Fields passed from the sea ice alone to the atmosphere (none at present).
   type :: ice_atmos_boundary_type
-    real, dimension(:, :), pointer :: data => null() ! quantities going from ice alone to atmos (none at present)
+    real, dimension(:, :), pointer :: data => null() !! not used
   end type ice_atmos_boundary_type
-!</PUBLICTYPE >
 
 !Balaji
   integer :: atmClock
@@ -134,46 +121,23 @@ module atmos_model_mod
 
 !-----------------------------------------------------------------------
   logical           :: restart_tbot_qbot = .false.
+  !! also store the lowest-level temperature and humidity (`t_bot`, `q_bot`) in `atmos_coupled.res.nc`
   namelist /atmos_model_nml/ restart_tbot_qbot
 
 contains
 
 !#######################################################################
-! <SUBROUTINE NAME="update_atmos_model_down">
-!
-! <OVERVIEW>
-!   compute the atmospheric tendencies for dynamics, radiation,
-!   vertical diffusion of momentum, tracers, and heat/moisture.
-! </OVERVIEW>
-!
-!<DESCRIPTION>
-!   Called every time step as the atmospheric driver to compute the
-!   atmospheric tendencies for dynamics, radiation, vertical diffusion of
-!   momentum, tracers, and heat/moisture.  For heat/moisture only the
-!   downward sweep of the tridiagonal elimination is performed, hence
-!   the name "_down".
-!</DESCRIPTION>
-
-!   <TEMPLATE>
-!     call  update_atmos_model_down( Surface_boundary, Atmos )
-!   </TEMPLATE>
-
-! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
-!   Derived-type variable that contains quantities going from land+ice to atmos.
-! </IN>
-
-! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
-!   Derived-type variable that contains fields needed by the flux exchange module.
-!   These fields describe the atmospheric grid and are needed to
-!   compute/exchange fluxes with other component models.  All fields in this
-!   variable type are allocated for the global grid (without halo regions).
-! </INOUT>
-
+  !> Computes the atmospheric tendencies of the radiation and of the vertical diffusion of
+  !> momentum, heat, moisture and tracers.
+  !>
+  !> Called every time step. For heat and moisture only the downward sweep of the
+  !> tridiagonal elimination is done, hence the name.
   subroutine update_atmos_model_down(Surface_boundary, Atmos)
 !
 !-----------------------------------------------------------------------
     type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
-    type(atmos_data_type), intent(inout) :: Atmos
+    !! fields passed from the surface to the atmosphere
+    type(atmos_data_type), intent(inout) :: Atmos  !! atmospheric state
 
 !-----------------------------------------------------------------------
     call mpp_clock_begin(atmClock)
@@ -197,45 +161,21 @@ contains
 
     call mpp_clock_end(atmClock)
   end subroutine update_atmos_model_down
-! </SUBROUTINE>
 
 !#######################################################################
-! <SUBROUTINE NAME="update_atmos_model_up">
-!
-!-----------------------------------------------------------------------
-! <OVERVIEW>
-!   upward vertical diffusion of heat/moisture and moisture processes
-! </OVERVIEW>
-
-!<DESCRIPTION>
-!   Called every time step as the atmospheric driver to finish the upward
-!   sweep of the tridiagonal elimination for heat/moisture and compute the
-!   convective and large-scale tendencies.  The atmospheric variables are
-!   advanced one time step and tendencies set back to zero.
-!</DESCRIPTION>
-
-! <TEMPLATE>
-!     call  update_atmos_model_up( Surface_boundary, Atmos )
-! </TEMPLATE>
-
-! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
-!   Derived-type variable that contains quantities going from land+ice to atmos.
-! </IN>
-
-! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
-!   Derived-type variable that contains fields needed by the flux exchange module.
-!   These fields describe the atmospheric grid and are needed to
-!   compute/exchange fluxes with other component models.  All fields in this
-!   variable type are allocated for the global grid (without halo regions).
-! </INOUT>
-
+  !> Finishes the vertical diffusion of heat and moisture (upward sweep), computes the
+  !> convective and large-scale tendencies and steps the dynamics.
+  !>
+  !> Called every time step. The atmospheric time is advanced by one step, the
+  !> lowest-level fields of `Atmos` are updated and the global integrals are written.
   subroutine update_atmos_model_up(Surface_boundary, Atmos)
 
 !-----------------------------------------------------------------------
 !-----------------------------------------------------------------------
 
     type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
-    type(atmos_data_type), intent(inout) :: Atmos
+    !! fields passed from the surface to the atmosphere
+    type(atmos_data_type), intent(inout) :: Atmos  !! atmospheric state
 
 !-----------------------------------------------------------------------
     call mpp_clock_begin(atmClock)
@@ -264,44 +204,17 @@ contains
     call mpp_clock_end(atmClock)
 
   end subroutine update_atmos_model_up
-! </SUBROUTINE>
 
 !#######################################################################
-! <SUBROUTINE NAME="atmos_model_init">
-!
-! <OVERVIEW>
-! Routine to initialize the atmospheric model
-! </OVERVIEW>
-
-! <DESCRIPTION>
-!     This routine allocates storage and returns a variable of type
-!     atmos_boundary_data_type, and also reads a namelist input and restart file.
-! </DESCRIPTION>
-
-! <TEMPLATE>
-!     call atmos_model_init (Atmos, Time_init, Time, Time_step)
-! </TEMPLATE>
-
-! <IN NAME="Time_init" TYPE="type(time_type)" >
-!   The base (or initial) time of the experiment.
-! </IN>
-
-! <IN NAME="Time" TYPE="type(time_type)" >
-!   The current time.
-! </IN>
-
-! <IN NAME="Time_step" TYPE="type(time_type)" >
-!   The atmospheric model/physics time step.
-! </IN>
-
-! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
-!   Derived-type variable that contains fields needed by the flux exchange module.
-! </INOUT>
-
+  !> Initializes the atmospheric model.
+  !>
+  !> Reads `atmos_model_nml`, registers the tracers, initializes the atmosphere, allocates
+  !> the fields of `Atmos` and reads `INPUT/atmos_coupled.res.nc` if it exists.
   subroutine atmos_model_init(Atmos, Time_init, Time, Time_step)
 
-    type(atmos_data_type), intent(inout) :: Atmos
+    type(atmos_data_type), intent(inout) :: Atmos  !! atmospheric state, allocated here
     type(time_type), intent(in) :: Time_init, Time, Time_step
+    !! initial time of the experiment, current time and atmospheric time step
 
     integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
     integer :: mlon, mlat, nlon, nlat
@@ -422,32 +335,15 @@ contains
 !-----------------------------------------------------------------------
     atmClock = mpp_clock_id('Atmosphere', flags=clock_flag_default, grain=CLOCK_COMPONENT)
   end subroutine atmos_model_init
-! </SUBROUTINE>
 
 !#######################################################################
-! <SUBROUTINE NAME="atmos_model_end">
-!
-! <OVERVIEW>
-!  termination routine for atmospheric model
-! </OVERVIEW>
-
-! <DESCRIPTION>
-!  Call once to terminate this module and any other modules used.
-!  This routine writes a restart file and deallocates storage
-!  used by the derived-type variable atmos_boundary_data_type.
-! </DESCRIPTION>
-
-! <TEMPLATE>
-!   call atmos_model_end (Atmos)
-! </TEMPLATE>
-
-! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
-!   Derived-type variable that contains fields needed by the flux exchange module.
-! </INOUT>
-
+  !> Terminates the atmospheric model.
+  !>
+  !> Calls the termination routines of the atmosphere and of the global integrals, writes
+  !> `RESTART/atmos_coupled.res.nc` and deallocates the fields of `Atmos`.
   subroutine atmos_model_end(Atmos)
 
-    type(atmos_data_type), intent(inout) :: Atmos
+    type(atmos_data_type), intent(inout) :: Atmos  !! atmospheric state
     integer :: sec, day, dt
     type(restart_file_type) :: rst
 !-----------------------------------------------------------------------
@@ -502,7 +398,6 @@ contains
 !-----------------------------------------------------------------------
 
   end subroutine atmos_model_end
-! </SUBROUTINE>
 
 !#######################################################################
 

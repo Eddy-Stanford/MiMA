@@ -1,3 +1,10 @@
+!> Interface between the spectral atmosphere (`atmosphere_mod`) and the physics driver
+!> (`physics_driver_mod`).
+!>
+!> Passes the grid-point fields at the current and previous time levels of the leapfrog
+!> scheme, and the latitude, longitude and area of each grid point, to the down and up
+!> parts of the physics. Diagnostic tracers, and tracers initialized by the physics, are
+!> not supported.
 module spectral_physics_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, fms_init
@@ -48,13 +55,16 @@ contains
 
 !------------------------------------------------------------------------------------------------
 
+  !> Sets up the grid-point latitudes, longitudes and areas and the reference pressure
+  !> profiles (for surface pressures of 1013.25 and 810.6 hPa), and initializes the physics
+  !> driver.
   subroutine spectral_physics_init(Time, axes, Surf_diff, nhum_in, p_half)
 
-    type(time_type), intent(in) :: Time
-    integer, intent(in), dimension(:) :: axes
-    type(surf_diff_type), intent(inout) :: Surf_diff
-    integer, intent(in) :: nhum_in
-    real, intent(in), dimension(:, :, :) :: p_half
+    type(time_type), intent(in) :: Time  !! current time
+    integer, intent(in), dimension(:) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(surf_diff_type), intent(inout) :: Surf_diff  !! surface data of the implicit vertical diffusion
+    integer, intent(in) :: nhum_in  !! tracer index of the humidity
+    real, intent(in), dimension(:, :, :) :: p_half  !! pressure at half levels [Pa]
     real, allocatable, dimension(:, :, :, :) :: grid_tracers
 
     real, allocatable, dimension(:) :: rad_lon, rad_lat, wts_lat, lon_boundaries, lat_boundaries
@@ -147,24 +157,36 @@ contains
   end subroutine spectral_physics_init
 !------------------------------------------------------------------------------------------------
 
+  !> Calls `physics_driver_down` with the fields at the current and previous time levels.
   subroutine spectral_physics_down(Time_prev, Time, Time_next, previous, current, &
                                    p_half, p_full, z_half, z_full, psg, ug, vg, tg, grid_tracers, &
                                    frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, dtau_du, dtau_dv, tau_x, tau_y, &
                                    dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_lw, gust, Surf_diff)
 
     type(time_type), intent(in) :: Time_prev, Time, Time_next
-    integer, intent(in)         :: previous, current
+    !! times of the previous, current and next time levels
+    integer, intent(in)         :: previous, current  !! indices of the previous and current time levels
     real, intent(in), dimension(:, :, :) :: p_full, z_full
+    !! pressure [Pa] and height [m] at full levels
     real, intent(in), dimension(:, :, :) :: p_half, z_half
-    real, intent(in), dimension(:, :, :) :: psg
+    !! pressure [Pa] and height [m] at half levels
+    real, intent(in), dimension(:, :, :) :: psg  !! surface pressure at the two time levels [Pa] (not used)
     real, intent(in), dimension(:, :, :, :) :: ug, vg, tg
-    real, intent(inout), dimension(:, :, :, :, :) :: grid_tracers
+    !! zonal and meridional wind [m/s] and temperature [K] at the two time levels
+    real, intent(inout), dimension(:, :, :, :, :) :: grid_tracers  !! tracers at the two time levels
     real, intent(in), dimension(:, :) :: frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, dtau_du, dtau_dv
-    real, intent(inout), dimension(:, :) :: tau_x, tau_y
+    !! surface fields: land fraction; roughness length for momentum [m]; albedo; surface
+    !! temperature [K]; friction velocity [m/s]; buoyancy scale [m/s2]; moisture scale
+    !! [kg/kg]; derivatives of the zonal and meridional surface stress with respect to the
+    !! lowest-level wind [kg/m2/s]
+    real, intent(inout), dimension(:, :) :: tau_x, tau_y  !! zonal and meridional surface stress [Pa]
     real, intent(inout), dimension(:, :, :) :: dt_ug, dt_vg, dt_tg
-    real, intent(inout), dimension(:, :, :, :) :: dt_tracers
+    !! tendencies of the zonal and meridional wind [m/s2] and temperature [K/s]
+    real, intent(inout), dimension(:, :, :, :) :: dt_tracers  !! tracer tendencies
     real, intent(out), dimension(:, :) :: flux_sw, flux_lw, gust
-    type(surf_diff_type), intent(inout) :: Surf_diff
+    !! `flux_sw`: net downward shortwave flux at the surface [W/m2]; `flux_lw`: downward
+    !! longwave flux at the surface [W/m2]; `gust`: gustiness [m/s]
+    type(surf_diff_type), intent(inout) :: Surf_diff  !! surface data of the implicit vertical diffusion
 
 !**************************************************************************************
 
@@ -190,22 +212,29 @@ contains
     return
   end subroutine spectral_physics_down
 !------------------------------------------------------------------------------------------------
+  !> Calls `physics_driver_up` with the fields at the current and previous time levels.
   subroutine spectral_physics_up(Time_prev, Time, Time_next, previous, current, p_half, p_full, &
                                  z_half, z_full, wg_full, ug, vg, tg, grid_tracers, &
                                  frac_land, dt_ug, dt_vg, dt_tg, dt_tracers, Surf_diff, lprec, fprec, gust)
 
     type(time_type), intent(in) :: Time_prev, Time, Time_next
-    integer, intent(in) :: previous, current
+    !! times of the previous, current and next time levels
+    integer, intent(in) :: previous, current  !! indices of the previous and current time levels
     real, intent(in), dimension(:, :, :) :: p_full, z_full, wg_full
+    !! pressure [Pa], height [m] and vertical pressure velocity [Pa/s] at full levels
     real, intent(in), dimension(:, :, :) :: p_half, z_half
+    !! pressure [Pa] and height [m] at half levels
     real, intent(in), dimension(:, :, :, :) :: ug, vg, tg
-    real, intent(in), dimension(:, :, :, :, :) :: grid_tracers
-    real, intent(in), dimension(:, :) :: frac_land
+    !! zonal and meridional wind [m/s] and temperature [K] at the two time levels
+    real, intent(in), dimension(:, :, :, :, :) :: grid_tracers  !! tracers at the two time levels
+    real, intent(in), dimension(:, :) :: frac_land  !! land fraction
     real, intent(inout), dimension(:, :, :) :: dt_ug, dt_vg, dt_tg
-    real, intent(inout), dimension(:, :, :, :) :: dt_tracers
-    type(surf_diff_type), intent(inout) :: Surf_diff
+    !! tendencies of the zonal and meridional wind [m/s2] and temperature [K/s]
+    real, intent(inout), dimension(:, :, :, :) :: dt_tracers  !! tracer tendencies
+    type(surf_diff_type), intent(inout) :: Surf_diff  !! surface data of the implicit vertical diffusion
     real, intent(out), dimension(:, :) :: lprec, fprec
-    real, intent(inout), dimension(:, :) :: gust
+    !! liquid and frozen precipitation rate [kg/m2/s]
+    real, intent(inout), dimension(:, :) :: gust  !! gustiness [m/s]
 
     if (.not. module_is_initialized) then
       call error_mesg('spectral_physics_up', 'spectral_physics module is not initialized', FATAL)
@@ -228,8 +257,9 @@ contains
   end subroutine spectral_physics_up
 !------------------------------------------------------------------------------------------------
 
+  !> Terminates the physics driver.
   subroutine spectral_physics_end(Time)
-    type(time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time  !! current time
 
     if (.not. module_is_initialized) return
 

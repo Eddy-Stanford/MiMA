@@ -1,4 +1,23 @@
 ! ============================================================================
+!> Surface fluxes of sensible heat, water vapour, momentum and upward longwave
+!> radiation, and their derivatives for the implicit coupling with the atmosphere.
+!>
+!> Uses bulk formulae with drag coefficients from Monin-Obukhov similarity
+!> (`mima_monin_obukhov_mod`), or over sea water optionally the NCAR formulation of
+!> Large and Yeager (`ncar_ocean_flux`). The surface humidity is saturated except over
+!> land. Negative evaporation is set to zero. The momentum, moisture, sensible heat and
+!> radiative fluxes can each be switched off.
+!>
+!> Namelist: `surface_flux_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#surface_flux_nml)).
+!>
+!> References:
+!>
+!> * Large, W. G., and S. G. Yeager, 2004: Diurnal to decadal global forcing for ocean and
+!>   sea-ice models: the data sets and flux climatologies. NCAR Technical Note
+!>   NCAR/TN-460+STR.
+!>
+!> Original authors: Steve Klein, Isaac Held, Bruce Wyman; NCAR ocean fluxes: Mike Winton.
 module surface_flux_mod
 !-----------------------------------------------------------------------
 !                   GNU General Public License
@@ -18,26 +37,6 @@ module surface_flux_mod
 !           675 Mass Ave, Cambridge, MA 02139, USA.
 ! or see:   http://www.gnu.org/licenses/gpl.html
 !-----------------------------------------------------------------------
-!
-! <CONTACT EMAIL="Stephen.Klein@noaa.gov">Steve Klein  </CONTACT>
-! <CONTACT EMAIL="Isaac.Held@noaa.gov"> Isaac Held </CONTACT>
-! <CONTACT EMAIL="Bruce.Wyman@noaa.gov"> Bruce Wyman </CONTACT >
-
-! <REVIEWER EMAIL="V.Balaji@noaa.gov"> V. Balaji </REVIEWER>
-! <REVIEWER EMAIL="Sergey.Malyshev@noaa.gov"> Sergey Malyshev </REVIEWER>
-! <REVIEWER EMAIL="Elena.Shevliakova@noaa.gov"> Elena Shevliakova </REVIEWER>
-!
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-!
-! <OVERVIEW>
-!  Driver program for the calculation of fluxes on the exchange grids.
-! </OVERVIEW>
-!
-! <DESCRIPTION>
-!
-! </DESCRIPTION>
-!
-! ============================================================================
 
   use fms_mod, only: FATAL, mpp_pe, mpp_root_pe, write_version_number
   use fms_mod, only: check_nml_error, input_nml_file, stdlog
@@ -52,145 +51,14 @@ module surface_flux_mod
   public surface_flux
 ! ==== end of public interface ===============================================
 
-! <INTERFACE NAME="surface_flux">
-!   <OVERVIEW>
-!   For the calculation of fluxes on the exchange grids.
-!   </OVERVIEW>
-!   <DESCRIPTION>
-!   For the calculation of fluxes on the exchange grids.
-!   </DESCRIPTION>
-!
-!  <IN NAME="t_atm" TYPE="real, dimension(:)" UNITS="Kelvin">
-!  Air temp lowest atmospheric level.
-!  </IN>
-!  <IN NAME="q_atm" TYPE="real, dimension(:)" UNITS="dimensionless">
-!  Mixing ratio at lowest atmospheric level (kg/kg).
-!  </IN>
-!  <IN NAME="u_atm" TYPE="real, dimension(:)" UNITS="m/s">
-!  Zonal wind velocity at lowest atmospheric level.
-!  </IN>
-!  <IN NAME="v_atm" TYPE="real, dimension(:)" UNITS="m/s">
-!  Meridional wind velocity at lowest atmospheric level.
-!  </IN>
-!  <IN NAME="p_atm" TYPE="real, dimension(:)" UNITS="Pascal">
-!  Pressure lowest atmospheric level.
-!  </IN>
-!  <IN NAME="z_atm" TYPE="real, dimension(:)" UNITS="m" >
-!  Height lowest atmospheric level.
-!  </IN>
-!  <IN NAME="p_surf" TYPE="real, dimension(:)" UNITS="Pascal">
-!   Pressure at the earth's surface
-!  </IN>
-!  <IN NAME="t_surf" TYPE="real, dimension(:)" UNITS="Kelvin">
-!   Temp at the earth's surface
-!  </IN>
-!  <IN NAME="t_ca" TYPE="real, dimension(:)" UNITS="Kelvin">
-!   Air temp at the canopy
-!  </IN>
-!  <OUT NAME="q_surf" TYPE="real, dimension(:)" UNITS="dimensionless">
-!  Mixing ratio at earth surface (kg/kg).
-!  </OUT>
-!  <IN NAME="u_surf" TYPE="real, dimension(:)" UNITS="m/s">
-!  Zonal wind velocity at earth surface.
-!  </IN>
-!  <IN NAME="v_surf" TYPE="real, dimension(:)" UNITS="m/s">
-!  Meridional wind velocity at earth surface.
-!  </IN>
-!  <IN NAME="rough_mom" TYPE="real, dimension(:)" UNITS="m">
-!  Momentum roughness length
-!  </IN>
-!  <IN NAME="rough_heat" TYPE="real, dimension(:)" UNITS="m">
-!  Heat roughness length
-!  </IN>
-!  <IN NAME="rough_moist" TYPE="real, dimension(:)" UNITS="m">
-! <Moisture roughness length
-!  </IN>
-!  <IN NAME="rough_scale" TYPE="real, dimension(:)" UNITS="dimensionless" >
-!  Scale factor used to topographic roughness calculation
-!  </IN>
-!  <IN NAME="gust" TYPE="real, dimension(:)"  UNITS="m/s">
-!   Gustiness factor
-!  </IN>
-!  <OUT NAME="flux_t" TYPE="real, dimension(:)" UNITS="W/m^2">
-!  Sensible heat flux
-!  </OUT>
-!  <OUT NAME="flux_q" TYPE="real, dimension(:)" UNITS="kg/(m^2 s)">
-!  Evaporative water flux
-!  </OUT>
-!  <OUT NAME="flux_r" TYPE="real, dimension(:)" UNITS="W/m^2">
-!  Radiative energy flux
-!  </OUT>
-!  <OUT NAME="flux_u" TYPE="real, dimension(:)" UNITS="Pa">
-!  Zonal momentum flux
-!  </OUT>
-!  <OUT NAME="flux_v" TYPE="real, dimension(:)" UNITS="Pa">
-! Meridional momentum flux
-!  </OUT>
-!  <OUT NAME="cd_m" TYPE="real, dimension(:)" UNITS="dimensionless">
-!  Momentum exchange coefficient
-!  </OUT>
-!  <OUT NAME="cd_t" TYPE="real, dimension(:)" UNITS="dimensionless">
-!  Heat exchange coefficient
-!  </OUT>
-!  <OUT NAME="cd_q" TYPE="real, dimension(:)" UNITS="dimensionless">
-!  Moisture exchange coefficient
-!  </OUT>
-!  <OUT NAME="w_atm" TYPE="real, dimension(:)" UNITS="m/s">
-!  Absolute wind at the lowest atmospheric level
-!  </OUT>
-!  <OUT NAME="u_star" TYPE="real, dimension(:)" UNITS="m/s">
-!  Turbulent velocity scale
-!  </OUT>
-!  <OUT NAME="b_star" TYPE="real, dimension(:)" UNITS="m/s^2">
-!  Turbulent buoyant scale
-!  </OUT>
-!  <OUT NAME="q_star" TYPE="real, dimension(:)" UNITS="dimensionless">
-!  Turbulent moisture scale
-!  </OUT>
-!  <OUT NAME="dhdt_surf" TYPE="real, dimension(:)" UNITS="(W/m^2)/K">
-!  Sensible heat flux temperature sensitivity
-!  </OUT>
-!  <OUT NAME="dedt_surf" TYPE="real, dimension(:)" UNITS="1/K">
-!   Moisture flux temperature sensitivity
-!  </OUT>
-!  <OUT NAME="dedq_surf" TYPE="real, dimension(:)" UNITS="(kg/m^2)/s">
-!  Moisture flux humidity sensitivity
-!  </OUT>
-!  <OUT NAME="drdt_surf" TYPE="real, dimension(:)" UNITS="(W/m^2)/K">
-!  Radiative energy flux temperature sensitivity
-!  </OUT>
-!  <OUT NAME="dhdt_atm" TYPE="real, dimension(:)" UNITS="(W/m^2)/K">
-!  Derivative of sensible heat flux over temp at the lowest atmos level.
-!  </OUT>
-!  <OUT NAME="dedq_atm" TYPE="real, dimension(:)" UNITS="(kg/m^2/sec)/K">
-!  Derivative of water vapor flux over temp at the lowest atmos level.
-!  </OUT>
-!  <OUT NAME="dtaudu_atm" TYPE="real, dimension(:)" UNITS="Pa/(m/s)">
-!  Derivative of zonal wind stress with regard to the lowest level zonal wind speed of the atmos
-!  </OUT>
-!  <OUT NAME="dtaudv_atm" TYPE="real, dimension(:)" UNITS="Pa/(m/s)">
-!  Derivative of meridional wind stress with regard to the lowest level meridional wind speed of the atmos
-!  </OUT>
-!  <OUT NAME="dt" TYPE="real">
-!  Time step (it is not used presently)
-!  </OUT>
-!  <IN NAME="land" TYPE="logical, dimension(:)">
-!  Indicates where land exists (true if exchange cell is on land).
-!  </IN>
-!  <IN NAME="seawater" TYPE="logical, dimension(:)">
-!  Indicates where liquid ocean water exists
-!  (true if exchange cell is on liquid ocean water).
-!  </IN>
-!  <IN NAME="avail" TYPE="logical, dimension(:)">
-!  True where the exchange cell is active.
-!  </IN>
-
+  !> Computes the surface fluxes and their derivatives, for 1-D or 2-D arrays of points.
+  !>
+  !> The arguments are described in `surface_flux_1d`.
   interface surface_flux
 !    module procedure surface_flux_0d
     module procedure surface_flux_1d
     module procedure surface_flux_2d
   end interface
-! </INTERFACE>
 
 !-----------------------------------------------------------------------
 
@@ -209,48 +77,19 @@ module surface_flux_mod
   ! virtual temperatures is turned off in namelist
 
 ! ---- namelist with default values ------------------------------------------
-! <NAMELIST NAME="surface_flux_nml">
-!   <DATA NAME="no_neg_q"  TYPE="logical"  DEFAULT=".false.">
-!    If q_atm_in (specific humidity) is negative (because of numerical truncation),
-!    then override with 0.
-!   </DATA>
-!   <DATA NAME="use_virtual_temp"  TYPE="logical"  DEFAULT=".true.">
-!    If true, use virtual potential temp to calculate the stability of the surface layer.
-!    if false, use potential temp.
-!   </DATA>
-!   <DATA NAME="alt_gustiness"  TYPE="logical"  DEFAULT=".false.">
-!   An alternative formulation for gustiness calculation.
-!   A minimum bound on the wind speed used influx calculations, with the bound
-!   equal to gust_const
-!   </DATA>
-!   <DATA NAME="old_dtaudv"  TYPE="logical"  DEFAULT=".false.">
-!   The derivative of surface wind stress w.r.t. the zonal wind and
-!   meridional wind are approximated by the same tendency.
-!   </DATA>
-!   <DATA NAME="use_mixing_ratio"  TYPE="logical"  DEFAULT=".false.">
-!   An option to provide capability to run the Manabe Climate form of the
-!   surface flux (coded for legacy purposes).
-!   </DATA>
-!   <DATA NAME="gust_const"  TYPE=""  DEFAULT="1.0">
-!    Constant for alternative gustiness calculation.
-!   </DATA>
-!   <DATA NAME="ncar_ocean_flux"  TYPE="logical"  DEFAULT=".false.">
-!    Use NCAR climate model turbulent flux calculation described by
-!    Large and Yeager, NCAR Technical Document, in prep., 2003
-!   </DATA>
-! </NAMELIST>
-
-  logical :: no_neg_q = .false.  ! for backwards compatibility
-  logical :: use_virtual_temp = .false.
-  logical :: alt_gustiness = .false.
-  logical :: old_dtaudv = .true.
-  logical :: use_mixing_ratio = .false.
-  real    :: gust_const = 1.0
-  logical :: ncar_ocean_flux = .false.
-  logical :: no_surface_momentum_flux = .false. !epg: option to turn off surface momentum fluxes
-  logical :: no_surface_moisture_flux = .false. !epg: option to turn off surface moisture fluxes
-  logical :: no_surface_heat_flux = .false. !epg: option to turn off surface heat fluxes
-  logical :: no_surface_radiative_flux = .false. !epg: option to turn off surface radiative fluxes
+  logical :: no_neg_q = .false.  !! set negative lowest-level humidity to zero
+  ! for backwards compatibility
+  logical :: use_virtual_temp = .false.  !! use virtual potential temperature for the surface-layer stability
+  logical :: alt_gustiness = .false.  !! alternative gustiness: a lower bound `gust_const` on the wind speed
+  logical :: old_dtaudv = .true.  !! use the same d(stress)/d(wind) for both wind components
+  logical :: use_mixing_ratio = .false.  !! Manabe Climate Model form of the moisture flux (legacy)
+  real    :: gust_const = 1.0  !! [m/s] see `alt_gustiness`
+  logical :: ncar_ocean_flux = .false.  !! NCAR (Large and Yeager) ocean flux formulation
+  logical :: no_surface_momentum_flux = .false. !! switch off the surface momentum flux
+  logical :: no_surface_moisture_flux = .false. !! switch off the surface moisture flux
+  logical :: no_surface_heat_flux = .false. !! switch off the surface sensible heat flux
+  logical :: no_surface_radiative_flux = .false. !! switch off the surface radiative flux
+  ! epg: the no_surface_* options
 
   namelist /surface_flux_nml/ no_neg_q, &
     use_virtual_temp, &
@@ -267,50 +106,7 @@ module surface_flux_mod
 contains
 
 ! ============================================================================
-! <SUBROUTINE NAME="surface_flux_1d" INTERFACE="surface_flux">
-!  <IN NAME="t_atm" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="q_atm" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="u_atm" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="v_atm" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="p_atm" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="z_atm" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="p_surf" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="t_surf" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="t_ca" TYPE="real, dimension(:)"> </IN>
-!  <OUT NAME="q_surf" TYPE="real, dimension(:)"> </OUT>
-!  <IN NAME="u_surf" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="v_surf" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="rough_mom" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="rough_heat" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="rough_moist" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="rough_scale" TYPE="real, dimension(:)"> </IN>
-!  <IN NAME="gust" TYPE="real, dimension(:)"> </IN>
-!  <OUT NAME="flux_t" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="flux_q" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="flux_r" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="flux_u" TYPE="real, dimension(:)"></OUT>
-!  <OUT NAME="flux_v" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="cd_m" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="cd_t" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="cd_q" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="w_atm" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="u_star" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="b_star" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="q_star" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="dhdt_surf" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="dedt_surf" TYPE="real, dimension(:)"></OUT>
-!  <OUT NAME="dedq_surf" TYPE="real, dimension(:)"></OUT>
-!  <OUT NAME="drdt_surf" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="dhdt_atm" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="dedq_atm" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="dtaudu_atm" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="dtaudv_atm" TYPE="real, dimension(:)"> </OUT>
-!  <OUT NAME="dt" TYPE="real"> </OUT>
-!  <IN NAME="land" TYPE="logical, dimension(:)"> </IN>
-!  <IN NAME="seawater" TYPE="logical, dimension(:)"> </IN>
-!  <IN NAME="avail" TYPE="logical, dimension(:)"> </IN>
-
-!<PUBLICROUTINE INTERFACE="surface_flux">
+  !> Computes the surface fluxes and their derivatives for a 1-D array of points.
   subroutine surface_flux_1d( &
     t_atm, q_atm_in, u_atm, v_atm, p_atm, z_atm, &
     p_surf, t_surf, t_ca, q_surf, &
@@ -322,24 +118,46 @@ contains
     dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
     dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm, &
     dt, land, seawater, avail)
-!</PUBLICROUTINE>
 !  slm Mar 28 2002 -- remove agument drag_q since it is just cd_q*wind
 ! ============================================================================
     ! ---- arguments -----------------------------------------------------------
     logical, intent(in), dimension(:) :: land, seawater, avail
+    !! `land`: land points (surface temperature `t_ca`, surface humidity `q_surf` given);
+    !! `seawater`: points where the NCAR ocean fluxes are used (with `ncar_ocean_flux`);
+    !! `avail`: points where the fluxes are computed (zero elsewhere)
     real, intent(in), dimension(:) :: &
       t_atm, q_atm_in, u_atm, v_atm, &
       p_atm, z_atm, t_ca, &
       p_surf, t_surf, u_surf, v_surf, &
       rough_mom, rough_heat, rough_moist, rough_scale, gust
+    !! `t_atm` [K], `q_atm_in` [kg/kg], `u_atm`, `v_atm` [m/s], `p_atm` [Pa]: temperature,
+    !! specific humidity, wind and pressure at the lowest model level; `z_atm`: height of the
+    !! lowest level above the surface [m]; `t_ca`: canopy air temperature, used over land [K];
+    !! `p_surf`: surface pressure [Pa]; `t_surf`: surface temperature [K]; `u_surf`, `v_surf`:
+    !! surface velocity [m/s]; `rough_mom`, `rough_heat`, `rough_moist`: roughness lengths for
+    !! momentum, heat and moisture [m]; `rough_scale`: roughness length to which the momentum
+    !! drag is scaled (`rough_mom`: no scaling) [m]; `gust`: gustiness [m/s]
     real, intent(out), dimension(:) :: &
       flux_t, flux_q, flux_r, flux_u, flux_v, &
       dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
       dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm, &
       w_atm, u_star, b_star, q_star, &
       cd_m, cd_t, cd_q
+    !! `flux_t`: sensible heat flux [W/m2]; `flux_q`: evaporation [kg/m2/s]; `flux_r`: upward
+    !! longwave flux of the surface [W/m2]; `flux_u`, `flux_v`: zonal and meridional surface
+    !! stress on the atmosphere [Pa]; `dhdt_surf`, `dedt_surf`, `drdt_surf`: derivatives of
+    !! `flux_t` [W/m2/K], `flux_q` [kg/m2/s/K] and `flux_r` [W/m2/K] with respect to the
+    !! surface temperature; `dedq_surf`: derivative of `flux_q` with respect to the surface
+    !! humidity, over land [kg/m2/s]; `dhdt_atm`, `dedq_atm`: derivatives of `flux_t` and
+    !! `flux_q` with respect to the lowest-level temperature [W/m2/K] and humidity
+    !! [kg/m2/s]; `dtaudu_atm`, `dtaudv_atm`: derivatives of `flux_u` and `flux_v` with
+    !! respect to the lowest-level wind [kg/m2/s]; `w_atm`: wind speed used for the fluxes,
+    !! including gustiness [m/s]; `u_star`: friction velocity [m/s]; `b_star`: buoyancy scale
+    !! [m/s2]; `q_star`: moisture scale [kg/kg]; `cd_m`, `cd_t`, `cd_q`: drag coefficients for
+    !! momentum, heat and moisture
     real, intent(inout), dimension(:) :: q_surf
-    real, intent(in) :: dt
+    !! surface specific humidity: given over land, diagnosed from the flux on output [kg/kg]
+    real, intent(in) :: dt  !! time step [s] (not used)
 
     ! ---- local constants -----------------------------------------------------
     ! temperature increment and its reciprocal value for comp. of derivatives
@@ -555,7 +373,6 @@ contains
     end if
 
   end subroutine surface_flux_1d
-! </SUBROUTINE>
 
 !#######################################################################
 
@@ -661,6 +478,8 @@ contains
 
   end subroutine surface_flux_0d
 
+  !> Computes the surface fluxes for a 2-D array of points, calling `surface_flux_1d` for
+  !> each row; the arguments are as in `surface_flux_1d`.
   subroutine surface_flux_2d( &
     t_atm, q_atm_in, u_atm, v_atm, p_atm, z_atm, &
     p_surf, t_surf, t_ca, q_surf, &

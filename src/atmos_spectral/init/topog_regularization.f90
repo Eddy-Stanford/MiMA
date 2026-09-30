@@ -1,10 +1,19 @@
+!> Regularization (smoothing) of the topography over the ocean, after Lindberg and
+!> Broccoli (1996).
+!>
+!> Finds the spectral field that minimizes, over the ocean points, the squared difference
+!> from the unsmoothed field plus `lambda` times the squared Laplacian (roughness), and
+!> finds the `lambda` for which a requested fraction of the ocean roughness is removed.
+!> Used by `spectral_init_cond_mod` with `topography_option = 'interpolated'` and
+!> `ocean_topog_smoothing` > 0. Works only for a decomposition in latitude.
+!>
+!> References:
+!>
+!> * Lindberg, C., and A. J. Broccoli, 1996: Representation of topography in spectral
+!>   climate models and its effect on simulated precipitation. J. Climate, 9, 2641-2659.
+!>
+!> Original authors: Charles Jackson, Peter Phillipps.
 module topog_regularization_mod
-
-!  produces regularized topography according to Lindberg and Broccoli,
-!  J. of Climate vol 9, no 11 pg. 2641-2659 (1996)
-
-!  Originally coded by Charles Jackson
-!  Modified for FMS by Peter Phillipps
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
                      write_version_number
@@ -53,12 +62,16 @@ contains
 
 !============================================================================================
 
+  !> Finds by iteration the smoothing parameter `lambda` that removes the fraction
+  !> `ocean_topog_smoothing` of the roughness over the ocean.
   subroutine compute_lambda(ocean_topog_smoothing, ocean_mask, unsmoothed_field, lambda, actual_fraction_smoothed)
 
-    real, intent(in) :: ocean_topog_smoothing
-    logical, intent(in), dimension(:, :) :: ocean_mask
-    real, intent(in), dimension(:, :) :: unsmoothed_field
+    real, intent(in) :: ocean_topog_smoothing  !! requested fraction of the ocean roughness to remove
+    logical, intent(in), dimension(:, :) :: ocean_mask  !! `.true.` at ocean points
+    real, intent(in), dimension(:, :) :: unsmoothed_field  !! field to smooth (the surface geopotential)
     real, intent(out) :: lambda, actual_fraction_smoothed
+    !! `lambda`: smoothing parameter; `actual_fraction_smoothed`: fraction of the roughness
+    !! removed with this `lambda`
 
     real :: lambda_1, lambda_2, fraction_smoothed_1, fraction_smoothed_2
     real :: tol_lambda = .001
@@ -134,13 +147,15 @@ contains
   end subroutine compute_lambda
 !============================================================================================
 
+  !> Smooths a field over the ocean with the smoothing parameter `lambda` and returns the
+  !> fraction of the ocean roughness removed.
   subroutine regularize(lambda, ocean_mask, unsmoothed_field, smoothed_field, fraction_smoothed)
 
-    real, intent(in) :: lambda
-    logical, intent(in), dimension(:, :) :: ocean_mask
-    real, intent(in), dimension(:, :) :: unsmoothed_field
-    real, intent(out), dimension(size(ocean_mask, 1), size(ocean_mask, 2)) :: smoothed_field
-    real, intent(out) :: fraction_smoothed
+    real, intent(in) :: lambda  !! smoothing parameter
+    logical, intent(in), dimension(:, :) :: ocean_mask  !! `.true.` at ocean points
+    real, intent(in), dimension(:, :) :: unsmoothed_field  !! field to smooth (the surface geopotential)
+    real, intent(out), dimension(size(ocean_mask, 1), size(ocean_mask, 2)) :: smoothed_field  !! smoothed field
+    real, intent(out) :: fraction_smoothed  !! fraction of the ocean roughness removed
 
     real :: converg, cost, oldcost, lamcost, lamcosti
     integer :: m, n, it, i, j

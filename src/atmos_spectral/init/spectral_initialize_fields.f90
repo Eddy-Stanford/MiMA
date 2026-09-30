@@ -1,3 +1,10 @@
+!> Initial fields of the spectral dynamical core on a cold start.
+!>
+!> Starts from an isothermal atmosphere at rest whose surface pressure is in hydrostatic
+!> balance with the topography, then, depending on `choice_of_init`, perturbs the
+!> temperature at one point, adds a small vorticity perturbation, or reads the winds,
+!> temperature and surface pressure from `INPUT/initial_conditions.nc`. The fields are
+!> transformed to spectral space and back, so the grid fields are spectrally truncated.
 module spectral_initialize_fields_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, write_version_number, FATAL, error_mesg
@@ -17,7 +24,10 @@ module spectral_initialize_fields_mod
 
   public :: spectral_initialize_fields, read_initial_condition
 
-! Read one field of INPUT/initial_conditions.nc on this PE's grid subdomain
+  !> Reads one field of `INPUT/initial_conditions.nc` on this PE's grid subdomain.
+  !>
+  !> The variable must have the dimensions (lon, lat) or (lon, lat, level) of the model
+  !> grid; any further dimensions (e.g. time) must have length 1.
   interface read_initial_condition
     module procedure read_initial_condition_2d, read_initial_condition_3d
   end interface
@@ -35,20 +45,26 @@ module spectral_initialize_fields_mod
 contains
 
 !-------------------------------------------------------------------------------------------------
+  !> Computes the initial grid and spectral fields.
   subroutine spectral_initialize_fields(reference_sea_level_press, triang_trunc, choice_of_init, initial_temperature, &
                                         surf_geopotential, ln_ps, vors, divs, ts, psg, ug, vg, tg, vorg, divg)
 
-    real, intent(in) :: reference_sea_level_press
-    logical, intent(in) :: triang_trunc
+    real, intent(in) :: reference_sea_level_press  !! initial surface pressure where the surface height is 0 [Pa]
+    logical, intent(in) :: triang_trunc  !! triangular (`.true.`) or rhomboidal truncation
     integer, intent(in) :: choice_of_init
-    real, intent(in) :: initial_temperature
+    !! 1: add 1 K to the temperature of the first grid column; 2: small vorticity perturbation
+    !! in the lowest three levels; 3: read `ucomp`, `vcomp`, `temp` and `ps` from
+    !! `INPUT/initial_conditions.nc`
+    real, intent(in) :: initial_temperature  !! temperature of the isothermal atmosphere [K]
 
-    real, intent(in), dimension(:, :) :: surf_geopotential
-    complex, intent(out), dimension(:, :) :: ln_ps
+    real, intent(in), dimension(:, :) :: surf_geopotential  !! surface geopotential [m2/s2]
+    complex, intent(out), dimension(:, :) :: ln_ps  !! spectral log of surface pressure
     complex, intent(out), dimension(:, :, :) :: vors, divs, ts
-    real, intent(out), dimension(:, :) :: psg
+    !! spectral vorticity [1/s], divergence [1/s] and temperature [K]
+    real, intent(out), dimension(:, :) :: psg  !! grid surface pressure [Pa]
     real, intent(out), dimension(:, :, :) :: ug, vg, tg
-    real, intent(out), dimension(:, :, :) :: vorg, divg
+    !! grid zonal and meridional wind [m/s] and temperature [K]
+    real, intent(out), dimension(:, :, :) :: vorg, divg  !! grid vorticity and divergence [1/s]
 
     real, allocatable, dimension(:, :) :: ln_psg
 
@@ -152,8 +168,8 @@ contains
 !================================================================================
 
   subroutine read_initial_condition_3d(name, field)
-    character(len=*), intent(in) :: name
-    real, intent(out), dimension(:, :, :) :: field
+    character(len=*), intent(in) :: name  !! variable name in the file
+    real, intent(out), dimension(:, :, :) :: field  !! the field on this PE's subdomain
     integer :: ncid, varid, is, ie, js, je
 
     call open_initial_condition(name, 3, size(field, 3), ncid, varid)
@@ -165,8 +181,8 @@ contains
 !================================================================================
 
   subroutine read_initial_condition_2d(name, field)
-    character(len=*), intent(in) :: name
-    real, intent(out), dimension(:, :) :: field
+    character(len=*), intent(in) :: name  !! variable name in the file
+    real, intent(out), dimension(:, :) :: field  !! the field on this PE's subdomain
     integer :: ncid, varid, is, ie, js, je
 
     call open_initial_condition(name, 2, 1, ncid, varid)
@@ -177,9 +193,9 @@ contains
   end subroutine read_initial_condition_2d
 !================================================================================
 
-! Open the file and find variable name, checking that its dimensions are
-! (lon, lat[, level]) of the model grid.  Any further (e.g. time) dimensions
-! must have length 1.
+  !> Opens the file and finds variable `name`, checking that its dimensions are
+  !> (lon, lat[, level]) of the model grid. Any further (e.g. time) dimensions
+  !> must have length 1.
   subroutine open_initial_condition(name, rank, num_levels, ncid, varid)
     character(len=*), intent(in) :: name
     integer, intent(in) :: rank, num_levels
