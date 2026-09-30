@@ -37,3 +37,5 @@ rundir/
 build/
 exec/
 __pycache__/
+site/
+docs/api/

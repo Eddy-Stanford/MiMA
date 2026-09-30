@@ -1,0 +1,65 @@
+# MkDocs configuration for the MiMA documentation site.
+# Build locally (see docs/GettingStarted.md#building-the-documentation):
+#   pip install -r requirements-docs.txt
+#   ford ford.md        # Fortran API reference -> docs/api/
+#   mkdocs serve        # or: mkdocs build --strict (-> site/)
+site_name: MiMA
+site_description: Model of an idealized Moist Atmosphere
+site_url: https://eddy-stanford.github.io/MiMA/
+repo_url: https://github.com/Eddy-Stanford/MiMA
+repo_name: Eddy-Stanford/MiMA
+edit_uri: edit/main/docs/
+docs_dir: docs
+copyright: MiMA is distributed under the GNU General Public License v3.
+
+nav:
+  - Home: README.md
+  - Getting started: GettingStarted.md
+  - Model configurations: Configurations.md
+  - Namelist reference: Parameters.md
+  - Diagnostics: Diagnostics.md
+  - Fortran API reference: FortranAPI.md
+  - Migrating to v2.0: Migration_v2.md
+  - Version history: Versions.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
