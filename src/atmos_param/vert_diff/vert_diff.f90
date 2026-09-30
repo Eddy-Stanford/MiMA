@@ -1,13 +1,19 @@
 
+!> Tendencies due to vertical diffusion, from an implicit tridiagonal solver.
+!>
+!> Momentum, temperature (diffused as `t + grav*z/cp_air`), specific humidity and the
+!> other prognostic tracers are diffused implicitly in time. The solution is split into a
+!> downward sweep (`gcm_vert_diff_down`) and an upward sweep (`gcm_vert_diff_up`), so
+!> that the surface model can compute the surface fluxes of heat and moisture implicitly
+!> in between, from the data stored in a `surf_diff_type`. The air density in the
+!> diffusion uses the temperature, or the virtual temperature if
+!> `use_virtual_temp_vert_diff`. With `do_conserve_energy`, the kinetic energy removed by
+!> the momentum diffusion heats the air. Tracers whose `diff_vert` method in the field
+!> table is `'none'` are not diffused.
+!>
+!> The switches are set by `vert_diff_driver_mod` from `vert_diff_driver_nml`. A
+!> technical description is in `vert_diff.tech.ps` in the source directory.
 module vert_diff_mod
-
-!=======================================================================
-!
-!                         VERTICAL DIFFUSION MODULE
-!
-!      Routines for computing the tendencies due to vertical diffusion
-!
-!=======================================================================
 
   use constants_mod, only: GRAV, RDGAS, RVGAS, CP_AIR
 
@@ -36,6 +42,8 @@ module vert_diff_mod
 ! form of interfaces
 !=======================================================================
 
+  !> Data at the lowest model level passed between the downward sweep of the vertical
+  !> diffusion, the surface model and the upward sweep.
   type surf_diff_type
 
     real, pointer, dimension(:, :) :: dtmass => null(), &
@@ -45,6 +53,12 @@ module vert_diff_mod
                                       delta_q => null(), &
                                       delta_u => null(), &
                                       delta_v => null()
+    !! `dtmass`: `grav*delt` over the pressure thickness of the lowest level [m2 s/kg];
+    !! `dflux_t`, `dflux_q`: derivatives of the diffusive fluxes into the lowest level with
+    !! respect to its temperature and specific humidity [kg/m2/s]; `delta_t`, `delta_q`:
+    !! changes of the lowest-level temperature [K] and specific humidity [kg/kg] over the
+    !! step (without the surface flux; the surface model replaces them with the values that
+    !! include it); `delta_u`, `delta_v`: changes of the lowest-level u and v over the step [m/s]
 
   end type surf_diff_type
 
@@ -66,14 +80,19 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: finds the specific-humidity tracer, sets the switches and
+  !> allocates the arrays kept between the downward and upward sweeps and those of
+  !> `Tri_surf`.
   subroutine vert_diff_init(Tri_surf, idim, jdim, kdim, &
                             do_conserve_energy_in, &
                             use_virtual_temp_vert_diff_in)
 
-    type(surf_diff_type), intent(inout) :: Tri_surf
-    integer, intent(in)    :: idim, jdim, kdim
+    type(surf_diff_type), intent(inout) :: Tri_surf  !! surface diffusion data (allocated here)
+    integer, intent(in)    :: idim, jdim, kdim  !! sizes of the local grid (longitude, latitude, levels)
     logical, intent(in)    :: do_conserve_energy_in
+    !! heat the air by the kinetic energy dissipated by the momentum diffusion
     logical, optional, intent(in)    :: use_virtual_temp_vert_diff_in
+    !! use the virtual temperature for the air density (default `.false.`)
 
     call write_version_number(version, tagname)
 
@@ -151,6 +170,7 @@ contains
 
 !#######################################################################
 
+  !> Deallocates the arrays of the module.
   subroutine vert_diff_end
 
     if (module_is_initialized) then
@@ -166,6 +186,12 @@ contains
 
 !#######################################################################
 
+  !> Diffuses momentum and the tracers and does the downward sweep for temperature and
+  !> specific humidity.
+  !>
+  !> The tendencies of u, v and the tracers are complete on return; those of temperature
+  !> and specific humidity are completed by `gcm_vert_diff_up` after the surface model has
+  !> updated `Tri_surf`.
   subroutine gcm_vert_diff_down(is, js, delt, &
                                 u, v, t, q, tr, &
                                 diff_m, diff_t, p_half, p_full, &
@@ -175,22 +201,33 @@ contains
                                 dissipative_heat, Tri_surf, &
                                 kbot)
 
-    integer, intent(in)                        :: is, js
-    real, intent(in)                        :: delt
+    integer, intent(in)                        :: is, js  !! starting i,j indices of the physics window
+    real, intent(in)                        :: delt  !! time step [s]
     real, intent(in), dimension(:, :, :)   :: u, v, t, q, &
                                               diff_m, diff_t, &
                                               p_half, p_full, &
                                               z_full
-    real, intent(in), dimension(:, :, :, :) :: tr
+    !! `u`, `v`: zonal and meridional wind [m/s]; `t`: temperature [K]; `q`: specific humidity
+    !! [kg/kg]; `diff_m`, `diff_t`: diffusivities for momentum and for heat and tracers at
+    !! half levels [m2/s]; `p_half`, `p_full`: pressure at half and full levels [Pa];
+    !! `z_full`: height of full levels [m]
+    real, intent(in), dimension(:, :, :, :) :: tr  !! prognostic tracers
     real, intent(in), dimension(:, :)     :: dtau_du, dtau_dv
+    !! derivatives of the surface stresses with respect to the lowest-level u and v [kg/m2/s]
     real, intent(inout), dimension(:, :)     :: tau_u, tau_v
+    !! zonal and meridional surface stress, updated for the implicit change of the
+    !! lowest-level wind [N/m2]
     real, intent(inout), dimension(:, :, :)   :: dt_u, dt_v, dt_t
-    real, intent(in), dimension(:, :, :)   :: dt_q
-    real, intent(inout), dimension(:, :, :, :) :: dt_tr
+    !! tendencies of u and v [m/s2], including the diffusion on return, and of temperature
+    !! [K/s], with the dissipative heating added on return
+    real, intent(in), dimension(:, :, :)   :: dt_q  !! specific humidity tendency [kg/kg/s]
+    real, intent(inout), dimension(:, :, :, :) :: dt_tr  !! tracer tendencies, including the diffusion on return
     real, intent(out), dimension(:, :, :)   :: dissipative_heat
-    type(surf_diff_type), intent(inout)        :: Tri_surf
+    !! heating by the kinetic energy dissipated by the momentum diffusion (0 unless
+    !! `do_conserve_energy`) [K/s]
+    type(surf_diff_type), intent(inout)        :: Tri_surf  !! surface diffusion data for the surface model
 
-    integer, intent(in), dimension(:, :), optional :: kbot
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
     real, dimension(size(u, 1), size(u, 2), size(u, 3)) :: tt, mu, nu
 
@@ -254,13 +291,17 @@ contains
 
 !#######################################################################
 
+  !> Does the upward sweep for temperature and specific humidity, from the lowest-level
+  !> changes `Tri_surf%delta_t` and `Tri_surf%delta_q` computed by the surface model.
   subroutine gcm_vert_diff_up(is, js, delt, Tri_surf, dt_t, dt_q, kbot)
 
-    integer, intent(in)                      :: is, js
-    real, intent(in)                      :: delt
-    type(surf_diff_type), intent(in)         :: Tri_surf
+    integer, intent(in)                      :: is, js  !! starting i,j indices of the physics window
+    real, intent(in)                      :: delt  !! time step [s]
+    type(surf_diff_type), intent(in)         :: Tri_surf  !! surface diffusion data from the surface model
     real, intent(out), dimension(:, :, :) :: dt_t, dt_q
-    integer, intent(in), dimension(:, :), optional :: kbot
+    !! tendencies of temperature [K/s] and specific humidity [kg/kg/s], including the
+    !! diffusion
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
     integer :: ie, je
 
@@ -283,6 +324,9 @@ contains
 
 !#######################################################################
 
+  !> Diffuses momentum, temperature, specific humidity and the tracers in one step, for a
+  !> model in which the surface fluxes do not depend implicitly on the surface
+  !> temperature.
   subroutine gcm_vert_diff(delt, u, v, t, q, tr, &
                            diff_m, diff_t, p_half, p_full, z_full, &
                            dtau_du, dtau_dv, dsens_datmos, devap_datmos, &
@@ -290,21 +334,30 @@ contains
                            dt_u, dt_v, dt_t, dt_q, dt_tr, &
                            dissipative_heat, kbot)
 
-!  one-step diffusion call for gcm in which there is no implicit dependence of
-!    surface fluxes on surface temperature
-
-    real, intent(in)                          :: delt
+    real, intent(in)                          :: delt  !! time step [s]
     real, intent(in), dimension(:, :, :)     :: u, v, t, q, p_half, p_full, &
                                                 z_full, diff_m, diff_t
-    real, intent(in), dimension(:, :, :, :)   :: tr
+    !! `u`, `v`: zonal and meridional wind [m/s]; `t`: temperature [K]; `q`: specific humidity
+    !! [kg/kg]; `p_half`, `p_full`: pressure at half and full levels [Pa]; `z_full`: height of
+    !! full levels [m]; `diff_m`, `diff_t`: diffusivities for momentum and for heat and
+    !! tracers at half levels [m2/s]
+    real, intent(in), dimension(:, :, :, :)   :: tr  !! prognostic tracers
     real, intent(in), dimension(:, :)       :: dtau_du, dtau_dv, dsens_datmos, &
                                                devap_datmos
+    !! derivatives of the surface stresses, sensible heat flux and evaporation with respect
+    !! to the lowest-level u, v, temperature and specific humidity
     real, intent(inout), dimension(:, :)       :: tau_u, tau_v, sens, evap
+    !! surface stresses [N/m2], sensible heat flux [W/m2] and evaporation [kg/m2/s], updated
+    !! for the implicit change of the lowest-level values
     real, intent(inout), dimension(:, :, :)     :: dt_u, dt_v, dt_t, dt_q
-    real, intent(inout), dimension(:, :, :, :)   :: dt_tr
+    !! tendencies of u, v [m/s2], temperature [K/s] and specific humidity [kg/kg/s],
+    !! including the diffusion on return
+    real, intent(inout), dimension(:, :, :, :)   :: dt_tr  !! tracer tendencies, including the diffusion on return
     real, intent(out), dimension(:, :, :)     :: dissipative_heat
+    !! heating by the kinetic energy dissipated by the momentum diffusion (0 unless
+    !! `do_conserve_energy`) [K/s]
 
-    integer, intent(in), dimension(:, :), optional :: kbot
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
     real, dimension(size(u, 1), size(u, 2), size(u, 3)) :: mu, nu
     real, dimension(size(u, 1), size(u, 2))           :: delta_u_n, delta_v_n
@@ -331,19 +384,23 @@ contains
 
 !#######################################################################
 
+  !> Diffuses a single field in one step, with a surface flux.
   subroutine vert_diff(delt, xi, t, q, diff, p_half, p_full, z_full, &
                        flux, dflux_datmos, factor, dt_xi, kbot)
 
-! one-step diffusion of a single field
-
-    real, intent(in)                          :: delt
+    real, intent(in)                          :: delt  !! time step [s]
     real, intent(in), dimension(:, :, :)     :: xi, t, q, diff, p_half, p_full, z_full
+    !! `xi`: the field to diffuse; `t`: temperature [K]; `q`: specific humidity [kg/kg];
+    !! `diff`: diffusivity at half levels [m2/s]; `p_half`, `p_full`: pressure at half and
+    !! full levels [Pa]; `z_full`: height of full levels [m]
     real, intent(inout), dimension(:, :)       :: flux
+    !! surface flux, updated for the implicit change of the lowest-level value
     real, intent(in), dimension(:, :)       :: dflux_datmos
-    real, intent(in)                          :: factor
-    real, intent(inout), dimension(:, :, :)     :: dt_xi
+    !! derivative of `flux` with respect to the lowest-level value
+    real, intent(in)                          :: factor  !! `flux/factor` is the flux of `xi`
+    real, intent(inout), dimension(:, :, :)     :: dt_xi  !! tendency of `xi`, including the diffusion on return
 
-    integer, intent(in), dimension(:, :), optional :: kbot
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
     real, dimension(size(xi, 1), size(xi, 2), size(xi, 3)) :: mu, nu
     real, dimension(size(xi, 1), size(xi, 2), size(xi, 3) - 1) :: e, f
@@ -560,6 +617,7 @@ contains
 
 !#######################################################################
 
+  !> Does the downward sweep of the tridiagonal solver for one field.
   subroutine vert_diff_down &
     (delt, mu, nu, tr, dt_tr, e, f, mu_delt_n, nu_n, &
      e_n1, f_delt_n1, delta_tr_n, kbot)
@@ -620,6 +678,7 @@ contains
 
 !#######################################################################
 
+  !> Does the downward sweep of the tridiagonal solver for two fields.
   subroutine vert_diff_down_2 &
     (delt, mu, nu, xi_1, xi_2, dt_xi_1, dt_xi_2, e, f_1, f_2, &
      mu_delt_n, nu_n, e_n1, f_1_delt_n1, f_2_delt_n1, &
@@ -686,6 +745,8 @@ contains
 
 !#######################################################################
 
+  !> Solves for the change of the lowest-level value including the surface flux, and
+  !> updates the flux.
   subroutine diff_surface(mu_delt, nu, e_n1, f_delt_n1, &
                           dflux_datmos, flux, factor, delta_xi)
 
@@ -717,6 +778,7 @@ contains
 
 !#######################################################################
 
+  !> Does the upward sweep of the tridiagonal solver.
   subroutine vert_diff_up(delt, e, f, delta_xi_n, dt_xi, kbot)
 
 !-----------------------------------------------------------------------
@@ -754,6 +816,7 @@ contains
 
 !#######################################################################
 
+  !> Computes the tridiagonal coefficients and the `e` coefficients of the solver.
   subroutine compute_e(delt, mu, nu, e, a, b, c, g)
 
 !-----------------------------------------------------------------------
@@ -787,6 +850,7 @@ contains
 
 !#######################################################################
 
+  !> Computes the `f` coefficients of the solver for one field.
   subroutine compute_f(dt_xi, b, c, g, f)
 
 !-----------------------------------------------------------------------
@@ -808,6 +872,7 @@ contains
 
 !#######################################################################
 
+  !> Adds the explicit diffusion tendency to `dt_xi`.
   subroutine explicit_tend(mu, nu, xi, dt_xi)
 
 !-----------------------------------------------------------------------
@@ -836,6 +901,7 @@ contains
 
 !#######################################################################
 
+  !> Computes `grav` divided by the pressure thickness of each level.
   subroutine compute_mu(p_half, mu)
 
 !-----------------------------------------------------------------------
@@ -855,6 +921,8 @@ contains
 
 !#######################################################################
 
+  !> Computes the air density at half levels times the diffusivity, divided by the level
+  !> spacing.
   subroutine compute_nu(diff, p_half, p_full, z_full, t, q, nu)
 
 !-----------------------------------------------------------------------

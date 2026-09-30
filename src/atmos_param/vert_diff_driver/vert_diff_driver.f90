@@ -1,9 +1,12 @@
 
+!> Driver for the vertical diffusion of momentum, temperature, moisture and tracers.
+!>
+!> Calls the downward and upward sweeps of `vert_diff_mod`, between which the surface
+!> model computes the surface fluxes, and sends the diagnostics of the vertical diffusion.
+!>
+!> Namelist: `vert_diff_driver_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#vert_diff_driver_nml)).
 module vert_diff_driver_mod
-
-!-----------------------------------------------------------------------
-!   module performs vertical diffusion of atmospheric variables
-!-----------------------------------------------------------------------
 
   use vert_diff_mod, only: surf_diff_type, &
                            vert_diff_init, &
@@ -34,7 +37,8 @@ module vert_diff_driver_mod
 !---- namelist ----
 
   logical :: do_conserve_energy = .true.
-  logical :: use_virtual_temp_vert_diff = .false.
+  !! heat the air by the dissipation of kinetic energy in the vertical diffusion
+  logical :: use_virtual_temp_vert_diff = .false.  !! use virtual temperature in the vertical diffusion
 
   namelist /vert_diff_driver_nml/ do_conserve_energy, &
     use_virtual_temp_vert_diff
@@ -63,6 +67,8 @@ contains
 
 !#######################################################################
 
+  !> Diffuses momentum and the tracers, does the downward sweep for temperature and
+  !> specific humidity, and sends the diagnostics.
   subroutine vert_diff_driver_down(is, js, Time, delt, p_half, p_full, &
                                    z_full, diff_mom, diff_heat, &
                                    u, v, t, q, trs, &
@@ -70,23 +76,33 @@ contains
                                    dt_u, dt_v, dt_t, dt_q, dt_trs, &
                                    Surf_diff, mask, kbot)
 
-    integer, intent(in)                     :: is, js
-    type(time_type), intent(in)           :: Time
-    real, intent(in)                        :: delt
+    integer, intent(in)                     :: is, js  !! starting i,j indices of the physics window
+    type(time_type), intent(in)           :: Time  !! current time
+    real, intent(in)                        :: delt  !! time step [s]
     real, intent(in), dimension(:, :, :)   :: p_half, p_full, z_full, &
                                               diff_mom, diff_heat
+    !! `p_half`, `p_full`: pressure at half and full levels [Pa]; `z_full`: height of full
+    !! levels [m]; `diff_mom`, `diff_heat`: diffusivities for momentum and for heat,
+    !! moisture and tracers at half levels [m2/s]
     real, intent(in), dimension(:, :, :)   :: u, v, t, q
-    real, intent(in), dimension(:, :, :, :) :: trs
+    !! zonal and meridional wind [m/s], temperature [K] and specific humidity [kg/kg]
+    real, intent(in), dimension(:, :, :, :) :: trs  !! tracers
     real, intent(in), dimension(:, :)     :: dtau_du, dtau_dv
+    !! derivatives of the surface stresses with respect to the lowest-level u and v [kg/m2/s]
 
     real, intent(inout), dimension(:, :)     :: tau_x, tau_y
+    !! zonal and meridional surface stress, updated for the implicit change of the
+    !! lowest-level wind [N/m2]
     real, intent(inout), dimension(:, :, :)   :: dt_u, dt_v, dt_t, dt_q
+    !! tendencies of u, v [m/s2], temperature [K/s] and specific humidity [kg/kg/s]; those of
+    !! u and v include the diffusion on return, that of temperature the dissipative heating
     real, intent(inout), dimension(:, :, :, :) :: dt_trs
+    !! tracer tendencies (the prognostic tracers include the diffusion on return)
 
-    type(surf_diff_type), intent(inout)     :: Surf_diff
+    type(surf_diff_type), intent(inout)     :: Surf_diff  !! surface diffusion data for the surface model
 
-    real, intent(in), dimension(:, :, :), optional :: mask
-    integer, intent(in), dimension(:, :), optional :: kbot
+    real, intent(in), dimension(:, :, :), optional :: mask  !! mask for the diagnostics
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tt, dpg, q_2, entrop_vdif_sens, entrop_vdif_kediss
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: dissipative_heat
@@ -240,18 +256,23 @@ contains
 
 !#######################################################################
 
+  !> Does the upward sweep for temperature and specific humidity, after the surface
+  !> model, and sends the diagnostics.
   subroutine vert_diff_driver_up(is, js, Time, delt, p_half, &
                                  Surf_diff, dt_t, dt_q, mask, kbot, t)
 
-    integer, intent(in)            :: is, js
-    type(time_type), intent(in)            :: Time
-    real, intent(in)                      :: delt
-    real, intent(in), dimension(:, :, :) :: p_half
-    type(surf_diff_type), intent(in)       :: Surf_diff
+    integer, intent(in)            :: is, js  !! starting i,j indices of the physics window
+    type(time_type), intent(in)            :: Time  !! current time
+    real, intent(in)                      :: delt  !! time step [s]
+    real, intent(in), dimension(:, :, :) :: p_half  !! pressure at half levels [Pa]
+    type(surf_diff_type), intent(in)       :: Surf_diff  !! surface diffusion data from the surface model
     real, intent(inout), dimension(:, :, :) :: dt_t, dt_q
-    real, intent(in), dimension(:, :, :), optional :: mask
-    integer, intent(in), dimension(:, :), optional :: kbot
+    !! tendencies of temperature [K/s] and specific humidity [kg/kg/s], including the
+    !! diffusion on return
+    real, intent(in), dimension(:, :, :), optional :: mask  !! mask for the diagnostics
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
     real, intent(in), dimension(:, :, :), optional :: t
+    !! temperature [K], for the diagnostic `entrop_vdif_sens`
 
     integer :: k, kx
     logical :: used
@@ -323,12 +344,16 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `vert_diff_driver_nml`, initializes `vert_diff_mod` and
+  !> registers the diagnostics.
   subroutine vert_diff_driver_init(Surf_diff, idim, jdim, kdim, &
                                    axes, Time)
 
-    type(surf_diff_type), intent(inout) :: Surf_diff
+    type(surf_diff_type), intent(inout) :: Surf_diff  !! surface diffusion data (allocated here)
     integer, intent(in)    :: idim, jdim, kdim, axes(4)
-    type(time_type), intent(in)    :: Time
+    !! `idim`, `jdim`, `kdim`: sizes of the local grid (longitude, latitude, levels); `axes`:
+    !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)    :: Time  !! current time
 
     integer :: unit, io, ierr
 
@@ -412,6 +437,7 @@ contains
 
 !#######################################################################
 
+  !> Finalizes `vert_diff_mod`.
   subroutine vert_diff_driver_end
 
     call vert_diff_end

@@ -1,13 +1,26 @@
+!> Orographic (mountain) gravity-wave drag after Pierrehumbert (1986).
+!>
+!> Computes the tendencies of the zonal and meridional winds due to mountain gravity-wave
+!> drag. The parameterization was developed by R. Pierrehumbert and adapted to the
+!> spectral model by B. Stern. It has four steps:
+!>
+!> 1. a base momentum flux, from the low-level wind, Brunt-Vaisala frequency and density,
+!>    the sub-grid scale mountain height and the effective mountain length `xl_mtn`;
+!> 2. a saturation momentum flux profile, from the vertical profiles of wind,
+!>    Brunt-Vaisala frequency and density, with a vertical length scale of the waves from
+!>    an extension of WKB theory;
+!> 3. the actual momentum flux profile: the flux entering each layer from below, but not
+!>    more than the saturation flux of that layer;
+!> 4. the deceleration from the vertical divergence of that flux, which is non-zero only
+!>    in wave-breaking layers.
+!>
+!> The sub-grid scale orography is read from `INPUT/mg_drag.res.nc` or computed from the
+!> high-resolution topography (`source_of_sgsmtn`), and written to
+!> `RESTART/mg_drag.res.nc` at the end of the run.
+!>
+!> Namelist: `mg_drag_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#mg_drag_nml)).
 module mg_drag_mod
-
-!=======================================================================
-!         MOUNTAIN GRAVITY WAVE DRAG - PIerrehumbert (1986)            !
-!=======================================================================
-
-!-------------------------------------------------------------------
-!  Calculates partial tendencies for the zonal and meridional winds
-!  due to the effect of mountain gravity wave drag
-!-------------------------------------------------------------------
 
   use topography_mod, only: get_topog_stdev
 
@@ -49,29 +62,25 @@ module mg_drag_mod
 !---------------------------------------------------------------------
 ! --- NAMELIST (mg_drag_nml)
 !---------------------------------------------------------------------
-!     xl_mtn      effective mountain length ( set currently to 100km)
-!     acoef       order unity "tunable" parameter
-!     gmax    order unity "tunable" parameter
-!             (may be enhanced to increase drag)
-!     rho     stand value for density of the air at sea-level (1.13 KG/M**3)
-!     low_lev_frac - fraction of atmosphere (from bottom up) considered
-!              to be "low-level-layer for base flux calc. and where no
-!              wave breaking is allowed.
-!     flux_cut_level pressure level (Pa) above which flux divergence is set to zero
-!-----------------------------------------------------------------------
 
   real :: &
-    xl_mtn = 1.0e5 &
+    xl_mtn = 1.0e5 & !! [m] effective mountain length
     !     & ,gmax=1.0, acoef=1.0
     !  v197 value of gmax = 2.0
     , gmax = 2.0, acoef = 1.0, rho = 1.13 &
+    !! `gmax`: order-one tuning parameter (larger: more drag); `acoef`: order-one tuning
+    !! parameter; `rho` [kg/m3]: standard sea-level air density
     !  v197 value for low-level-layer
     , low_lev_frac = .23
+    !! fraction of the atmosphere (from the bottom) used for the base flux, where no wave
+    !! breaking is allowed
 
-  real  ::  flux_cut_level = 0.0
+  real  ::  flux_cut_level = 0.0  !! [Pa] above this level the flux divergence is set to zero
 
-  logical :: do_conserve_energy = .false.
+  logical :: do_conserve_energy = .false.  !! heat the air by the dissipated kinetic energy
   character(len=128) :: source_of_sgsmtn = 'input'
+  !! sub-grid orography: `'input'` (read from `INPUT/mg_drag.res.nc`) or `'computed'` (from
+  !! the high-resolution topography)
 
   namelist /mg_drag_nml/ xl_mtn, gmax, acoef, rho, low_lev_frac, &
     do_conserve_energy, &
@@ -83,6 +92,12 @@ contains
 
 !#############################################################################
 
+  !> Computes the tendencies of u, v and temperature due to mountain gravity-wave drag.
+  !>
+  !> The low-level layer, used for the base flux, is the lowest fraction `low_lev_frac` of
+  !> the atmosphere (at least two levels). The saturation flux uses the wave-breaking
+  !> formulation, with the vertical scale of the waves from the extension to WKB theory;
+  !> the deceleration is proportional to the vertical derivative of the momentum flux.
   subroutine mg_drag(is, js, delt, uwnd, vwnd, temp, pfull, phalf, &
                      zfull, zhalf, dtaux, dtauy, dtemp, taubx, tauby, tausf, &
                      kbot)
@@ -90,91 +105,29 @@ contains
 
 ! Arguments (intent in)
 
-    integer, intent(in) :: is, js
-    real, intent(in)    :: delt
+    integer, intent(in) :: is, js  !! starting i,j indices of the physics window
+    real, intent(in)    :: delt  !! time step [s]
     real, intent(in), dimension(:, :, :) :: &
         &             uwnd, vwnd, temp, pfull, phalf, zfull, zhalf
-    integer, intent(in), optional, dimension(:, :)   :: kbot
-
-!
-!      INPUT
-!      -----
-!
-!      is,js   - integers containing the starting
-!                  i,j indices from the full horizontal grid
-!      delt     time step in seconds
-!      UWND     Zonal wind (dimensioned IDIM x JDIM x KDIM)
-!      VWND     Meridional wind (dimensioned IDIM x JDIM x KDIM)
-!      TEMP     Temperature at full model levels
-!                   (dimensioned IDIM x JDIM x KDIM)
-!      PFULL    Pressure at full model levels
-!                   (dimensioned IDIM x JDIM x KDIM)
-!      PHALF    Pressure at half model levels
-!                   (dimensioned IDIM x JDIM x KDIM+1)
-!      ZHALF    Height at half model levels
-!                   (dimensioned IDIM x JDIM x KDIM+1)
-!      ZFULL    Height at full model levels
-!                   (dimensioned IDIM x JDIM x KDIM+1)
-!      KBOT     optional;lowest model level index (integer)
-!                   (dimensioned IDIM x JDIM)
+    !! `uwnd`, `vwnd`: zonal and meridional wind [m/s]; `temp`: temperature at full levels
+    !! [K]; `pfull`, `phalf`: pressure at full and half levels [Pa]; `zfull`, `zhalf`: height
+    !! at full and half levels [m]
+    integer, intent(in), optional, dimension(:, :)   :: kbot  !! index of the lowest model level
 !===================================================================
 ! Arguments (intent out)
 
     real, intent(out), dimension(:, :) :: taubx, tauby
+    !! x and y components of the base momentum flux,
+    !! `-(rho*U**3/(N*xl_mtn))*G(Fr)` where `N**2 > 0` and 0 elsewhere [N/m2]
     real, intent(out), dimension(:, :, :) :: dtaux, dtauy, dtemp, tausf
-
-!      OUTPUT
-!      ------
-
-!       TAUBX, TAUBY  base momentum flux componenets - output for diagnostics
-!                   (dimensioned IDIM x JDIM)-kg/m/s**2
-!                   = -(RHO*U**3/(N*XL))*G(FR) FOR N**2 > 0
-!                   =          0               FOR N**2 <=0
-!      DTAUX    Tendency of the zonal wind component deceleration
-!                   (dimensioned IDIM x JDIM x KDIM)
-!      DTAUY    Tendency of the meridional wind component deceleration
-!                   (dimensioned IDIM x JDIM x KDIM)
-!      dtemp    Tendency of temperature due to dissipation of ke
-!
-!      TAUSF = "CLIPPED" SAT MOMENTUM FLUX ( AT HALF LEVELS below top)
-!
-!===================================================================
+    !! `dtaux`, `dtauy`: tendencies of u and v [m/s2]; `dtemp`: temperature tendency due to
+    !! the dissipation of kinetic energy (0 unless `do_conserve_energy`) [K/s]; `tausf`:
+    !! "clipped" saturation momentum flux at the half levels below the top [N/m2]
 
 !-----------------------------------------------------------------------
 
 !     LLA IS DEFINED AS THE NUMBER OF LEVELS UP FROM THE LOWEST USED
 !     TO CALCULATE THE "LOW-LEVEL" AVERAGES.
-
-!     THIS ROUTINE COMPUTES THE DECELERATION OF THE ZONAL WIND AND
-!     MERIDIONAL WIND DUE TO MOUNTAIN GRAVITY WAVE DRAG.  THE
-!     PARAMETERIZATION WAS DEVELOPED BY R. PIERREHUMBERT AND ADAPTED
-!     TO THE SPECTRAL MODEL BY B. STERN.  THE SCHEME IS STRUCTURED TO
-!     INCLUDE 4 MAIN (GENERALLY VALID) COMPONENTS
-!              1)  CALCULATION OF A BASE MOMENTUM FLUX(TAUB) WHICH IS
-!                  A FUNCTION OF LOW-LEVEL->  WINDS, BRUNT-VAISALA FREQ,
-!                  AND DENSITY  AS WELL AS THE SUB-GRID SCALE MOUNTAIN
-!                  HEIGHT AND EFFECTIVE MOUNTAIN LENGTH.
-!              2)  CALCULATION OF A SATURATION MOMENTUM FLUX PROFILE
-!                  (TAUS(P) ) - IN GENERAL THIS IS A FUNCTION OF THE
-!                  VERTICAL PROFILES OF WINDS, BRUNT VAISALA FREQ AND
-!                  DENSITY.
-!              3)  DETERMINE THE ACTUAL MOMENTUM FLUX PROFILE.  IT IS
-!                  EQUAL TO THE FLUX ENTERING THE LAYER FROM BELOW
-!                  BUT CANNOT EXCEED THE SATURATION FLUX IN THAT LAYER.
-!              4)  CALCULATE THE DE-CELERATION DUE TO THE DRAG.
-!     SATURATION MOMENTUM FLUX PROFILES
-!          SCHEME 1:  LINEAR DROP OFF (IN P OR SIGMA) FROM THE BASE
-!                     FLUX AT THE BOTTOM OF THE MODEL TO ZERO AT SIGTOP
-!                           (^4/86)
-!          SCHEME 2:  FUNCTION OF DENSITY, WINDS AND BRUNT VAISALA FREQ.
-!                     V SCALE OF WAVE(D)  -
-!                       A. FROM WKB THEORY
-!                           (^6/87)
-!                       B. FROM EXTENSION TO WKB THEORY
-!                           (^7/87)
-!     THE DECELERATION  IS PROPORTIONAL TO DTAUP/DSIGMA -> MOMENTUM FLUX
-!     ABSORPTION WILL TAKE PLACE ONLY IN THOSE REGIONS WHERE TAUP VARIES
-!     IN THE VERTICAL - I.E. WAVE BREAKING LAYERS.
 
 !=======================================================================
 !  (Intent local)
@@ -341,6 +294,7 @@ contains
 
 !#############################################################################
 
+  !> Computes the base momentum flux and the direction of the low-level wind.
   subroutine mgwd_base_flux(is, js, uwnd, vwnd, temp, pfull, phalf, ktop, kbtm, &
                             theta, xn, yn, taub)
 
@@ -464,6 +418,7 @@ contains
 
 !#############################################################################
 
+  !> Computes the saturation momentum flux profile at half levels.
   subroutine mgwd_satur_flux(uwnd, vwnd, temp, theta, ktop, kbtm, &
                              xn, yn, taub, pfull, phalf, zfull, zhalf, vsamp, taus)
 
@@ -722,6 +677,7 @@ contains
 
 !#############################################################################
 
+  !> Computes the momentum flux profile and the resulting tendencies of u and v.
   subroutine mgwd_tend(is, js, xn, yn, taub, phalf, taus, dtaux, dtauy, tausf)
 
 !===================================================================
@@ -790,26 +746,15 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `mg_drag_nml` and reads or computes the sub-grid scale
+  !> orography (`source_of_sgsmtn`).
   subroutine mg_drag_init(lonb, latb, domain_in, hprime)
 
-!=======================================================================
-! ***** INITIALIZE Mountain Gravity Wave Drag
-!=======================================================================
-
-!---------------------------------------------------------------------
-! Arguments (Intent in)
-!     lonb  = longitude in radians of the grid box edges
-!     latb  = latitude  in radians of the grid box edges
-!     domain_in = domain decomposition of the model grid
-!---------------------------------------------------------------------
     real, intent(in), dimension(:) :: lonb, latb
-    type(domain2d), intent(in) :: domain_in
+    !! longitudes and latitudes of the grid box edges [rad]
+    type(domain2d), intent(in) :: domain_in  !! domain decomposition of the model grid
 
-!---------------------------------------------------------------------
-! Arguments (Intent out - optional)
-!     hprime  = array of sub-grid scale mountain heights
-!---------------------------------------------------------------------
-    real, intent(out), dimension(:, :), optional :: hprime
+    real, intent(out), dimension(:, :), optional :: hprime  !! sub-grid scale mountain height [m]
 
 !---------------------------------------------------------------------
 !  (Intent local)
@@ -881,6 +826,7 @@ contains
 
 !#######################################################################
 
+  !> Writes the sub-grid scale orography to the restart file `RESTART/mg_drag.res.nc`.
   subroutine mg_drag_end
     type(restart_file_type) :: rst
 

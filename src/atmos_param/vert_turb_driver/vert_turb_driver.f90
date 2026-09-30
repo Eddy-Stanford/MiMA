@@ -1,15 +1,16 @@
 
+!> Driver for the vertical diffusion coefficients and the surface-layer gustiness.
+!>
+!> Computes the diffusion coefficients with the non-local K scheme of `diffusivity_mod`
+!> (`do_diffusivity`), optionally with molecular diffusion added
+!> (`do_molecular_diffusion`), and the gustiness used by the surface fluxes: a constant
+!> or, with `gust_scheme = 'beljaars'`, computed from `u_star` and `b_star` after Beljaars (1994) and
+!> Beljaars and Viterbo (1999). Sends the boundary-layer diagnostics.
+!>
+!> Namelist: `vert_turb_driver_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#vert_turb_driver_nml)).
 module vert_turb_driver_mod
 
-!-----------------------------------------------------------------------
-!
-!       driver for computing vertical diffusion coefficients
-!
-!         - non-local K scheme (diffusivity_mod), optionally with
-!           molecular diffusion
-!         - surface-layer gustiness
-!
-!-----------------------------------------------------------------------
 !---------------- modules ---------------------
 
   use diffusivity_mod, only: diffusivity, molecular_diff
@@ -45,14 +46,16 @@ module vert_turb_driver_mod
 !-------------------- namelist -----------------------------------------
 
   logical :: do_diffusivity = .true.
-  logical :: do_molecular_diffusion = .false.
+  !! compute diffusion coefficients with the non-local K scheme (`.false.`: no
+  !! boundary-layer diffusion)
+  logical :: do_molecular_diffusion = .false.  !! add molecular diffusion
   logical :: use_tau = .false.
+  !! use the current time level (`.true.`) or the updated values (`.false.`)
 
-  character(len=24) :: gust_scheme = 'constant' ! valid schemes are:
-  !   => 'constant'
-  !   => 'beljaars'
-  real              :: constant_gust = 0.
-  real              :: gust_factor = 1.0
+  character(len=24) :: gust_scheme = 'constant'
+  !! surface gustiness: `'constant'` (`constant_gust`) or `'beljaars'` (from u* and b*)
+  real              :: constant_gust = 0.  !! [m/s] constant gustiness
+  real              :: gust_factor = 1.0  !! factor for the `'beljaars'` gustiness
 
   namelist /vert_turb_driver_nml/ gust_scheme, constant_gust, use_tau, &
     do_molecular_diffusion, &
@@ -73,6 +76,8 @@ contains
 
 !#######################################################################
 
+  !> Computes the diffusion coefficients, the boundary-layer depth and the gustiness, and
+  !> sends their diagnostics.
   subroutine vert_turb_driver(is, js, Time_next, dt, &
                               p_half, p_full, z_half, z_full, u_star, &
                               b_star, u, v, t, q, um, vm, tm, qm, &
@@ -80,18 +85,26 @@ contains
                               gust, z_pbl, mask, kbot)
 
 !-----------------------------------------------------------------------
-    integer, intent(in)         :: is, js
-    type(time_type), intent(in)         :: Time_next
-    real, intent(in)         :: dt
-    real, intent(in), dimension(:, :) :: u_star, b_star
+    integer, intent(in)         :: is, js  !! starting i,j indices of the physics window
+    type(time_type), intent(in)         :: Time_next  !! time at the end of the step (for the diagnostics)
+    real, intent(in)         :: dt  !! time step [s]
+    real, intent(in), dimension(:, :) :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
     real, intent(in), dimension(:, :, :) :: p_half, p_full, &
                                             z_half, z_full, &
                                             u, v, t, q, um, vm, tm, qm, &
                                             udt, vdt, tdt, qdt
+    !! `p_half`, `p_full`: pressure at half and full levels [Pa]; `z_half`, `z_full`: height
+    !! of half and full levels [m]; `u`, `v`, `t`, `q`: zonal and meridional wind [m/s],
+    !! temperature [K] and specific humidity [kg/kg] at the current time level; `um`, `vm`,
+    !! `tm`, `qm`: the same at the previous time level; `udt`, `vdt`, `tdt`, `qdt`: their
+    !! tendencies [m/s2], [K/s], [kg/kg/s]
     real, intent(out), dimension(:, :, :) :: diff_t, diff_m
+    !! diffusion coefficients for heat and moisture and for momentum at half levels [m2/s]
     real, intent(out), dimension(:, :)   :: gust, z_pbl
-    real, intent(in), optional, dimension(:, :, :) :: mask
-    integer, intent(in), optional, dimension(:, :) :: kbot
+    !! `gust`: surface-layer gustiness [m/s]; `z_pbl`: boundary-layer depth (-999 if not
+    !! `do_diffusivity`) [m]
+    real, intent(in), optional, dimension(:, :, :) :: mask  !! mask for the diagnostics
+    integer, intent(in), optional, dimension(:, :) :: kbot  !! index of the lowest model level
 !-----------------------------------------------------------------------
     logical, dimension(size(t, 1), size(t, 2), size(t, 3) + 1) :: lmask
     real, dimension(size(t, 1), size(t, 2), size(t, 3) + 1) :: diag3
@@ -240,11 +253,13 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads and checks `vert_turb_driver_nml` and registers the
+  !> diagnostics.
   subroutine vert_turb_driver_init(axes, Time)
 
 !-----------------------------------------------------------------------
-    integer, intent(in) :: axes(4)
-    type(time_type), intent(in) :: Time
+    integer, intent(in) :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in) :: Time  !! current time
 !-----------------------------------------------------------------------
     integer, dimension(3) :: full = (/1, 2, 3/), half = (/1, 2, 4/)
     integer :: ierr, unit, io
@@ -322,6 +337,7 @@ contains
 
 !#######################################################################
 
+  !> Finalizes the module.
   subroutine vert_turb_driver_end
 
 !-----------------------------------------------------------------------

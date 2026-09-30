@@ -1,14 +1,16 @@
 
+!> Diffusivities in the planetary boundary layer from a non-local K-profile scheme.
+!>
+!> The boundary-layer depth is the height where the bulk Richardson number, computed from
+!> the dry static energy and the wind relative to the lowest level, reaches
+!> `rich_crit_pbl` (or the fixed depth `depth_0`). In the surface layer (the lowest
+!> fraction `frac_inner` of the boundary layer) the diffusivities follow Monin-Obukhov
+!> similarity (`mo_diff`); above it they decrease to zero at the boundary-layer top with a
+!> quadratic profile. `molecular_diff` gives the molecular diffusivities.
+!>
+!> Namelist: `diffusivity_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#diffusivity_nml)).
 module diffusivity_mod
-
-!=======================================================================
-!
-!                          DIFFUSIVITY MODULE
-!
-!     Routines for computing atmospheric diffusivities in the
-!       planetary boundary layer and in the free atmosphere
-!
-!=======================================================================
 
   use constants_mod, only: grav, vonkarm, cp_air, rdgas, rvgas
 
@@ -27,69 +29,6 @@ module diffusivity_mod
 
   public diffusivity, pbl_depth, molecular_diff
 
-!=======================================================================
-
-! form of iterfaces
-
-!=======================================================================
-! subroutine diffusivity (t, q, u, v, p_full, p_half, z_full, z_half,
-!                         u_star, b_star, h, k_m, k_t)
-
-! input:
-
-!        t     : real, dimension(:,:,:) -- (:,:,pressure), third index running
-!                          from top of atmosphere to bottom
-!                 temperature (K)
-!
-!        q     : real, dimension(:,:,:)
-!                 water vapor specific humidity (nondimensional)
-!
-!        u     : real, dimension(:,:)
-!                 zonal wind (m/s)
-!
-!        v     : real, dimension(:,:,:)
-!                 meridional wind (m/s)
-!
-!        z_full  : real, dimension(:,:,:
-!                 height of full levels (m)
-!                 1 = top of atmosphere; size(p_half,3) = surface
-!                 size(z_full,3) = size(t,3)
-!
-!        z_half  : real, dimension(:,:,:)
-!                 height of  half levels (m)
-!                 size(z_half,3) = size(t,3) +1
-!              z_half(:,:,size(z_half,3)) must be height of surface!
-!                                  (if you are not using eta-model)
-!
-!        u_star: real, dimension(:,:)
-!                friction velocity (m/s)
-!
-!        b_star: real, dimension(:,:)
-!                buoyancy scale (m/s**2)
-
-!   (u_star and b_star can be obtained by calling
-!     mo_drag in mima_monin_obukhov_mod)
-
-! output:
-
-!        h     : real, dimension(:,:,)
-!                 depth of planetary boundary layer (m)
-!
-!        k_m   : real, dimension(:,:,:)
-!                diffusivity for momentum (m**2/s)
-!
-!                defined at half-levels
-!                size(k_m,3) should be at least as large as size(t,3)
-!                only the returned values at
-!                      levels 2 to size(t,3) are meaningful
-!                other values will be returned as zero
-!
-!        k_t   : real, dimension(:,:,:)
-!                diffusivity for temperature and scalars (m**2/s)
-!
-!
-!=======================================================================
-
 !--------------------- version number ----------------------------------
 
   character(len=128) :: version = '$Id: diffusivity.f90,v 10.0.6.1 2005/05/13 18:16:36 pjp Exp $'
@@ -99,12 +38,13 @@ module diffusivity_mod
 
 !  DEFAULT VALUES OF NAMELIST PARAMETERS:
 
-  logical :: fixed_depth = .false.
-  real    :: depth_0 = 5000.0
+  logical :: fixed_depth = .false.  !! use a fixed boundary-layer depth `depth_0`
+  real    :: depth_0 = 5000.0  !! [m] boundary-layer depth if `fixed_depth`
   real    :: frac_inner = 0.1
-  real    :: rich_crit_pbl = 1.0
-  real    :: background_m = 0.0
-  real    :: background_t = 0.0
+  !! fraction of the boundary layer that is the surface layer (between 0 and 1)
+  real    :: rich_crit_pbl = 1.0  !! critical bulk Richardson number defining the boundary-layer top
+  real    :: background_m = 0.0  !! [m2/s] minimum diffusivity for momentum
+  real    :: background_t = 0.0  !! [m2/s] minimum diffusivity for heat
 
   namelist /diffusivity_nml/ fixed_depth, depth_0, frac_inner, &
     rich_crit_pbl, &
@@ -127,6 +67,7 @@ contains
 
 !=======================================================================
 
+  !> Reads `diffusivity_nml` and checks its values.
   subroutine diffusivity_init
 
     integer :: unit, ierr, io
@@ -172,16 +113,28 @@ contains
 
 !=======================================================================
 
+  !> Computes the boundary-layer depth and adds the boundary-layer diffusivities for
+  !> momentum and heat to `k_m` and `k_t`.
+  !>
+  !> The diffusivities are defined at half levels; only levels 2 to `size(t,3)` are
+  !> meaningful. `background_m` and `background_t` are then imposed as minimum values.
   subroutine diffusivity(t, q, u, v, p_full, p_half, z_full, z_half, &
                          u_star, b_star, h, k_m, k_t, kbot)
 
     real, intent(in), dimension(:, :, :) :: t, q, u, v
+    !! `t`: temperature [K]; `q`: specific humidity [kg/kg] (not used); `u`, `v`: zonal and
+    !! meridional wind [m/s]; the third index runs from the top of the atmosphere down
     real, intent(in), dimension(:, :, :) :: p_full, p_half
+    !! pressure at full and half levels [Pa] (not used)
     real, intent(in), dimension(:, :, :) :: z_full, z_half
+    !! height of full and half levels [m]; `z_half(:,:,size(z_half,3))` must be the height of
+    !! the surface (if `kbot` is not present)
     real, intent(in), dimension(:, :)   :: u_star, b_star
+    !! friction velocity [m/s] and buoyancy scale [m/s2] (from `mo_drag`)
     real, intent(inout), dimension(:, :, :) :: k_m, k_t
-    real, intent(out), dimension(:, :)   :: h
-    integer, intent(in), optional, dimension(:, :)   :: kbot
+    !! diffusivities for momentum and for temperature and scalars at half levels [m2/s]
+    real, intent(out), dimension(:, :)   :: h  !! depth of the planetary boundary layer [m]
+    integer, intent(in), optional, dimension(:, :)   :: kbot  !! index of the lowest model level
 
     real, dimension(size(t, 1), size(t, 2), size(t, 3))  :: svcp, z_full_ag, &
                                                             k_m_save, k_t_save
@@ -238,12 +191,19 @@ contains
 
 !=======================================================================
 
+  !> Computes the boundary-layer depth as the height where the bulk Richardson number
+  !> relative to the lowest level first exceeds `rich_crit_pbl` (interpolated linearly
+  !> between levels).
   subroutine pbl_depth(t, u, v, z, u_star, b_star, h, kbot)
 
     real, intent(in), dimension(:, :, :) :: t, u, v, z
+    !! `t`: temperature variable of the Richardson number (dry static energy divided by
+    !! `cp_air` when called from `diffusivity`) [K]; `u`, `v`: zonal and meridional wind [m/s];
+    !! `z`: height of full levels above the surface [m]
     real, intent(in), dimension(:, :)   :: u_star, b_star
-    real, intent(out), dimension(:, :)   :: h
-    integer, intent(in), optional, dimension(:, :)   :: kbot
+    !! friction velocity [m/s] and buoyancy scale [m/s2] (not used)
+    real, intent(out), dimension(:, :)   :: h  !! depth of the planetary boundary layer [m]
+    integer, intent(in), optional, dimension(:, :)   :: kbot  !! index of the lowest model level
 
     real, dimension(size(t, 1), size(t, 2), size(t, 3))  :: rich
     real, dimension(size(t, 1), size(t, 2))            :: tbot
@@ -305,6 +265,7 @@ contains
 
 !=======================================================================
 
+  !> Computes the K-profile diffusivities in the boundary layer.
   subroutine diffusivity_pbl(t, u, v, z_half, h, u_star, b_star, &
                              k_m, k_t, kbot)
 
@@ -370,10 +331,16 @@ contains
 
 !=======================================================================
 
+  !> Computes the molecular diffusivities for momentum and heat at half levels.
+  !>
+  !> `k_m` is the kinematic viscosity of air from Sutherland's formula; `k_t` is 1.405
+  !> times `k_m`. Both are zero at the top half level.
   subroutine molecular_diff(temp, press, k_m, k_t)
 
     real, intent(in), dimension(:, :, :)  ::  temp, press
+    !! temperature at full levels [K] and pressure at half levels [Pa]
     real, intent(inout), dimension(:, :, :)  ::  k_m, k_t
+    !! molecular diffusivities for momentum and heat at half levels [m2/s]
 
     real, dimension(size(temp, 1), size(temp, 2)) :: temp_half, &
                                                      rho_half, rbop2d

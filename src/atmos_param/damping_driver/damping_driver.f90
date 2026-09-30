@@ -1,22 +1,30 @@
 
+!> Upper-boundary damping and gravity-wave drag.
+!>
+!> Adds to the tendencies of the winds (and temperature) up to four optional terms:
+!>
+!> * `do_rayleigh`: Rayleigh friction that damps the winds towards zero at pressures below
+!>   `sponge_pbottom`, with a rate that increases quadratically from zero at `sponge_pbottom`
+!>   to the rate of time scale `trayfric` at zero pressure;
+!> * `do_mg_drag`: orographic gravity-wave drag (`mg_drag_mod`);
+!> * `do_cg_drag`: non-orographic gravity-wave drag after Alexander and Dunkerton (1999)
+!>   (`cg_drag_mod`);
+!> * `do_const_drag`: an idealized, time-independent "gravity-wave" drag on u at pressures
+!>   below e (about 2.7) hPa, modelled on the Alexander-Dunkerton winter average, linear in ln(p),
+!>   with a cubic latitudinal profile and a seasonal cosine in time.
+!>
+!> With `do_conserve_energy`, the kinetic energy removed by the Rayleigh friction heats
+!> the air.
+!>
+!> Namelist: `damping_driver_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#damping_driver_nml)).
+!>
+!> References:
+!>
+!> * Alexander, M. J., and T. J. Dunkerton, 1999: A spectral parameterization
+!>   of mean-flow forcing due to breaking gravity waves. J. Atmos. Sci., 56,
+!>   4167-4180.
 module damping_driver_mod
-
-!-----------------------------------------------------------------------
-!
-!       This module controls four functions:
-!
-!   (1) rayleigh friction applied to momentum fields at levels
-!       1 to kbot (i.e., momentum is damped toward zero).
-!
-!   (2) mountain gravity wave drag module may be called
-!
-!   (3) Alexander-Dunkerton gravity wave drag may be called
-!
-!   (4) Garner topo_drag module may be called
-!mj
-!   (5) Time independent "gravity wave" drag may be called
-!
-!-----------------------------------------------------------------------
 
   use mg_drag_mod, only: mg_drag, mg_drag_init, mg_drag_end
   use cg_drag_mod, only: cg_drag_init, cg_drag_calc, cg_drag_end
@@ -39,20 +47,24 @@ module damping_driver_mod
 !-----------------------------------------------------------------------
 !---------------------- namelist ---------------------------------------
 
-  real     :: trayfric = -0.5
+  real     :: trayfric = -0.5  !! Rayleigh friction time scale: [s] if > 0, [days] if < 0
 ! mj pk02-like sponge   integer  :: nlev_rayfric = 1
   integer  :: nlev_rayfric
-  real :: sponge_pbottom = 50. ! [Pa]
-  logical  :: do_mg_drag = .false.
+  ! number of levels at the top of the model where Rayleigh friction is applied; set in
+  ! damping_driver_init from sponge_pbottom
+  real :: sponge_pbottom = 50. !! [Pa] bottom of the Rayleigh sponge
+  logical  :: do_mg_drag = .false.  !! orographic gravity-wave drag (`mg_drag_nml`)
 !epg: Use cg_drag.f90, GFDL's version of the Alexander and Dunkerton 1999
 !     Non-orographic gravity wave parameterization, updated as for Cohen et al. 2013
 ! mj actively choose rayleigh friction
-  logical  :: do_rayleigh = .false.
+  logical  :: do_rayleigh = .false.  !! Rayleigh friction (sponge) at the top of the model
   logical  :: do_cg_drag = .true.
+  !! non-orographic (convective) gravity-wave drag (`cg_drag_nml`)
   logical  :: do_const_drag = .false.
-  real     :: const_drag_amp = 3.e-04
-  real     :: const_drag_off = 0.
-  logical  :: do_conserve_energy = .true.
+  !! idealized seasonal "gravity-wave" drag in the stratosphere
+  real     :: const_drag_amp = 3.e-04  !! [m/s2] amplitude of the constant drag
+  real     :: const_drag_off = 0.  !! offset of its latitudinal profile
+  logical  :: do_conserve_energy = .true.  !! heat the air by the momentum lost to the damping
 
   namelist /damping_driver_nml/ trayfric, &
     do_rayleigh, sponge_pbottom, & ! mj
@@ -60,17 +72,6 @@ module damping_driver_mod
     do_mg_drag, do_conserve_energy, &
     do_const_drag, const_drag_amp, const_drag_off    !mj
 
-!
-!   trayfric = damping time in seconds for rayleigh damping momentum
-!              in the top nlev_rayfric layers (if trayfric < 0 then time
-!              in days)
-!                 [real, default: trayfric=0.]
-!
-!   nlev_rayfric = number of levels at the top of the model where
-!                  rayleigh friction of momentum is performed, if
-!                  trayfric=0. then nlev_rayfric has no effect
-!                    [integer, default: nlev_rayfric=1]
-!
 !-----------------------------------------------------------------------
 !----- id numbers for diagnostic fields -----
 
@@ -114,23 +115,31 @@ contains
 
 !#######################################################################
 
+  !> Adds the tendencies from the Rayleigh sponge, the orographic and non-orographic
+  !> gravity-wave drag and the constant drag (whichever are switched on) to `udt`, `vdt`
+  !> and `tdt`, and sends their diagnostics.
   subroutine damping_driver(is, js, lat, Time, delt, pfull, phalf, zfull, zhalf, &
                             u, v, t, q, r, udt, vdt, tdt, qdt, rdt, &
                             mask, kbot)
 
 !-----------------------------------------------------------------------
-    integer, intent(in)                :: is, js
-    real, dimension(:, :), intent(in)           :: lat
-    type(time_type), intent(in)                :: Time
-    real, intent(in)                :: delt
+    integer, intent(in)                :: is, js  !! starting i,j indices of the physics window
+    real, dimension(:, :), intent(in)           :: lat  !! latitudes [rad]
+    type(time_type), intent(in)                :: Time  !! current time
+    real, intent(in)                :: delt  !! physics time step [s]
     real, intent(in), dimension(:, :, :)   :: pfull, phalf, &
                                               zfull, zhalf, &
                                               u, v, t, q
-    real, intent(in), dimension(:, :, :, :) :: r
+    !! `pfull`, `phalf`: pressure at full and half levels [Pa]; `zfull`, `zhalf`: height at
+    !! full and half levels [m]; `u`, `v`: zonal and meridional wind [m/s]; `t`: temperature
+    !! [K]; `q`: specific humidity [kg/kg] (not used)
+    real, intent(in), dimension(:, :, :, :) :: r  !! tracers (not used)
     real, intent(inout), dimension(:, :, :)   :: udt, vdt, tdt, qdt
-    real, intent(inout), dimension(:, :, :, :) :: rdt
-    real, intent(in), dimension(:, :, :), optional :: mask
-    integer, intent(in), dimension(:, :), optional :: kbot
+    !! tendencies of u [m/s2], v [m/s2], temperature [K/s] and specific humidity [kg/kg/s]
+    !! (`qdt` is not changed)
+    real, intent(inout), dimension(:, :, :, :) :: rdt  !! tracer tendencies (not changed)
+    real, intent(in), dimension(:, :, :), optional :: mask  !! mask for the diagnostics
+    integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
 !-----------------------------------------------------------------------
     real, dimension(size(udt, 1), size(udt, 2))             :: diag2
@@ -296,22 +305,19 @@ contains
 
 !#######################################################################
 
+  !> Initializes the module: reads `damping_driver_nml`, sets up the Rayleigh sponge,
+  !> initializes `mg_drag_mod` and `cg_drag_mod` if they are used and registers the
+  !> diagnostics.
   subroutine damping_driver_init(lonb, latb, domain, pref, axes, Time, sgsmtn)
 
     real, intent(in) :: lonb(:), latb(:), pref(:)
-    type(domain2d), intent(in) :: domain
-    integer, intent(in) :: axes(4)
-    type(time_type), intent(in) :: Time
+    !! `lonb`, `latb`: longitudes and latitudes of the grid box edges [rad]; `pref`: reference
+    !! pressures at full levels (plus the surface value at nlev+1) [Pa]
+    type(domain2d), intent(in) :: domain  !! domain decomposition of the model grid
+    integer, intent(in) :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in) :: Time  !! current time
     real, dimension(:, :), intent(out) :: sgsmtn
-!-----------------------------------------------------------------------
-!     lonb  = longitude in radians of the grid box edges
-!     latb  = latitude  in radians of the grid box edges
-!     domain = domain decomposition of the model grid
-!     axes  = axis indices, (/x,y,pf,ph/)
-!               (returned from diag axis manager)
-!     Time  = current time (time_type)
-!     sgsmtn = subgrid scale topography variance
-!-----------------------------------------------------------------------
+    !! sub-grid scale topography variance (from `mg_drag_init`; only set if `do_mg_drag`) [m]
     integer :: unit, ierr, io
     logical :: used
 !mj
@@ -460,6 +466,7 @@ contains
 
 !#######################################################################
 
+  !> Finalizes `mg_drag_mod` and `cg_drag_mod` (which write their restart files).
   subroutine damping_driver_end
 
     if (do_mg_drag) call mg_drag_end
@@ -471,6 +478,8 @@ contains
 
 !#######################################################################
 
+  !> Computes the Rayleigh sponge tendencies of u and v and, if `do_conserve_energy`, the
+  !> heating by the dissipated kinetic energy.
   subroutine rayleigh(dt, pres, u, v, udt, vdt, tdt)
 
     real, intent(in)                      :: dt

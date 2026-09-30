@@ -1,15 +1,19 @@
 
+!> Surface drag coefficients, near-surface profiles and surface-layer diffusivities from
+!> Monin-Obukhov similarity.
+!>
+!> `mo_drag` computes the drag coefficients for momentum, heat and moisture from the data
+!> at the lowest model level, `mo_profile` the factors for interpolating to a reference
+!> height, and `mo_diff` the diffusivities in the surface layer. In this version unstable
+!> conditions are treated as neutral, and stable conditions use the stability function
+!> phi = 1 + zeta (zeta = z/L), which has an analytic solution (no iteration is needed)
+!> and makes the drag coefficients go to zero near a Richardson number of 1. Where the
+!> bulk Richardson number is at least 0.95 `rich_crit` the drag coefficients are set to
+!> `drag_min`. With `neutral`, neutral stability is used everywhere.
+!>
+!> Namelist: `monin_obukhov_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#monin_obukhov_nml)).
 module mima_monin_obukhov_mod
-
-!======================================================================
-!
-!                         MONIN-OBUKHOV MODULE
-!
-!          Routines for computing surface drag coefficients from
-!               data at the lowest model level using
-!                          Monin-Obukhov scaling
-!
-!======================================================================
 
   use constants_mod, only: grav, vonkarm
 
@@ -29,230 +33,43 @@ module mima_monin_obukhov_mod
   public stable_mix
 !=======================================================================
 
-! form of interfaces
-!=======================================================================
-! call  mo_drag (pt, pt0, z, z0, zt, zq, speed, &
-!                drag_m, drag_t, drag_q,            &
-!                u_star, b_star, [mask])
-!
-!   (In the following the phrase "dimension(:) or (:,:)" means
-!      that this routine can be called either with all of the
-!      variables so designated being either 1d or 2d arrays.
-!      All of these arrays should conform exactly.)
-!
-!   input:
-!
-!      pt,  real, dimension(:) or (:,:)
-!         virtual potential temperature at lowest model level
-!         degrees Kelvin
-!
-!      pt0, real, dimension(:) or (:,:)
-!         virtual potential temperature at surface
-!         degrees Kelvin
-!
-!      z, real, dimension(:) or (:,:)
-!         height above surface of lowest model layer
-!         meters
-!
-!      z0, real, dimension(:) or (:,:)
-!          surface roughness for momentum
-!          meters
-!
-!      zt, real, dimension(:) or (:,:)
-!          surface roughness for temperature
-!          meters
-!
-!      zq, real, dimension(:) or (:,:)
-!          surface roughness for moisture
-!          meters
-!
-!      speed, real, dimension(:) or (:,:)
-!          wind speed at lowest model level with respect to surface
-!             (any "gustiness" factor should be included in speed)
-!          meters/sec
-!
-!   inout:
-!
-!        drag_m, real, dimension(:) or (:,:)
-!              non-dimensional drag coefficient for momentum
-!
-!        drag_t, real, dimension(:) or (:,:)
-!             non-dimensional drag coefficient for temperature
-!
-!        drag_q, real, dimension(:) or (:,:)
-!             non-dimensional drag coefficient for moisture
-!
-!          (the input values are used only if the time-smoothing
-!            option is turned on)
-!
-!   output:
-!
-!        u_star, real, dimension(:) or (:,:)
-!           friction velocity
-!           meters/sec
-!
-!        b_star, real, dimension(:) or (:,:)
-!           buoyancy scale
-!           (meters/sec)**2
-!
-!
-!            The magnitude of the wind stress is
-!                 density*(ustar**2)
-!            The drag coefficient for momentum is
-!                 (u_star/speed)**2
-!            The buoyancy flux is
-!                 density*ustar*bstar
-!            The drag coefficient for heat etc is
-!                 (u_star/speed)*(b_star/delta_b)
-!                 where delta_b is the buoyancy difference between
-!                  the surface and the lowest model level
-!
-!
-!
-!    optional:
-!       mask    : logical, dimension(:)
-!                   computation performed only where mask = .true.
-!       NOTE(!) :  mask option is only available for 1d verison
-!
-!==========================================================================
-!
-! subroutine mo_profile(zref, z, z0, zt, zq, u_star, b_star, q_star, &
-!                          del_m, del_h, del_q, [mask])
-!
-!     (In the following the phrase "dimension(:) or (:,:)" means
-!      that this routine can be called either with all of the
-!      variables so designated being either 1d or 2d arrays.
-!      All of these arrays should conform exactly.)
-!
-!  input:
-!
-!     zref, real
-!           height above surface to which interpolation is requested
-!           meters
-!
-!     z, real, dimension(:) or (:,:)
-!        height of lowest model layer
-!        meters
-!
-!     z0, real, dimension(:) or (:,:)
-!         surface roughness for momentum
-!         meters
-!
-!     zt, real, dimension(:) or (:,:)
-!         surface roughness for temperature
-!         meters
-!
-!     zq, real, dimension(:) or (:,:)
-!         surface roughness for moisture
-!         meters
-!
-!     u_star, real, dimension(:) or (:,:)
-!             friction velocity
-!             meters/sec
-!
-!     b_star, real, dimension(:) or (:,:)
-!             buoyancy scale
-!             (meters/sec)**2
-!
-!     q_star, real, dimension(:) or (:,:)
-!             moisture scale
-!             kg/kg
-!
-!          (Note:  u_star and b_star are output from mo_drag,
-!                  q_star = flux_q/u_star/rho )
-!
-!    optional input:
-!
-!       mask, logical, dimension(:)
-!                   computation performed only where mask = .true.
-!       NOTE(!):  mask option is only available for 1d verison
-!
-!
-!    output:
-!
-!       del_m, real, dimension(:) or (:,:)
-!              dimensionless ratio, as defined below, for momentum
-!
-!       del_h, real, dimension(:) or (:,:)
-!              dimensionless ratio, as defined below, for temperature
-!
-!       del_q, real, dimension(:) or (:,:)
-!              dimensionless ratio, as defined below, for moisture
-!
-!          Ratios are  (f(zref) - f_surf)/(f(z) - f_surf)
-!
-!==========================================================================
-!
-!  subroutine mo_diff(z, u_star, b_star, k_m, k_h, [mask])
-!
-!    input:
-!        z, real, dimension(see below)
-!                height above surface of at which diffusivities
-!                are desired
-!                meters
-!
-!        u_star, real, dimension(see below)
-!                surface friction velocity
-!                meters/sec
-!
-!        b_star, real, dimension(see below)
-!                buoyancy scale
-!                (meters/sec)**2
-!
-!          (Note:  u_star and b_star are output from mo_drag)
-!
-!    optional input:
-!       mask    : logical, dimension(:)
-!                   computation performed only where mask = .true.
-!       NOTE:  mask option is only available for 1d verisons -- see below
-!
-!    output:
-!
-!        k_m   : real, dimension(see below)
-!                kinematic diffusivity for momentum
-!                (meters**2/sec)
-!
-!        k_h   : real, dimension(see below)
-!                kinemtatic diffusivity for temperature
-!                (meters**2/sec)
-!
-!    dimensions:  any of the following four options can be used
-!
-!      1) diffusivities desired on multiple levels, with 2d (x,y) input
-!              z(:,:,:), k_m(:,:,:), k_h(:,:,:)
-!              u_star(:,:), b_star(:,:) corresponding to the 1st and 2nd
-!                  indices of z -- vertical level is third index
-!              mask option NOT available
-!
-!      2) as in 1), but with only 1d input
-!              z(:,:), k_m(:,:), k_h(:,:)
-!              u_star(:), b_star(:) corresponding to the 1st index of z
-!              vertical level is second index
-!              mask option available
-!
-!      3) diffusivities desired on one level only, with 2d input
-!              z(:,:), k_m(:,:), k_h(:,:),u_star(:,:), b_star(:,:)
-!              mask option NOT available
-!
-!      4) diffusivities desired on one level only, with 1d input
-!              z(:), k_m(:), k_h(:), u_star(:), b_star(:)
-!              mask option available
-!
-!=======================================================================
-
+  !> Computes the drag coefficients, the friction velocity and the buoyancy scale from the
+  !> data at the lowest model level.
+  !>
+  !> The arguments are all 1d or all 2d arrays (the optional `mask` is only available in
+  !> 1d). The magnitude of the wind stress is `density*u_star**2`, the drag coefficient for
+  !> momentum is `(u_star/speed)**2`, the buoyancy flux is `density*u_star*b_star`, and
+  !> the drag coefficient for heat is `(u_star/speed)*(b_star/delta_b)`, where `delta_b`
+  !> is the buoyancy difference between the surface and the lowest model level.
   interface mo_drag
     module procedure mo_drag_1d, mo_drag_2d
   end interface
 
+  !> Computes the factors for interpolating momentum, temperature and moisture from the
+  !> lowest model level to a reference height.
+  !>
+  !> The factors are (f(`zref`) - f_surf)/(f(`z`) - f_surf). The arguments are all 1d or all
+  !> 2d arrays (the optional `mask` is only available in 1d).
   interface mo_profile
     module procedure mo_profile_1d, mo_profile_2d
   end interface
 
+  !> Computes the kinematic diffusivities for momentum and heat at given heights in the
+  !> surface layer.
+  !>
+  !> The heights `z` can be on several levels (`z(:,:,:)` with 2d `u_star`, `b_star`;
+  !> `z(:,:)` with 1d; `z(:)` with scalars) or on one level (`z`, `u_star`, `b_star` all 2d,
+  !> 1d or scalar). The optional `mask` is only available with 1d `u_star`, `b_star`.
   interface mo_diff
     module procedure mo_diff_0d, mo_diff_1d, mo_diff_2d
     module procedure mo_diff_one_lev_0d, mo_diff_one_lev_1d, mo_diff_one_lev_2d
   end interface
 
+  !> Returns the factor `1/phi**2` that reduces the mixing in stable conditions, as a function
+  !> of the Richardson number (0 where it is not between 0 and `rich_crit`).
+  !>
+  !> `stable_option` selects the stability function; with `stable_option = 2` it changes at
+  !> z/L = `zeta_trans`. Scalar or 1d to 3d arguments.
   interface stable_mix
     module procedure stable_mix_0d, stable_mix_1d
     module procedure stable_mix_2d, stable_mix_3d
@@ -267,11 +84,13 @@ module mima_monin_obukhov_mod
 
 !  DEFAULT VALUES OF NAMELIST PARAMETERS:
 
-  real    :: rich_crit = 2.0
-  real    :: drag_min = 4.e-05
-  logical :: neutral = .false.
+  real    :: rich_crit = 2.0  !! critical Richardson number (must be > 0.25)
+  real    :: drag_min = 4.e-05  !! minimum drag coefficient
+  logical :: neutral = .false.  !! neutral stability everywhere
   integer :: stable_option = 1
-  real    :: zeta_trans = 0.5
+  !! stability function for stable conditions (1 or 2); used only by `stable_mix`, which is
+  !! not called in MiMA
+  real    :: zeta_trans = 0.5  !! transition value of z/L for `stable_option = 2`
 
   namelist /monin_obukhov_nml/ rich_crit, neutral, drag_min, &
     stable_option, zeta_trans
@@ -288,6 +107,7 @@ contains
 
 !=======================================================================
 
+  !> Reads and checks `monin_obukhov_nml` and sets the derived constants.
   subroutine monin_obukhov_init
 
     integer :: unit, ierr, io
@@ -328,13 +148,19 @@ contains
 
 !=======================================================================
 
+  !> Computes the drag coefficients, the friction velocity and the buoyancy scale (1d).
   subroutine mo_drag_1d &
     (pt, pt0, z, z0, zt, zq, speed, drag_m, drag_t, drag_q, u_star, b_star, mask)
 
     real, intent(in), dimension(:) :: pt, pt0, z, z0, zt, zq, speed
+    !! `pt`, `pt0`: virtual potential temperature at the lowest model level and at the
+    !! surface [K]; `z`: height of the lowest model level above the surface [m]; `z0`, `zt`,
+    !! `zq`: roughness lengths for momentum, temperature and moisture [m]; `speed`: wind speed
+    !! at the lowest model level relative to the surface, including any gustiness [m/s]
     real, intent(out), dimension(:) :: drag_m, drag_t, drag_q
-    real, intent(out), dimension(:) :: u_star, b_star
-    logical, intent(in), optional, dimension(:) :: mask
+    !! drag coefficients for momentum, temperature and moisture
+    real, intent(out), dimension(:) :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
+    logical, intent(in), optional, dimension(:) :: mask  !! compute only where `.true.`
 
     real :: vk2, r_crit1
 
@@ -478,6 +304,7 @@ contains
 
 !=======================================================================
 
+  !> Solves iteratively for z/L from the bulk Richardson number (not called in this version).
   subroutine solve_zeta(n, rich, z, z0, zt, zq, f_m, f_h, f_q, unstable)
 
     integer, intent(in) :: n
@@ -701,13 +528,20 @@ contains
 
 !=======================================================================
 
+  !> Computes the factors for interpolating to a reference height (1d).
   subroutine mo_profile_1d(zref, zref_t, z, z0, zt, zq, u_star, b_star, q_star, del_m, del_h, del_q, mask)
-! zref_t only for compatability with lima revision of flux_exchange.f90. Nothing is done with it.
 
     real, intent(in)                :: zref, zref_t
+    !! `zref`: height above the surface to interpolate to [m]; `zref_t`: not used (kept for
+    !! compatibility with the lima revision of `flux_exchange.f90`)
     real, intent(in), dimension(:) :: z, z0, zt, zq, u_star, b_star, q_star
+    !! `z`: height of the lowest model level [m]; `z0`, `zt`, `zq`: roughness lengths for
+    !! momentum, temperature and moisture [m]; `u_star`: friction velocity [m/s]; `b_star`:
+    !! buoyancy scale [m/s2] (both from `mo_drag`); `q_star`: moisture scale [kg/kg] (not
+    !! used)
     real, intent(out), dimension(:) :: del_m, del_h, del_q
-    logical, optional, dimension(:) :: mask
+    !! interpolation factors for momentum, temperature and moisture
+    logical, optional, dimension(:) :: mask  !! compute only where `.true.`
 
     integer, dimension(size(z)) :: stabl, unstabl
     real, allocatable, dimension(:) :: &
@@ -913,12 +747,14 @@ contains
 
 !=======================================================================
 
+  !> Computes the surface-layer diffusivities on several levels (1d in the horizontal).
   subroutine mo_diff_1d(z, u_star, b_star, k_m, k_h, mask)
 
-    real, intent(in), dimension(:, :) :: z
-    real, intent(in), dimension(:)   :: u_star, b_star
+    real, intent(in), dimension(:, :) :: z  !! heights above the surface (level is the second index) [m]
+    real, intent(in), dimension(:)   :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
     real, intent(out), dimension(:, :) :: k_m, k_h
-    logical, optional, dimension(:)   :: mask
+    !! kinematic diffusivities for momentum and heat [m2/s]
+    logical, optional, dimension(:)   :: mask  !! compute only where `.true.`
 
     real, dimension(size(z, 1), size(z, 2)) :: phi_m, phi_h, zeta
     real, allocatable, dimension(:)      :: phi_m1, phi_h1, zeta1
@@ -1033,6 +869,7 @@ contains
 
 !=======================================================================
 
+  !> Returns the indices of the stable (`0 <= x < crit`) and unstable (`x < 0`) points.
   subroutine separate_stabilities(ns, nu, stab, unstab, x, mask, crit)
 
     real, intent(in), dimension(:) :: x
@@ -1069,12 +906,18 @@ contains
 !
 !=======================================================================
 
+  !> Computes the drag coefficients, the friction velocity and the buoyancy scale (2d).
   subroutine mo_drag_2d &
     (pt, pt0, z, z0, zt, zq, speed, drag_m, drag_t, drag_q, u_star, b_star)
 
     real, intent(in), dimension(:, :) :: z, speed, pt, pt0, z0, zt, zq
+    !! `z`: height of the lowest model level above the surface [m]; `speed`: wind speed at
+    !! the lowest model level relative to the surface, including any gustiness [m/s]; `pt`,
+    !! `pt0`: virtual potential temperature at the lowest model level and at the surface [K];
+    !! `z0`, `zt`, `zq`: roughness lengths for momentum, temperature and moisture [m]
     real, intent(out), dimension(:, :) :: drag_m, drag_t, drag_q
-    real, intent(out), dimension(:, :) :: u_star, b_star
+    !! drag coefficients for momentum, temperature and moisture
+    real, intent(out), dimension(:, :) :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
 
     real, dimension(size(pt, 1)*size(pt, 2)) :: z_1d, speed_1d, pt_1d, pt0_1d, &
                                                 z0_1d, zt_1d, zq_1d, drag_m_1d, drag_t_1d, drag_q_1d, u_star_1d, b_star_1d
@@ -1108,12 +951,19 @@ contains
   end subroutine mo_drag_2d
 !=======================================================================
 
+  !> Computes the factors for interpolating to a reference height (2d).
   subroutine mo_profile_2d(zref, zref_t, z, z0, zt, zq, u_star, b_star, q_star, del_m, del_h, del_q)
-! zref_t only for compatability with lima revision of flux_exchange.f90. Nothing is done with it.
 
     real, intent(in)                  :: zref, zref_t
+    !! `zref`: height above the surface to interpolate to [m]; `zref_t`: not used (kept for
+    !! compatibility with the lima revision of `flux_exchange.f90`)
     real, intent(in), dimension(:, :) :: z, z0, zt, zq, u_star, b_star, q_star
+    !! `z`: height of the lowest model level [m]; `z0`, `zt`, `zq`: roughness lengths for
+    !! momentum, temperature and moisture [m]; `u_star`: friction velocity [m/s]; `b_star`:
+    !! buoyancy scale [m/s2] (both from `mo_drag`); `q_star`: moisture scale [kg/kg] (not
+    !! used)
     real, intent(out), dimension(:, :) :: del_m, del_h, del_q
+    !! interpolation factors for momentum, temperature and moisture
 
     real, dimension(size(z, 1)*size(z, 2)) :: z_1d, z0_1d, zt_1d, zq_1d, &
                                               u_star_1d, b_star_1d, q_star_1d, &
@@ -1144,12 +994,13 @@ contains
 
 !=======================================================================
 
+  !> Computes the surface-layer diffusivities on one level (1d).
   subroutine mo_diff_one_lev_1d(z, u_star, b_star, k_m, k_h, mask)
 
-    real, intent(in), dimension(:) :: z
-    real, intent(in), dimension(:)   :: u_star, b_star
-    real, intent(out), dimension(:) :: k_m, k_h
-    logical, optional, dimension(:)   :: mask
+    real, intent(in), dimension(:) :: z  !! height above the surface [m]
+    real, intent(in), dimension(:)   :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
+    real, intent(out), dimension(:) :: k_m, k_h  !! kinematic diffusivities for momentum and heat [m2/s]
+    logical, optional, dimension(:)   :: mask  !! compute only where `.true.`
 
     real, dimension(size(z), 1) :: z_nlev, k_m_nlev, k_h_nlev
     logical, dimension(size(z))  :: avail
@@ -1171,11 +1022,12 @@ contains
 
 !=======================================================================
 
+  !> Computes the surface-layer diffusivities at one point.
   subroutine mo_diff_one_lev_0d(z, u_star, b_star, k_m, k_h)
 
-    real, intent(in)  :: z
-    real, intent(in)  :: u_star, b_star
-    real, intent(out) :: k_m, k_h
+    real, intent(in)  :: z  !! height above the surface [m]
+    real, intent(in)  :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
+    real, intent(out) :: k_m, k_h  !! kinematic diffusivities for momentum and heat [m2/s]
 
     real, dimension(1, 1) :: z1, k_m1, k_h1
     real, dimension(1) :: u_star1, b_star1
@@ -1192,11 +1044,12 @@ contains
 
 !=======================================================================
 
+  !> Computes the surface-layer diffusivities on several levels of one column.
   subroutine mo_diff_0d(z, u_star, b_star, k_m, k_h)
 
-    real, intent(in), dimension(:) :: z
-    real, intent(in)                :: u_star, b_star
-    real, intent(out), dimension(:) :: k_m, k_h
+    real, intent(in), dimension(:) :: z  !! heights above the surface [m]
+    real, intent(in)                :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
+    real, intent(out), dimension(:) :: k_m, k_h  !! kinematic diffusivities for momentum and heat [m2/s]
 
     real, dimension(size(z, 1), 1) :: z1, k_m1, k_h1
     real, dimension(1) :: u_star1, b_star1
@@ -1212,11 +1065,13 @@ contains
   end subroutine mo_diff_0d
 !=======================================================================
 
+  !> Computes the surface-layer diffusivities on several levels (2d in the horizontal).
   subroutine mo_diff_2d(z, u_star, b_star, k_m, k_h)
 
-    real, intent(in), dimension(:, :, :) :: z
-    real, intent(in), dimension(:, :)   :: u_star, b_star
+    real, intent(in), dimension(:, :, :) :: z  !! heights above the surface (level is the third index) [m]
+    real, intent(in), dimension(:, :)   :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
     real, intent(out), dimension(:, :, :) :: k_m, k_h
+    !! kinematic diffusivities for momentum and heat [m2/s]
 
     real, dimension(size(z, 1)*size(z, 2), size(z, 3)) :: z1, k_m1, k_h1
 
@@ -1252,11 +1107,12 @@ contains
 
 !=======================================================================
 
+  !> Computes the surface-layer diffusivities on one level (2d).
   subroutine mo_diff_one_lev_2d(z, u_star, b_star, k_m, k_h)
 
-    real, intent(in), dimension(:, :) :: z
-    real, intent(in), dimension(:, :) :: u_star, b_star
-    real, intent(out), dimension(:, :) :: k_m, k_h
+    real, intent(in), dimension(:, :) :: z  !! height above the surface [m]
+    real, intent(in), dimension(:, :) :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
+    real, intent(out), dimension(:, :) :: k_m, k_h  !! kinematic diffusivities for momentum and heat [m2/s]
 
     real, dimension(size(z, 1), size(z, 2), 1) :: z_nlev, k_m_nlev, k_h_nlev
 
@@ -1271,10 +1127,11 @@ contains
   end subroutine mo_diff_one_lev_2d
 !=======================================================================
 
+  !> Returns the stable mixing factor (3d).
   subroutine stable_mix_3d(rich, mix)
 
-    real, intent(in), dimension(:, :, :)  :: rich
-    real, intent(out), dimension(:, :, :)  :: mix
+    real, intent(in), dimension(:, :, :)  :: rich  !! Richardson number
+    real, intent(out), dimension(:, :, :)  :: mix  !! stable mixing factor
 
     real, dimension(size(rich, 1), size(rich, 2), size(rich, 3)) :: &
       r, a, b, c, zeta, phi
@@ -1309,10 +1166,11 @@ contains
   end subroutine stable_mix_3d
 !=======================================================================
 
+  !> Returns the stable mixing factor (2d).
   subroutine stable_mix_2d(rich, mix)
 
-    real, intent(in), dimension(:, :)  :: rich
-    real, intent(out), dimension(:, :)  :: mix
+    real, intent(in), dimension(:, :)  :: rich  !! Richardson number
+    real, intent(out), dimension(:, :)  :: mix  !! stable mixing factor
 
     real, dimension(size(rich, 1), size(rich, 2), 1) :: rich_3d, mix_3d
 
@@ -1327,10 +1185,11 @@ contains
 
 !=======================================================================
 
+  !> Returns the stable mixing factor (1d).
   subroutine stable_mix_1d(rich, mix)
 
-    real, intent(in), dimension(:)  :: rich
-    real, intent(out), dimension(:)  :: mix
+    real, intent(in), dimension(:)  :: rich  !! Richardson number
+    real, intent(out), dimension(:)  :: mix  !! stable mixing factor
 
     real, dimension(size(rich), 1, 1) :: rich_3d, mix_3d
 
@@ -1345,10 +1204,11 @@ contains
 
 !=======================================================================
 
+  !> Returns the stable mixing factor at one point.
   subroutine stable_mix_0d(rich, mix)
 
-    real, intent(in) :: rich
-    real, intent(out) :: mix
+    real, intent(in) :: rich  !! Richardson number
+    real, intent(out) :: mix  !! stable mixing factor
 
     real, dimension(1, 1, 1) :: rich_3d, mix_3d
 

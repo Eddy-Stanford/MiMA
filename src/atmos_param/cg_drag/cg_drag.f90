@@ -1,3 +1,27 @@
+!> Non-orographic gravity-wave drag, after Alexander and Dunkerton (1999).
+!>
+!> Computes the forcing of the zonal and meridional winds by a spectrum of
+!> gravity waves launched at a source level in the troposphere, with the
+!> changes of Cohen et al. (2013) and Garfinkel et al. (2020). The forcing is
+!> recalculated every `cg_drag_freq` seconds and held fixed in between; it is
+!> saved in the restart file `RESTART/cg_drag.res.nc`. Momentum flux that
+!> reaches the model top is deposited between the top and
+!> `damp_level_pressure`.
+!>
+!> Namelist: `cg_drag_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#cg_drag_nml)).
+!>
+!> References:
+!>
+!> * Alexander, M. J., and T. J. Dunkerton, 1999: A spectral parameterization
+!>   of mean-flow forcing due to breaking gravity waves. J. Atmos. Sci., 56,
+!>   4167-4180.
+!> * Cohen, N. Y., E. P. Gerber, and O. Buhler, 2013: Compensation between
+!>   resolved and unresolved wave driving in the stratosphere. J. Atmos. Sci.,
+!>   70, 3780-3798, https://doi.org/10.1175/JAS-D-12-0240.1.
+!> * Garfinkel, C. I., I. White, E. P. Gerber, M. Jucker, and M. Erez, 2020:
+!>   The building blocks of Northern Hemisphere wintertime stationary waves.
+!>   J. Climate, 33, 5611-5633, https://doi.org/10.1175/JCLI-D-19-0181.1.
 module cg_drag_mod
 
   use fms_mod, only: fms_init, mpp_pe, mpp_root_pe, &
@@ -20,12 +44,6 @@ module cg_drag_mod
 
   implicit none
   private
-
-!---------------------------------------------------------------------
-!    cg_drag_mod computes the convective gravity wave forcing on
-!    the zonal flow. the parameterization is described in Alexander and
-!    Dunkerton [JAS, 15 December 1999].
-!--------------------------------------------------------------------
 
 !---------------------------------------------------------------------
 !----------- ****** VERSION NUMBER ******* ---------------------------
@@ -51,34 +69,29 @@ module cg_drag_mod
 !--------------------------------------------------------------------
 !---- namelist -----
 
-  integer     :: cg_drag_freq = 21600     ! calculation frequency [ s ]
-  integer     :: cg_drag_offset = 0   ! offset of calculation from 00Z [ s ]
-  ! only has use if restarts are written
-  ! at 00Z and calculations are not done
-  ! every time step
+  integer     :: cg_drag_freq = 21600     !! [s] interval between drag calculations; the drag is held
+                                          !! fixed in between (and saved in `cg_drag.res.nc`)
+  integer     :: cg_drag_offset = 0   !! [s] on a cold start, time to the first calculation
+                                      !! (0: `cg_drag_freq`)
 
   real        :: source_level_pressure = 315.e+02
-  ! highest model level with  pressure
-  ! greater than this value (or sigma
-  ! greater than this value normalized
-  ! by 1013.25 hPa) will be the gravity
-  ! wave source level at the equator
-  ! [ Pa ]
+  !! [Pa] the source level is the highest level with a pressure greater than this at the
+  !! equator
   real       ::  damp_level_pressure = 0.85e+02
-  ! added by cig, feb 27, 2017. any waves reaching the top level will  be deposited down to this level
-  integer     :: nk = 1               ! number of wavelengths contained in
-  ! the gravity wave spectrum
-  real        :: cmax = 99.6          ! maximum phase speed in gravity wave
-  ! spectrum [ m/s ]
-  real        :: dc = 1.2             ! gravity wave spectral resolution
-  ! [ m/s ]
+  !! [Pa] momentum flux reaching the model top is deposited from the top down to this level
+  ! (added by cig, feb 27, 2017)
+  integer     :: nk = 1               !! number of wavelengths in the spectrum
+  real        :: cmax = 99.6          !! [m/s] maximum phase speed
+  real        :: dc = 1.2             !! [m/s] phase-speed resolution
   ! previous values: 0.6
-  real        :: Bt_0 = 0.0043          ! sum across the wave spectrum of
-  ! the magnitude of total GW stress [Pa]
+  real        :: Bt_0 = 0.0043          !! [Pa] total source momentum flux poleward of
+                                        !! `phi0n`/`phi0s`
 
-  real        :: Bt_nh = 0.00         ! additional momentum stress for NH [Pa]
+  real        :: Bt_nh = 0.00         !! [Pa] additional flux in the Northern Hemisphere
+                                      !! extratropics (tanh transition of width `dphin` at `phi0n`)
 
-  real        :: Bt_sh = 0.00        ! additional momentum stress for SH [Pa]
+  real        :: Bt_sh = 0.00        !! [Pa] additional flux in the Southern Hemisphere
+                                     !! extratropics (tanh transition of width `dphis` at `phi0s`)
 
 ! epg - 30.6.16 - I shifted these spectral parameters to the name list
 !---------------------------------------------------------------------
@@ -86,25 +99,29 @@ module cg_drag_mod
 !   wave spectrum parameters.
 !---------------------------------------------------------------------
 
-  integer    :: flag = 0  ! flag = 1  for peak flux at  c    = 0
-  ! flag = 0  for peak flux at (c-u) = 0
-  real       :: Bw = 0.4  ! amplitude for the wide spectrum [ m^2/s^2 ]
+  integer    :: flag = 0  !! 1: spectrum peaks at c = 0; 0: at c - u = 0 (always 0 in the
+                          !! tropical band)
+  real       :: Bw = 0.4  !! [m2/s2] amplitude of the wide part of the phase-speed spectrum
   ! ~ u'w'
-  real       :: Bn = 0.0  ! amplitude for the narrow spectrum [ m^2/s^2 ]
+  real       :: Bn = 0.0  !! [m2/s2] amplitude of the narrow part of the phase-speed spectrum
+                          !! (0 in the tropical band)
   ! ~ u'w';  previous values: 5.4
-  real       :: cw = 35.0 ! half-width for the wide c spectrum [ m/s ]
+  real       :: cw = 35.0 !! [m/s] half-width of the wide spectrum outside the tropical band
   ! previous values: 50.0, 25.0
-  real       :: cwtropics = 35.0 ! half-width for the wide c spectrum [ m/s ]
+  real       :: cwtropics = 35.0 !! [m/s] half-width of the wide spectrum inside the tropical band
   ! previous values: 50.0, 25.0
-  real       :: cn = 2.0 ! half-width for the narrow c spectrum  [ m/s ]
+  real       :: cn = 2.0 !! [m/s] half-width of the narrow spectrum
 
-  real        :: Bt_eq = 0.0043         ! momentum stress at the equator; the source
-  ! amplitude varies linearly from Bt_eq at
-  ! the equator to Bt_0 poleward of phi0n/phi0s
+  real        :: Bt_eq = 0.0043         !! [Pa] total source momentum flux between `dphis` and
+                                        !! `dphin`; it varies linearly to `Bt_0` at `phi0n`/`phi0s`
 
   real        :: phi0n = 15., phi0s = -15., dphin = 10., dphis = -10.
+  !! [deg] `phi0n`, `phi0s`: latitudes where the flux reaches `Bt_0`. `dphin`, `dphis`: edges
+  !! of the tropical band (flux `Bt_eq`, spectrum width `cwtropics`), and widths of the
+  !! `Bt_nh`/`Bt_sh` transitions
 
   real        :: kelvin_kludge = 1.
+  !! factor on the source flux of waves with c - u < 0 in the tropical band
 
   namelist /cg_drag_nml/ &
     cg_drag_freq, cg_drag_offset, &
@@ -132,7 +149,7 @@ module cg_drag_mod
 !
 !--------------------------------------------------------------------
 !wfc++ not needed if calcucate_ked is removed.
-!!!!rjw real,    dimension(:,:,:), allocatable   :: gwd, ked
+! rjw real,    dimension(:,:,:), allocatable   :: gwd, ked
 !wfc--
 !--------------------------------------------------------------------
 !   these are the arrays which define the gravity wave source spectrum:
@@ -184,33 +201,21 @@ contains
 
 !####################################################################
 
+  !> Initializes the module: reads `cg_drag_nml`, finds the source and damping
+  !> levels, sets up the phase-speed spectrum, registers the diagnostics and reads
+  !> `INPUT/cg_drag.res.nc` if it exists.
   subroutine cg_drag_init(lonb, latb, domain_in, pref, Time, axes)
-
-!-------------------------------------------------------------------
-!   cg_drag_init is the constructor for cg_drag_mod.
-!-------------------------------------------------------------------
 
 !-------------------------------------------------------------------
 !mj dimension change for older than cubed sphere real,    dimension(:,:), intent(in)      :: lonb, latb
     real, dimension(:), intent(in)      :: lonb, latb, pref
-    type(domain2d), intent(in)      :: domain_in
-    integer, dimension(4), intent(in)      :: axes
-    type(time_type), intent(in)      :: Time
+    !! `lonb`, `latb`: longitudes and latitudes of the cell corners [rad]; `pref`: reference
+    !! pressures at full levels, plus the surface value at nlev+1, for a surface pressure of
+    !! 1013.25 hPa [Pa]
+    type(domain2d), intent(in)      :: domain_in  !! domain decomposition of the model grid
+    integer, dimension(4), intent(in)      :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)      :: Time  !! current time
 !-------------------------------------------------------------------
-
-!-------------------------------------------------------------------
-!   intent(in) variables:
-!
-!       lonb      1d array of model longitudes on cell corners [radians]
-!       latb      1d array of model latitudes at cell corners [radians]
-!       domain_in domain decomposition of the model grid
-!       pref      array of reference pressures at full levels (plus
-!                 surface value at nlev+1), based on 1013.25hPa pstar
-!                 [ Pa ]
-!       Time      current time (time_type)
-!       axes      data axes for diagnostics
-!
-!------------------------------------------------------------------
 
 !-------------------------------------------------------------------
 !   local variables:
@@ -439,9 +444,11 @@ contains
 
 !####################################################################
 
+  !> Counts down the time to the next drag calculation by the model time elapsed
+  !> since the previous call.
   subroutine cg_drag_time_vary(Time)
 
-    type(time_type), intent(in)      :: Time
+    type(time_type), intent(in)      :: Time  !! current time
 
     integer :: sec, day, dt_step
 
@@ -462,6 +469,7 @@ contains
 
 !####################################################################
 
+  !> Resets the countdown to `cg_drag_freq` after a calculation step.
   subroutine cg_drag_endts
 
 !--------------------------------------------------------------------
@@ -477,46 +485,25 @@ contains
 
 !####################################################################
 
+  !> Returns the gravity-wave forcing of u and v.
+  !>
+  !> On a calculation step (every `cg_drag_freq` seconds) it computes the forcing
+  !> from the buoyancy frequency, density and winds, stores it for the steps in
+  !> between and sends the diagnostics; on the other steps it returns the stored
+  !> forcing.
   subroutine cg_drag_calc(is, js, lat, pfull, zfull, temp, uuu, vvv, &
                           Time, delt, gwfcng_x, gwfcng_y)
-!--------------------------------------------------------------------
-!    cg_drag_calc defines the arrays needed to calculate the convective
-!    gravity wave forcing, calls gwfc to calculate the forcing, returns
-!    the desired output fields, and saves the values for later retrieval
-!    if they are not calculated on every timestep.
-!
-!---------------------------------------------------------------------
 
 !---------------------------------------------------------------------
-    integer, intent(in)      :: is, js
-    real, dimension(:, :), intent(in)      :: lat
+    integer, intent(in)      :: is, js  !! indices of the first point of the physics window in the processor domain
+    real, dimension(:, :), intent(in)      :: lat  !! latitudes [rad]
     real, dimension(:, :, :), intent(in)      :: pfull, zfull, temp, uuu, vvv
-    type(time_type), intent(in)      :: Time
-    real, intent(in)      :: delt
+    !! `pfull`: pressure at full levels [Pa]; `zfull`: height at full levels [m]; `temp`:
+    !! temperature [K]; `uuu`, `vvv`: zonal and meridional wind [m/s]
+    type(time_type), intent(in)      :: Time  !! model time at the end of the step
+    real, intent(in)      :: delt  !! physics time step [s]
     real, dimension(:, :, :), intent(out)     :: gwfcng_x, gwfcng_y
-
-!-------------------------------------------------------------------
-!    intent(in) variables:
-!
-!       is,js    starting subdomain i,j indices of data in
-!                the physics_window being integrated
-!       lat      array of model latitudes at cell boundaries [radians]
-!       pfull    pressure at model full levels [ Pa ]
-!       zfull    height at model full levels [ m ]
-!       temp     temperature at model levels [ deg K ]
-!       uuu      zonal wind  [ m/s ]
-!       vvv      meridional wind  [ m/s ]
-!       Time     current time, needed for diagnostics [ time_type ]
-!       delt     physics time step [ s ]
-!
-!    intent(out) variables:
-!
-!       gwfcng_x time tendency for u eqn due to gravity-wave forcing
-!                [ m/s^2 ]
-!       gwfcng_y time tendency for v eqn due to gravity-wave forcing
-!                [ m/s^2 ]
-!
-!-------------------------------------------------------------------
+    !! tendencies of u and v due to the gravity-wave forcing [m/s2]
 
 !-------------------------------------------------------------------
 !    local variables:
@@ -727,11 +714,8 @@ contains
 
 !###################################################################
 
+  !> Writes the restart file `RESTART/cg_drag.res.nc`.
   subroutine cg_drag_end
-
-!--------------------------------------------------------------------
-!    cg_drag_end is the destructor for cg_drag_mod.
-!--------------------------------------------------------------------
 
 !--------------------------------------------------------------------
 !    local variables
@@ -766,6 +750,8 @@ contains
 
 !####################################################################
 
+  !> Computes the gravity-wave forcing of one wind component and the effective eddy
+  !> diffusivity above the source level.
   subroutine gwfc(is, ie, js, je, damp_level, source_level, source_amp, lat, rho, u, &
                   bf, z, gwf, ked)
 

@@ -1,24 +1,24 @@
+!> Global and hemispheric physics integrals, printed during the run.
+!>
+!> Other modules register named integrals (`diag_integral_field_init`) and add their
+!> area-weighted values each time step (`sum_diag_integral_field`). The accumulated
+!> values are averaged and written, as one line per `fields_per_print_line` integrals,
+!> every `output_interval` (in `time_units`) to standard output or to `file_name`; if no
+!> interval is set, they are written once, averaged over the whole run, at the end.
+!>
+!> Namelist: `diag_integral_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#diag_integral_nml)).
+!>
+!> Original authors: Fei Liu.
 module mima_diag_integral_mod
-! <CONTACT EMAIL="Fei.Liu@noaa.gov">
-!  fil
-! </CONTACT>
-! <REVIEWER EMAIL="">
-! </REVIEWER>
-! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
-! <OVERVIEW>
-!    mima_diag_integral_mod computes and outputs global and / or
-!    hemispheric physics integrals.
-! </OVERVIEW>
-! <DESCRIPTION>
-! </DESCRIPTION>
 
-!! TODO: (ROB KING)
-!! So not to throw too much shade but i think this module is a bit poop
-!! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if
-!! the output_interval is not set.
-!! If one wanted to do this properly then ideally every timestep the integrals should be calculated rather than let them accumulate.
-!! thoughts... How is AM4 doing this?
-!!
+! TODO: (ROB KING)
+! So not to throw too much shade but i think this module is a bit poop
+! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if
+! the output_interval is not set.
+! If one wanted to do this properly then ideally every timestep the integrals should be calculated rather than let them accumulate.
+! thoughts... How is AM4 doing this?
+!
 !  shared modules:
 
   use time_manager_mod, only: time_type, get_time, set_time, &
@@ -40,11 +40,6 @@ module mima_diag_integral_mod
   implicit none
   private
 
-!----------------------------------------------------------------------
-!    mima_diag_integral_mod computes and outputs global and / or
-!    hemispheric physics integrals.
-!----------------------------------------------------------------------
-
 !---------------------------------------------------------------------
 !----------- version number for this module -------------------
 
@@ -59,6 +54,12 @@ module mima_diag_integral_mod
     sum_diag_integral_field, diag_integral_output, &
     diag_integral_end
 
+  !> Adds the area-weighted values of a field to a registered integral.
+  !>
+  !> `call sum_diag_integral_field (name, data, is, js)` with 2d or 3d `data` (3d data are
+  !> summed in the vertical), `call sum_diag_integral_field (name, data, wt, is, js)` with
+  !> 3d `data` and a vertical weight `wt`, or `call sum_diag_integral_field (name, data, is,
+  !> ie, js, je)` for a hemispheric integral.
   interface sum_diag_integral_field
     module procedure sum_field_2d, &
       sum_field_2d_hemi, &
@@ -88,19 +89,19 @@ module mima_diag_integral_mod
     mxch = 64    ! maximum number of characters in
   ! the optional output file name
   real                :: &
-    output_interval = -1.0    ! time interval at which integrals
-  ! are to be output
+    output_interval = -1.0
+  !! interval at which the integrals are written, in `time_units`; negative: once, at the
+  !! end of the run (averaged over the whole run)
   character(len=8)    :: &
-    time_units = 'hours'   ! time units associated with
-  ! output_interval
+    time_units = 'hours'
+  !! units of `output_interval`: `'seconds'`, `'minutes'`, `'hours'` or `'days'`
   character(len=mxch) :: &
-    file_name = ' '   ! optional integrals output file name
+    file_name = ' '
+  !! if not blank, write the integrals to this file instead of standard output
   logical             :: &
-    print_header = .true.   ! print a header for the integrals
-  ! file ?
+    print_header = .true.   !! print a header line
   integer             :: &
-    fields_per_print_line = 4   ! number of fields to write per line
-  ! of output
+    fields_per_print_line = 4   !! number of fields per line
 
   namelist /diag_integral_nml/ &
     output_interval, time_units, &
@@ -190,48 +191,18 @@ contains
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 !####################################################################
-! <SUBROUTINE NAME="diag_integral_init">
-!  <OVERVIEW>
-!    diag_integral_init is the constructor for mima_diag_integral_mod.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    diag_integral_init is the constructor for mima_diag_integral_mod.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call diag_integral_init (Time_init, Time, blon, blat)
-!  </TEMPLATE>
-!  <IN NAME="Time_init" TYPE="time_type">
-!   Initial time to start the integral
-!  </IN>
-!  <IN NAME="Time" TYPE="time_type">
-!   current time
-!  </IN>
-!  <IN NAME="latb" TYPE="real">
-!   array of model latitudes at cell boundaries [radians]
-!  </IN>
-!  <IN NAME="lonb" TYPE="real">
-!   array of model longitudes at cell boundaries [radians]
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Initializes the module: reads `diag_integral_nml`, computes the area of the grid
+  !> boxes, opens the output file if `file_name` is set and sets the output alarm.
+  !>
+  !> The module is initialized only if all four arguments are present; otherwise the call
+  !> only initializes the modules this one uses.
   subroutine diag_integral_init(Time_init, Time, blon, blat)
 
-!--------------------------------------------------------------------
-!    diag_integral_init is the constructor for mima_diag_integral_mod.
-!--------------------------------------------------------------------
-
     type(time_type), intent(in), optional :: Time_init, Time
+    !! `Time_init`: initial time of the experiment, used for the time stamps of the
+    !! integrals; `Time`: current time
     real, dimension(:), intent(in), optional :: blon, blat
-
-!--------------------------------------------------------------------
-!  intent(in),optional variables:
-!
-!     Time_init
-!     Time
-!     blon
-!     blat
-!
-!---------------------------------------------------------------------
+    !! longitudes and latitudes of the grid box boundaries on this processor [rad]
 
 !---------------------------------------------------------------------
 !  local variables:
@@ -368,39 +339,12 @@ contains
   end subroutine diag_integral_init
 
 !######################################################################
-! <SUBROUTINE NAME="diag_integral_field_init">
-!  <OVERVIEW>
-!    diag_integral_field_init registers and intializes an integral field
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    diag_integral_field_init registers and intializes an integral field
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call diag_integral_field_init (name, format)
-!  </TEMPLATE>
-!  <IN NAME="name" TYPE="character">
-!   Name of the field to be integrated
-!  </IN>
-!  <IN NAME="format" TYPE="character">
-!   Output format of the field to be integrated
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Registers and initializes an integral field.
   subroutine diag_integral_field_init(name, format)
 
-!---------------------------------------------------------------------
-!
-!---------------------------------------------------------------------
-
     character(len=*), intent(in) :: name, format
-
-!---------------------------------------------------------------------
-!   intent(in) variables:
-!
-!       name
-!       format
-!
-!---------------------------------------------------------------------
+    !! `name`: name of the integral (at most 12 characters); `format`: Fortran format for
+    !! writing it, e.g. `'f6.3'`
 
 !---------------------------------------------------------------------
 !  local variables:
@@ -463,64 +407,15 @@ contains
 !
 !                  INTERFACE SUM_DIAG_INTEGRAL_FIELD
 !
-!  call sum_diag_integral_field (name, data, is, js)
-!     or
-!  call sum_diag_integral_field (name, data, wt, is, js)
-!     or
-!  call sum_diag_integral_field (name, data, is, ie, js, je)
-!
-!  in the first option data may be either
-!     real,              intent(in) :: data(:,:)  [ sum_field_2d ]
-!  or
-!     real,              intent(in) :: data(:,:,:) [ sum_field_3d ]
-!
-!-------------------------------------------------------------------
-! intent(in) arguments:
-!
-!  character(len=*),  intent(in) :: name
-!  real,              intent(in) :: wt(:,:,:)
-!  integer, optional, intent(in) :: is, ie, js, je
-!
-!--------------------------------------------------------------------
-! intent(in) arguments:
-!
-!     name         name associated with integral
-!     data         field of integrands to be summed over
-!     wt           vertical weighting factor to be applied to integrands
-!                  when summing
-!     is,ie,js,je  starting/ending i,j indices over which summation is
-!                  to occur
-!
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 !#####################################################################
-! <SUBROUTINE NAME="sum_field_2d">
-!  <OVERVIEW>
-!    Perform a 2 dimensional summation of named field
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    Perform a 2 dimensional summation of named field
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call sum_field_2d (name, data, is, js)
-!  </TEMPLATE>
-!  <IN NAME="name" TYPE="character">
-!   Name of the field to be integrated
-!  </IN>
-!  <IN NAME="data" TYPE="real">
-!   field of integrands to be summed over
-!  </IN>
-!  <IN NAME="is, js" TYPE="integer">
-!   starting i,j indices over which summation is
-!                  to occur
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Adds the area-weighted sum of a 2d field to an integral.
   subroutine sum_field_2d(name, data, is, js)
 
-    character(len=*), intent(in) :: name
-    real, intent(in) :: data(:, :)
-    integer, optional, intent(in) :: is, js
+    character(len=*), intent(in) :: name  !! name of the integral
+    real, intent(in) :: data(:, :)  !! field to be summed
+    integer, optional, intent(in) :: is, js  !! starting i,j indices of `data` on this processor (default 1)
 
 !---------------------------------------------------------------------
 ! local variables:
@@ -569,33 +464,12 @@ contains
   end subroutine sum_field_2d
 
 !#######################################################################
-! <SUBROUTINE NAME="sum_field_3d">
-!  <OVERVIEW>
-!    Perform a 3 dimensional summation of named field
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    Perform a 3 dimensional summation of named field
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call sum_field_3d (name, data, is, js)
-!  </TEMPLATE>
-!  <IN NAME="name" TYPE="character">
-!   Name of the field to be integrated
-!  </IN>
-!  <IN NAME="data" TYPE="real">
-!   field of integrands to be summed over
-!  </IN>
-!  <IN NAME="is, js" TYPE="integer">
-!   starting i,j indices over which summation is
-!                  to occur
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Adds the area-weighted sum of the vertical sum of a 3d field to an integral.
   subroutine sum_field_3d(name, data, is, js)
 
-    character(len=*), intent(in) :: name
-    real, intent(in) :: data(:, :, :)
-    integer, optional, intent(in) :: is, js
+    character(len=*), intent(in) :: name  !! name of the integral
+    real, intent(in) :: data(:, :, :)  !! field to be summed
+    integer, optional, intent(in) :: is, js  !! starting i,j indices of `data` on this processor (default 1)
 
 !---------------------------------------------------------------------
 ! local variables:
@@ -658,36 +532,13 @@ contains
   end subroutine sum_field_3d
 
 !#######################################################################
-! <SUBROUTINE NAME="sum_field_wght_3d">
-!  <OVERVIEW>
-!    Perform a 3 dimensional weighted summation of named field
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    Perform a 3 dimensional weighted summation of named field
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call sum_field_wght_3d (name, data, wt, is, js)
-!  </TEMPLATE>
-!  <IN NAME="name" TYPE="character">
-!   Name of the field to be integrated
-!  </IN>
-!  <IN NAME="data" TYPE="real">
-!   field of integrands to be summed over
-!  </IN>
-!  <IN NAME="wt" TYPE="real">
-!   the weight function to be evaluated at summation
-!  </IN>
-!  <IN NAME="is, js" TYPE="integer">
-!   starting i,j indices over which summation is
-!                  to occur
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Adds the area-weighted sum of the weighted vertical average of a 3d field to an
+  !> integral.
   subroutine sum_field_wght_3d(name, data, wt, is, js)
 
-    character(len=*), intent(in) :: name
-    real, intent(in) :: data(:, :, :), wt(:, :, :)
-    integer, optional, intent(in) :: is, js
+    character(len=*), intent(in) :: name  !! name of the integral
+    real, intent(in) :: data(:, :, :), wt(:, :, :)  !! field to be summed and its vertical weights
+    integer, optional, intent(in) :: is, js  !! starting i,j indices of `data` on this processor (default 1)
 
 !---------------------------------------------------------------------
 ! local variables:
@@ -748,33 +599,13 @@ contains
   end subroutine sum_field_wght_3d
 
 !#######################################################################
-! <SUBROUTINE NAME="sum_field_2d_hemi">
-!  <OVERVIEW>
-!    Perform a 2 dimensional hemispherical summation of named field
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    Perform a 2 dimensional hemispherical summation of named field
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call sum_field_2d_hemi (name, data, is, ie, js, je)
-!  </TEMPLATE>
-!  <IN NAME="name" TYPE="character">
-!   Name of the field to be integrated
-!  </IN>
-!  <IN NAME="data" TYPE="real">
-!   field of integrands to be summed over
-!  </IN>
-!  <IN NAME="is, js, ie, je" TYPE="integer">
-!   starting/ending i,j indices over which summation is
-!                  to occur
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Adds the area-weighted sum of one latitude row of a 2d field to a hemispheric
+  !> integral.
   subroutine sum_field_2d_hemi(name, data, is, ie, js, je)
 
-    character(len=*), intent(in) :: name
-    real, intent(in) :: data(:, :)
-    integer, intent(in) :: is, js, ie, je
+    character(len=*), intent(in) :: name  !! name of the integral
+    real, intent(in) :: data(:, :)  !! field to be summed
+    integer, intent(in) :: is, js, ie, je  !! starting and ending i,j indices of the data on this processor
 
 !---------------------------------------------------------------------
 ! local variables:
@@ -841,42 +672,11 @@ contains
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 !##################################################################
-! <SUBROUTINE NAME="diag_integral_output">
-!  <OVERVIEW>
-!    diag_integral_output determines if this is a timestep on which
-!    integrals are to be written. if not, it returns; if so, it calls
-!    write_field_averages.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    diag_integral_output determines if this is a timestep on which
-!    integrals are to be written. if not, it returns; if so, it calls
-!    write_field_averages.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call diag_integral_output (Time)
-!  </TEMPLATE>
-!  <IN NAME="Time" TYPE="time_type">
-!   integral time stamp at the current time
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Writes the integrals (averaged since the previous output) if this is an output
+  !> time, and sets the next output time.
   subroutine diag_integral_output(Time)
 
-!---------------------------------------------------------------------
-!    diag_integral_output determines if this is a timestep on which
-!    integrals are to be written. if not, it returns; if so, it calls
-!    write_field_averages.
-!---------------------------------------------------------------------
-
-    type(time_type), intent(in) :: Time
-
-!-----------------------------------------------------------------------
-!  intent(in) variables:
-!
-!         Time     integral time stamp at the current time
-!                  [ time_type ]
-!
-!---------------------------------------------------------------------
+    type(time_type), intent(in) :: Time  !! current time
 
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
@@ -904,28 +704,11 @@ contains
   end subroutine diag_integral_output
 
 !#######################################################################
-! <SUBROUTINE NAME="diag_integral_end">
-!  <OVERVIEW>
-!    diag_integral_end is the destructor for mima_diag_integral_mod.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    diag_integral_end is the destructor for mima_diag_integral_mod.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call diag_integral_end (Time)
-!  </TEMPLATE>
-!  <IN NAME="Time" TYPE="time_type">
-!   integral time stamp at the current time
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Finalizes the module; if no `output_interval` was set, first writes the integrals
+  !> averaged over the whole run.
   subroutine diag_integral_end(Time)
 
-!--------------------------------------------------------------------
-!    diag_integral_end is the destructor for mima_diag_integral_mod.
-!--------------------------------------------------------------------
-
-    type(time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time  !! current time
 
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
@@ -940,11 +723,11 @@ contains
 !    output during the model run) call write_field_averages to output
 !    the integrals valid over the entire period of integration.
 !---------------------------------------------------------------------
-      !! TODO: Fix bug here, if time is large or resolution large, then this can easily lead to an integer overflow!
-      !! My thought (Rob K) is that if the alarm interval is unset and there is no file name reqested then writing the field
-      !! averages is not desired.
-      !! The only other thought would be to promote the field_count array to a 8-byte integer. That should probably be done
-      !! anyway...
+      ! TODO: Fix bug here, if time is large or resolution large, then this can easily lead to an integer overflow!
+      ! My thought (Rob K) is that if the alarm interval is unset and there is no file name reqested then writing the field
+      ! averages is not desired.
+      ! The only other thought would be to promote the field_count array to a 8-byte integer. That should probably be done
+      ! anyway...
     if (Alarm_interval == Zero_time) then
 !       if (Alarm_interval /= Zero_time ) then
 !       else
@@ -972,24 +755,7 @@ contains
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 !#######################################################################
-! <FUNCTION NAME="set_axis_time">
-!  <OVERVIEW>
-!    Function to convert input time to a time_type
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    Function to convert input time to a time_type
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   time = set_axis_time (atime, units)
-!  </TEMPLATE>
-!  <IN NAME="atime" TYPE="real">
-!   integral time stamp at the current time
-!  </IN>
-!  <IN NAME="units" TYPE="character">
-!   input units, not used
-!  </IN>
-! </FUNCTION>
-!
+  !> Converts a time in `units` to a `time_type`.
   function set_axis_time(atime, units) result(Time)
 
 !--------------------------------------------------------------------
@@ -1040,23 +806,7 @@ contains
   end function set_axis_time
 
 !######################################################################
-! <FUNCTION NAME="get_field_index">
-!  <OVERVIEW>
-!   get_field_index returns returns the index associated with an
-!   integral name.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!   get_field_index returns returns the index associated with an
-!   integral name.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   index = get_field_index (name)
-!  </TEMPLATE>
-!  <IN NAME="name" TYPE="real">
-!   Name associated with an integral
-!  </IN>
-! </FUNCTION>
-!
+  !> Returns the index of the integral with a given name (0 if there is none).
   function get_field_index(name) result(index)
 
 !---------------------------------------------------------------------
@@ -1113,23 +863,7 @@ contains
   end function get_field_index
 
 !#####################################################################
-! <SUBROUTINE NAME="write_field_averages">
-!  <OVERVIEW>
-!    Subroutine to sum multiple fields, average them and then write the result
-!    to an output file.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    Subroutine to sum multiple fields, average them and then write the result
-!    to an output file.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call  write_field_averages (Time)
-!  </TEMPLATE>
-!  <IN NAME="Time" TYPE="time_type">
-!   integral time stamp at the current time
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Sums the integrals over all processors, averages them and writes them (root PE only).
   subroutine write_field_averages(Time)
 
 !---------------------------------------------------------------------
@@ -1257,24 +991,7 @@ contains
   end subroutine write_field_averages
 
 !#######################################################################
-! <SUBROUTINE NAME="format_text_init">
-!  <OVERVIEW>
-!    format_text_init generates the header records to be output in the
-!    integrals file.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    format_text_init generates the header records to be output in the
-!    integrals file.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call  format_text_init (nst_in, nend_in)
-!  </TEMPLATE>
-!  <IN NAME="nst_in, nend_in" TYPE="integer">
-!    starting/ending integral index which will be included
-!                    in this format statement
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Generates and writes the header line for integrals `nst_in` to `nend_in`.
   subroutine format_text_init(nst_in, nend_in)
 
 !----------------------------------------------------------------------
@@ -1364,24 +1081,7 @@ contains
   end subroutine format_text_init
 
 !#######################################################################
-! <SUBROUTINE NAME="format_data_init">
-!  <OVERVIEW>
-!    format_text_init generates the format to be output in the
-!    integrals file.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    format_text_init generates the format to be output in the
-!    integrals file.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   call  format_data_init (nst_in, nend_in)
-!  </TEMPLATE>
-!  <IN NAME="nst_in, nend_in" TYPE="integer">
-!    starting/ending integral index which will be included
-!                    in this format statement
-!  </IN>
-! </SUBROUTINE>
-!
+  !> Generates the output format for integrals `nst_in` to `nend_in`.
   subroutine format_data_init(nst_in, nend_in)
 
 !---------------------------------------------------------------------
@@ -1456,26 +1156,7 @@ contains
   end subroutine format_data_init
 
 !#######################################################################
-! <FUNCTION NAME="get_axis_time">
-!  <OVERVIEW>
-!    Function to convert the time_type input variable into units of
-!    units and returns it in atime.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!    Function to convert the time_type input variable into units of
-!    units and returns it in atime.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   atime = get_axis_time (Time, units)
-!  </TEMPLATE>
-!  <IN NAME="Time" TYPE="time_type">
-!   integral time stamp
-!  </IN>
-!  <IN NAME="units" TYPE="character">
-!   input units of time_type
-!  </IN>
-! </FUNCTION>
-!
+  !> Converts a `time_type` to a time in `units`.
   function get_axis_time(Time, units) result(atime)
 
 !---------------------------------------------------------------------
@@ -1523,23 +1204,7 @@ contains
   end function get_axis_time
 
 !#####################################################################
-! <FUNCTION NAME="diag_integral_alarm">
-!  <OVERVIEW>
-!   Function to check if it is time to write integrals.
-!   if not writing integrals, return.
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!   Function to check if it is time to write integrals.
-!   if not writing integrals, return.
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   result = diag_integral_alarm (Time)
-!  </TEMPLATE>
-!  <IN NAME="Time" TYPE="time_type">
-!   current time
-!  </IN>
-! </FUNCTION>
-!
+  !> Returns whether it is time to write the integrals.
   function diag_integral_alarm(Time) result(answer)
 
 !--------------------------------------------------------------------
@@ -1573,26 +1238,7 @@ contains
   end function diag_integral_alarm
 
 !#######################################################################
-! <FUNCTION NAME="vert_diag_integral">
-!  <OVERVIEW>
-!   Function to perform a weighted integral in the vertical
-!    direction of a 3d data field
-!  </OVERVIEW>
-!  <DESCRIPTION>
-!   Function to perform a weighted integral in the vertical
-!    direction of a 3d data field
-!  </DESCRIPTION>
-!  <TEMPLATE>
-!   data2 = vert_diag_integral (data, wt)
-!  </TEMPLATE>
-!  <IN NAME="data" TYPE="real">
-!   integral field data arrays
-!  </IN>
-!  <IN NAME="wt" TYPE="real">
-!   integral field weighting functions
-!  </IN>
-! </FUNCTION>
-!
+  !> Returns the weighted vertical average of a 3d field.
   function vert_diag_integral(data, wt) result(data2)
 
 !----------------------------------------------------------------------
