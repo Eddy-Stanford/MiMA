@@ -193,6 +193,8 @@ program coupler_main
                                 update_simple_surface, &
                                 simple_surface_end
 
+  use physics_driver_mod, only: surface_is_coupled
+
   use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end
   use mpp_mod, only: mpp_init, mpp_pe, mpp_npes, mpp_root_pe, &
                      stderr, stdlog, mpp_error, NOTE, FATAL, WARNING, &
@@ -432,6 +434,9 @@ program coupler_main
             if (do_atmos) &
               call update_atmos_model_down( Land_ice_atmos_boundary, Atm )
 
+            ! without a boundary layer (e.g. dry Held-Suarez) the surface
+            ! state is left unchanged
+            if (surface_is_coupled()) &
               call update_simple_surface (float(dt_atmos), Time_atmos, Atm, &
                                           Land_ice_atmos_boundary%dt_t, &
                                           Land_ice_atmos_boundary%dt_q)

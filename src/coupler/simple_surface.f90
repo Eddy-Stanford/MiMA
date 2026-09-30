@@ -193,6 +193,8 @@ pi = 4.0*atan(1.)
 !-----------------------------------------------------------------------
 !------ allocate storage also needed in flux_up_to_atmos -----
 
+   ! (still allocated if the previous step did not update the surface)
+   if (.not. allocated(e_t_n)) &
    allocate (e_t_n      (size(Atm%t_bot,1), size(Atm%t_bot,2)), &
              e_q_n      (size(Atm%t_bot,1), size(Atm%t_bot,2)), &
              f_t_delt_n (size(Atm%t_bot,1), size(Atm%t_bot,2)), &

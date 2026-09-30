@@ -92,6 +92,8 @@ use damping_driver_mod,      only: damping_driver,      &
 
 use radiation_mod,           only: radiation_init, radiation_down, radiation_end
 
+use held_suarez_mod,         only: held_suarez_init, held_suarez_forcing, held_suarez_end
+
 use local_heating_mod, only:  local_heating_init,local_heating
 
 !-----------------------------------------------------------------
@@ -118,7 +120,7 @@ character(len=128) :: tagname = '$Name:  $'
 
 public  physics_driver_init, physics_driver_down,   &
         physics_driver_up, physics_driver_end, &
-        do_local_heating
+        do_local_heating, surface_is_coupled
 
 private          &
 
@@ -146,6 +148,11 @@ logical :: do_damping = .true.
 
 logical :: do_local_heating = .false.
 
+logical :: do_held_suarez = .false.    ! add the Held-Suarez (1994) forcing?
+logical :: do_boundary_layer = .true.  ! boundary-layer turbulence, vertical diffusion
+                                       ! and coupling to the surface fluxes?
+logical :: do_moist_physics = .true.   ! convection and large-scale condensation?
+
 real    :: diff_min = 1.e-3    ! minimum value of a diffusion 
                                ! coefficient beneath which the
                                ! coefficient is reset to zero
@@ -170,7 +177,8 @@ logical :: diffusion_smooth = .true.
 !
 namelist / physics_driver_nml / tau_diff,      &
                                 diff_min, diffusion_smooth, &
-                                do_damping, do_local_heating
+                                do_damping, do_local_heating, &
+                                do_held_suarez, do_boundary_layer, do_moist_physics
 
 !---------------------------------------------------------------------
 !------- public data ------
@@ -448,6 +456,8 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
       call vert_diff_driver_init (Surf_diff, id, jd, kd, axes, Time )
 
       call radiation_init(axes, Time, id, jd, kd, lonb, latb)
+
+      if(do_held_suarez) call held_suarez_init(axes, Time)
 
       if(do_local_heating) call local_heating_init(axes, Time)
 
@@ -852,6 +862,14 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
       call radiation_down(is, js, Time, Time_next, lat, lon, p_full, p_half, z_full, z_half, &
                           t, q, t_surf_rad, albedo, tdt, flux_sw, flux_lw)
       call mpp_clock_end ( radiation_clock )
+
+!----------------------------------------------------------------------
+!    Held-Suarez forcing, computed from the previous time level
+!----------------------------------------------------------------------
+      if(do_held_suarez) then
+        call held_suarez_forcing(is, js, Time_next, lat, p_full, p_half, &
+                                 um, vm, tm, udt, vdt, tdt)
+      endif
 !----------------------------------------------------------------------
 !    artificial local heating if required
 !----------------------------------------------------------------------
@@ -878,6 +896,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !    call vert_turb_driver to calculate diffusion coefficients. save
 !    the planetary boundary layer height on return.
 !---------------------------------------------------------------------
+      if (do_boundary_layer) then
       call mpp_clock_begin ( turb_clock )
       call vert_turb_driver (is, js, Time_next, dt,                  &
                              p_half, p_full, z_half, z_full, u_star, &
@@ -886,6 +905,9 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
                              diff_t_vert, diff_m_vert, gust, z_pbl,  &
                              mask=mask, kbot=kbot             )
      call mpp_clock_end ( turb_clock )
+      else
+        gust = 0.0
+      endif
 
      
 !-----------------------------------------------------------------------
@@ -916,6 +938,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
 !
 !    in the code below alpha = dt / tau_diff
 !---------------------------------------------------------------------
+      if (do_boundary_layer) then
       if (diffusion_smooth) then
         call get_time (Time_next - Time, sec, day)
         dt2 = real(sec + day*86400)
@@ -951,6 +974,7 @@ real,  dimension(:,:,:), intent(out)  ,optional :: diffm, difft
                                   udt, vdt, tdt, qdt, rdt,       &
                                   Surf_diff,                     &
                                   mask=mask, kbot=kbot           )
+      endif ! do_boundary_layer
 
 !---------------------------------------------------------------------
 !    if desired, return diff_m and diff_t to calling routine.
@@ -1226,18 +1250,21 @@ integer,dimension(:,:), intent(in),   optional :: kbot
 !    call vert_diff_driver_up to complete the vertical diffusion
 !    calculation.
 !------------------------------------------------------------------
+      if (do_boundary_layer) then
       call mpp_clock_begin ( diff_up_clock )
 ! XXX df's version of vert_diff_driver_up requires t for one of his new diagnostic fields
         call vert_diff_driver_up (is, js, Time_next, dt, p_half,   &
                                   Surf_diff, tdt, qdt, mask=mask,  &
                                   kbot=kbot, t=t)
       call mpp_clock_end ( diff_up_clock )
+      endif
 
 !-----------------------------------------------------------------------
 !    if the fms integration path is being followed, call moist processes
 !    to compute moist physics, including convection and processes 
 !    involving condenstion.
 !-----------------------------------------------------------------------
+      if (do_moist_physics) then
       call mpp_clock_begin ( moist_processes_clock )
       call moist_processes (is, ie, js, je, Time_next, dt, frac_land, &
                             p_half, p_full, z_half, z_full, omega,    &
@@ -1253,6 +1280,10 @@ integer,dimension(:,:), intent(in),   optional :: kbot
 !    from non-convective parameterizations.
 !---------------------------------------------------------------------
       gust = sqrt( gust*gust + gust_cv*gust_cv)
+      else
+        lprec = 0.0
+        fprec = 0.0
+      endif
 
 !-----------------------------------------------------------------------
 
@@ -1319,6 +1350,7 @@ type(time_type), intent(in) :: Time
       call vert_turb_driver_end
       call vert_diff_driver_end
       call radiation_end
+      if(do_held_suarez) call held_suarez_end
       call moist_processes_end
       call atmos_tracer_driver_end
       if(do_damping) call damping_driver_end
@@ -1343,6 +1375,19 @@ type(time_type), intent(in) :: Time
 !#####################################################################
 
 
+
+!#######################################################################
+
+logical function surface_is_coupled()
+
+!---------------------------------------------------------------------
+!    .true. if the atmosphere exchanges heat, moisture and momentum with
+!    the surface (physics_driver_nml do_boundary_layer). The coupler does
+!    not update the surface state otherwise.
+!---------------------------------------------------------------------
+      surface_is_coupled = do_boundary_layer
+
+end function surface_is_coupled
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 !
