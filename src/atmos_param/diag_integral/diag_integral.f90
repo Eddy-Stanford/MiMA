@@ -1232,10 +1232,12 @@ type (time_type), intent(in) :: Time
 !    verify that all the data expected for an integral has been 
 !    obtained.
 !--------------------------------------------------------------------
-        if (field_count(i) == 0 ) call error_mesg &
-                     ('diag_integral_mod',  &
-                      'field_count equals zero for field_name ' //  &
-                       field_name(i)(1:len_trim(field_name(i))), FATAL )
+!    an integral with no data (its scheme is switched off, e.g. prec
+!    without moist physics) is written as zero.
+        if (field_count(i) == 0 ) then
+          field_avg(fields_to_print) = 0.0
+          cycle
+        endif
         kount = field_count(i)/field_size
         if ((field_size)*kount /= field_count(i)) then
           write (chsize, '(i0)') field_size
