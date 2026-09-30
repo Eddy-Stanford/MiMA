@@ -55,6 +55,7 @@ The HS forcing can be combined with other parts of the model:
 * `do_damping = .true.` with `damping_driver_nml` enables the Rayleigh sponge (`do_rayleigh`) and/or the convective gravity-wave drag (`do_cg_drag`).
 * Non-flat topography through `topography_option` in `spectral_dynamics_nml`.
 * **Moist variants:** with `do_moist_physics = .true.` and `do_boundary_layer = .true.` (and `do_rayleigh_friction = .false.`), the HS temperature relaxation replaces radiation while MiMA's moist physics, boundary layer and surface fluxes stay active. This is similar in spirit to the moist Held-Suarez test of [Thatcher and Jablonowski (2016)](https://doi.org/10.5194/gmd-9-1263-2016), but uses MiMA's own boundary-layer and surface schemes.
+  With `radiation_scheme = 'none'` the surface receives no radiation, so hold the SST fixed with `surface_choice = 2` in `simple_surface_nml` (its initial profile is set by `Tm` and `deltaT`); a slab ocean would otherwise cool without limit. The HS equilibrium temperature near the equatorial surface (315 K) is warmer than typical SSTs, so the lowest layers are stably stratified over the ocean and the hydrological cycle is weak: with the default SST profile (about 298 K at the equator) precipitation takes about three weeks to start and settles near 0.5 mm/day in the global mean.
 
 ## Specified initial conditions
 
