@@ -106,7 +106,9 @@ case ('gray')
 case ('rrtm')
    ! RRTM needs the temperature at half levels
    call interp_temp(z_full, z_half, t_surf_rad, t)
-   call run_rrtmg(is, js, Time, lat, lon, p_full, p_half, albedo, q, t, t_surf_rad, tdt, coszen, flux_sw, flux_lw)
+   ! RRTM computes at Time and, like the other physics, sends its diagnostics at Time_next
+   call run_rrtmg(is, js, Time, Time_next, lat, lon, p_full, p_half, albedo, q, t, t_surf_rad, tdt, coszen, &
+                  flux_sw, flux_lw)
 end select
 
 end subroutine radiation_down

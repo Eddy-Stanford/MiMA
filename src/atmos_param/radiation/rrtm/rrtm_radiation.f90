@@ -98,8 +98,11 @@
                                                                             ! between radiation steps to
                                                                             ! determine precip_albedo
                                                                             ! dimension (lon x lat)
-        real(kind=rb),allocatable,dimension(:,:)   :: olr,isr               ! Outgoing LW and Incoming SW radiation
+        real(kind=rb),allocatable,dimension(:,:)   :: olr,isr               ! Outgoing LW and net SW radiation at TOA
                                                                             ! diagnostics only [W/m2]
+                                                                            ! dimension (lon x lat)
+        real(kind=rb),allocatable,dimension(:,:)   :: swdn_toa,lwup_sfc     ! SW flux down at TOA and LW flux up at
+                                                                            ! the surface, diagnostics only [W/m2]
                                                                             ! dimension (lon x lat)
         integer(kind=im)                           :: num_precip            ! number of times precipitation
                                                                             ! has been summed in rrtm_precip
@@ -172,7 +175,7 @@
 !-------------------- diagnostics fields -------------------------------
 
         integer :: id_tdt_rad,id_tdt_sw,id_tdt_lw,id_coszen,id_flux_sw,id_flux_lw,id_albedo,id_ozone,id_thalf
-        integer :: id_olr,id_isr
+        integer :: id_olr,id_isr,id_swdn_toa,id_lwup_sfc
         character(len=9), parameter :: mod_name = 'radiation'
         real :: missing_value = -999.
 
@@ -264,6 +267,14 @@
                register_diag_field ( mod_name, 'swnet_toa', axes(1:2), Time, &
                  'Net SW flux at TOA (positive down)', &
                  'W/m2', missing_value=missing_value               )
+          id_swdn_toa = &
+               register_diag_field ( mod_name, 'swdn_toa', axes(1:2), Time, &
+                 'SW flux down at TOA', &
+                 'W/m2', missing_value=missing_value               )
+          id_lwup_sfc = &
+               register_diag_field ( mod_name, 'lwup_sfc', axes(1:2), Time, &
+                 'LW flux up at surface', &
+                 'W/m2', missing_value=missing_value               )
           id_albedo  = &
                register_diag_field ( mod_name, 'albedo_rad', axes(1:2), Time, &
                  'Surface albedo seen by the radiation', &
@@ -351,6 +362,8 @@
           if(id_tdt_lw .gt. 0) allocate(tdt_lw_rad(size(lonb,1)-1,size(latb,1)-1,nlay))
           if(id_isr .gt. 0) allocate(isr(size(lonb,1)-1,size(latb,1)-1))
           if(id_olr .gt. 0) allocate(olr(size(lonb,1)-1,size(latb,1)-1))
+          if(id_swdn_toa .gt. 0) allocate(swdn_toa(size(lonb,1)-1,size(latb,1)-1))
+          if(id_lwup_sfc .gt. 0) allocate(lwup_sfc(size(lonb,1)-1,size(latb,1)-1))
 
           if(do_precip_albedo)then
              rrtm_precip = 0.
@@ -412,7 +425,7 @@
         end subroutine interp_temp
 !*****************************************************************************************
 !*****************************************************************************************
-        subroutine run_rrtmg(is,js,Time,lat,lon,p_full,p_half,albedo,q,t,t_surf_rad,tdt,coszen,flux_sw,flux_lw)
+        subroutine run_rrtmg(is,js,Time,Time_diag,lat,lon,p_full,p_half,albedo,q,t,t_surf_rad,tdt,coszen,flux_sw,flux_lw)
 !
 ! Driver for RRTMG radiation scheme.
 ! Prepares all inputs, calls SW and LW radiation schemes,
@@ -433,6 +446,8 @@
 
           integer, intent(in)                               :: is, js          ! index range for each CPU
           type(time_type),intent(in)                        :: Time            ! global time in calendar
+          type(time_type),intent(in)                        :: Time_diag       ! time the diagnostics are sent at
+                                                                               ! (Time_next, as for the other physics)
           real(kind=rb),dimension(:,:,:),intent(in)         :: p_full,p_half   ! pressure, full and half levels
                                                                                ! dimension (lat x lon x p*)
           real(kind=rb),dimension(:,:,:),intent(in)         :: q               ! water vapor mixing ratio [g/g]
@@ -464,6 +479,7 @@
                ,swuflx, swdflx, swuflxc, swdflxc
           real(kind=rb),dimension(size(q,1)/lonstep,size(q,2),size(q,3)  ) :: swijk,lwijk
           real(kind=rb),dimension(size(q,1)/lonstep,size(q,2)) :: swflxijk,lwflxijk,olrijk,isrijk
+          real(kind=rb),dimension(size(q,1)/lonstep,size(q,2)) :: swdntoaijk,lwupsfcijk
           real(kind=rb),dimension(ncols_rrt,nlay_rrt+1):: phalf,thalf
           real(kind=rb),dimension(ncols_rrt)   :: tsrf,cosz_rr,albedo_rr
           real(kind=rb) :: dlon,dlat,dj,di
@@ -494,7 +510,7 @@
                 flux_lw  = 0.
              endif
              tdt = tdt + tdt_rrtm
-             call write_diag_rrtm(Time,is,js)
+             call write_diag_rrtm(Time_diag,is,js)
              return !not time yet
           endif
 !make sure we run perpetual when solday > 0)
@@ -624,6 +640,7 @@
 
           swijk   = reshape(swhr(:,sk:1:-1),(/ si/lonstep,sj,sk /))*daypersec
           isrijk  = reshape(swdflx(:,sk+1)-swuflx(:,sk+1),(/ si/lonstep,sj /))
+          swdntoaijk = reshape(swdflx(:,sk+1),(/ si/lonstep,sj /))
 
           hr = 0.
           dflx = 0.
@@ -660,6 +677,7 @@
 
           lwijk   = reshape(hr(:,sk:1:-1),(/ si/lonstep,sj,sk /))*daypersec
           olrijk  = reshape(uflx(:,sk+1),(/ si/lonstep,sj /))
+          lwupsfcijk = reshape(uflx(:,1),(/ si/lonstep,sj /))
 
 !---------------------------------------------------------------------------------------------------------------
           ! get radiation
@@ -683,6 +701,8 @@
                    if(id_tdt_lw .gt. 0)tdt_lw_rad(ij1,:,:)=di*lwijk(i1,:,:)+(1.-di)*lwijk(i,:,:)
                    if(id_olr    .gt. 0)olr(ij1,:)         =di*olrijk(i1,:) +(1.-di)*olrijk(i,:)
                    if(id_isr    .gt. 0)isr(ij1,:)         =di*isrijk(i1,:) +(1.-di)*isrijk(i,:)
+                   if(id_swdn_toa .gt. 0)swdn_toa(ij1,:)  =di*swdntoaijk(i1,:)+(1.-di)*swdntoaijk(i,:)
+                   if(id_lwup_sfc .gt. 0)lwup_sfc(ij1,:)  =di*lwupsfcijk(i1,:)+(1.-di)*lwupsfcijk(i,:)
                 enddo
              enddo
           tdt = tdt + tdt_rrtm
@@ -726,9 +746,9 @@
           ! check if we want surface albedo as a function of precipitation
           !  call diagnostics accordingly
           if(do_precip_albedo)then
-             call write_diag_rrtm(Time,is,js,o3f,t_half,albedo_loc)
+             call write_diag_rrtm(Time_diag,is,js,o3f,t_half,albedo_loc)
           else
-             call write_diag_rrtm(Time,is,js,o3f,t_half)
+             call write_diag_rrtm(Time_diag,is,js,o3f,t_half)
           endif
         end subroutine run_rrtmg
 
@@ -774,9 +794,17 @@
           if ( id_flux_lw > 0 ) then
              used = send_data ( id_flux_lw, lw_flux, Time, is, js )
           endif
-!------- Incoming SW radiation                   ------------
+!------- Net SW radiation at TOA               ------------
           if ( id_isr > 0 ) then
              used = send_data ( id_isr, isr, Time, is, js )
+          endif
+!------- Incoming SW radiation at TOA          ------------
+          if ( id_swdn_toa > 0 ) then
+             used = send_data ( id_swdn_toa, swdn_toa, Time, is, js )
+          endif
+!------- Upward LW flux at the surface         ------------
+          if ( id_lwup_sfc > 0 ) then
+             used = send_data ( id_lwup_sfc, lwup_sfc, Time, is, js )
           endif
 !------- Outgoing LW radiation                   ------------
           if ( id_olr > 0 ) then
@@ -838,6 +866,8 @@
           if(allocated(tdt_lw_rad))  deallocate(tdt_lw_rad)
           if(allocated(isr))         deallocate(isr)
           if(allocated(olr))         deallocate(olr)
+          if(allocated(swdn_toa))    deallocate(swdn_toa)
+          if(allocated(lwup_sfc))    deallocate(lwup_sfc)
           rrtm_init = .false.
 
         end subroutine rrtm_radiation_end
@@ -867,6 +897,8 @@
           if(allocated(tdt_lw_rad)) call read_saved(rst, 'tdt_lw_rad', tdt_lw_rad, found)
           if(allocated(olr))        call read_saved(rst, 'olr',        olr,        found)
           if(allocated(isr))        call read_saved(rst, 'isr',        isr,        found)
+          if(allocated(swdn_toa))   call read_saved(rst, 'swdn_toa',   swdn_toa,   found)
+          if(allocated(lwup_sfc))   call read_saved(rst, 'lwup_sfc',   lwup_sfc,   found)
           if(found)then
              call read_restart_field(rst, 'dt_last', x)
              dt_last = nint(x)
@@ -934,6 +966,8 @@
           if(allocated(tdt_lw_rad)) call write_restart_field(rst, 'tdt_lw_rad', tdt_lw_rad)
           if(allocated(olr))        call write_restart_field(rst, 'olr',        olr)
           if(allocated(isr))        call write_restart_field(rst, 'isr',        isr)
+          if(allocated(swdn_toa))   call write_restart_field(rst, 'swdn_toa',   swdn_toa)
+          if(allocated(lwup_sfc))   call write_restart_field(rst, 'lwup_sfc',   lwup_sfc)
           if(do_precip_albedo)then
              call write_restart_field(rst, 'rrtm_precip', rrtm_precip)
              call write_restart_field(rst, 'num_precip',  real(num_precip))

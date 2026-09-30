@@ -89,7 +89,7 @@ namelist/gray_radiation_nml/ solar_constant, del_sol, &
 !==================================================================================
 !-------------------- diagnostics fields -------------------------------
 
-integer :: id_olr, id_swdn_sfc, id_swdn_toa, id_lwdn_sfc, id_lwup_sfc, &
+integer :: id_olr, id_swdn_sfc, id_swdn_toa, id_swnet_toa, id_lwdn_sfc, id_lwup_sfc, id_albedo, &
            id_tdt_rad, id_flux_rad, id_flux_lw, id_flux_sw, id_entrop_rad
 !mj debug
 integer :: id_tau,id_tau_rad
@@ -153,10 +153,18 @@ initialized = .true.
     register_diag_field ( mod_name, 'swdn_toa', axes(1:2), Time, &
                'SW flux down at TOA', &
                'W/m2', missing_value=missing_value               )
+    id_swnet_toa = &
+    register_diag_field ( mod_name, 'swnet_toa', axes(1:2), Time, &
+               'Net SW flux at TOA (positive down)', &
+               'W/m2', missing_value=missing_value               )
     id_lwup_sfc = &
     register_diag_field ( mod_name, 'lwup_sfc', axes(1:2), Time, &
                'LW flux up at surface', &
                'W/m2', missing_value=missing_value               )
+    id_albedo = &
+    register_diag_field ( mod_name, 'albedo_rad', axes(1:2), Time, &
+               'Surface albedo seen by the radiation', &
+               'none', missing_value=missing_value               )
 
     id_lwdn_sfc = &
     register_diag_field ( mod_name, 'lwdn_sfc', axes(1:2), Time, &
@@ -352,11 +360,19 @@ swin = solar_down(:,:,1)
       if ( id_swdn_toa > 0 ) then
           used = send_data ( id_swdn_toa, swin, Time_diag, is, js )
       endif
+!------- net sw flux toa (positive down): no SW absorption above the surface on the way up -------
+      if ( id_swnet_toa > 0 ) then
+          used = send_data ( id_swnet_toa, -flux_sw(:,:,1), Time_diag, is, js )
+      endif
 !------- upward lw flux surface -------
       if ( id_lwup_sfc > 0 ) then
           used = send_data ( id_lwup_sfc, b_surf, Time_diag, is, js )
       endif
 
+!------- surface albedo -------
+      if ( id_albedo > 0 ) then
+          used = send_data ( id_albedo, albedo, Time_diag, is, js )
+      endif
 !------- downward lw flux surface -------
       if ( id_lwdn_sfc > 0 ) then
           used = send_data ( id_lwdn_sfc, surf_lw_down, Time_diag, is, js )
