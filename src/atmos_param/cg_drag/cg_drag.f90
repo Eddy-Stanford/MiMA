@@ -7,6 +7,10 @@ use fms_mod,                only:  fms_init, mpp_pe, mpp_root_pe,  &
                                    stdlog, write_version_number
 use time_manager_mod,       only:  time_manager_init, time_type, get_time, &
                                    operator(-)
+use mpp_domains_mod,        only:  domain2d
+use restart_file_mod,       only:  restart_file_type, open_restart_read, &
+                                   open_restart_write, close_restart, &
+                                   read_restart_field, write_restart_field
 use diag_manager_mod,       only:  diag_manager_init,   &
                                    register_diag_field, send_data
 use constants_mod,          only:  constants_init, PI, RDGAS, GRAV, CP_AIR, &
@@ -127,16 +131,9 @@ namelist / cg_drag_nml /         &
 !------ private data ------
 
 !--------------------------------------------------------------------
-!   list of restart versions readable by this module.
-!--------------------------------------------------------------------
-!mj remove restart stuff integer, dimension(3)  :: restart_versions = (/ 1, 2, 3 /)
-! v1 :
-! v2 : 
-! v3 : Now use NetCDF for restart file.
-!
-!--------------------------------------------------------------------
 !   these arrays must be preserved across timesteps in case the
-!   parameterization is not called every timestep:
+!   parameterization is not called every timestep (they are kept in
+!   the restart file RESTART/cg_drag.res.nc, with cgdrag_alarm):
 !
 !   gwd      time tendency for u eqn due to gravity wave forcing 
 !            [ m/s^2 ]
@@ -173,7 +170,7 @@ integer    :: klevel_of_source, klevel_of_damp
 !---------------------------------------------------------------------
 integer          :: cgdrag_alarm
 type(time_type)  :: Time_last_call     ! model time of the previous call
-logical          :: have_last_call = .false.
+type(domain2d)   :: domain             ! grid domain, for the restart file
 
 
 !---------------------------------------------------------------------
@@ -202,7 +199,7 @@ logical          :: module_is_initialized=.false.
 
 !####################################################################
 
-subroutine cg_drag_init (lonb, latb, pref, Time, axes)
+subroutine cg_drag_init (lonb, latb, domain_in, pref, Time, axes)
 
 
 !-------------------------------------------------------------------
@@ -212,6 +209,7 @@ subroutine cg_drag_init (lonb, latb, pref, Time, axes)
 !-------------------------------------------------------------------
 !mj dimension change for older than cubed sphere real,    dimension(:,:), intent(in)      :: lonb, latb
 real,    dimension(:),   intent(in)      :: lonb, latb, pref
+type(domain2d),          intent(in)      :: domain_in
 integer, dimension(4),   intent(in)      :: axes
 type(time_type),         intent(in)      :: Time
 !-------------------------------------------------------------------
@@ -221,6 +219,7 @@ type(time_type),         intent(in)      :: Time
 !
 !       lonb      1d array of model longitudes on cell corners [radians]
 !       latb      1d array of model latitudes at cell corners [radians]
+!       domain_in domain decomposition of the model grid
 !       pref      array of reference pressures at full levels (plus
 !                 surface value at nlev+1), based on 1013.25hPa pstar
 !                 [ Pa ]
@@ -235,6 +234,8 @@ type(time_type),         intent(in)      :: Time
       integer                 :: unit, ierr, io, logunit
       integer                 :: n, i, j, k
       integer                 :: idf, jdf, kmax
+      real                    :: alarm
+      type(restart_file_type) :: rst
       real                    :: pif = 3.14159265358979/180.
       real                    :: pifinv = 180./3.14159265358979
 !      real                    :: pif = PI/180.
@@ -417,27 +418,33 @@ type(time_type),         intent(in)      :: Time
      allocate ( gwd_v(idf,jdf,kmax) )
 
 !--------------------------------------------------------------------
-!    if present, read the restart data file.
+!    if present, read the restart data file. otherwise initialize the
+!    gwd fields to zero and define the time remaining until the next
+!    cg_drag calculation from the namelist inputs.
 !---------------------------------------------------------------------
-!mj we don't do this anymore
-!-------------------------------------------------------------------
-!    if no restart file is present, initialize the gwd field to zero.
-!    define the time remaining until the next cg_drag calculation from
-!    the namelist inputs.
-!-------------------------------------------------------------------
-!mj check day is multiple of cg_drag_freq (as restart capability has been removed)
-     if( cg_drag_freq /= 0 ) then
-        if( modulo(86400,cg_drag_freq) /= 0 ) then
-           call error_mesg('cg_drag','cg_drag_freq must divide 86400 (full day) or equal 0', FATAL)
+     domain = domain_in
+     if (open_restart_read(rst, 'INPUT/cg_drag.res.nc', domain)) then
+        if (mpp_pe() == mpp_root_pe()) call error_mesg ('cg_drag_mod', &
+             'Reading NetCDF formatted restart file: INPUT/cg_drag.res.nc', NOTE)
+        call read_restart_field(rst, 'gwd_u', gwd_u)
+        call read_restart_field(rst, 'gwd_v', gwd_v)
+        call read_restart_field(rst, 'cgdrag_alarm', alarm)
+        cgdrag_alarm = nint(alarm)
+        call close_restart(rst)
+     else
+        gwd_u(:,:,:) = 0.0
+        gwd_v(:,:,:) = 0.0
+        if (cg_drag_offset > 0) then
+           cgdrag_alarm = cg_drag_offset
+        else
+           cgdrag_alarm = cg_drag_freq
         endif
      endif
-     gwd_u(:,:,:) = 0.0
-     gwd_v(:,:,:) = 0.0
-     if (cg_drag_offset > 0) then
-        cgdrag_alarm = cg_drag_offset
-     else 
-        cgdrag_alarm = cg_drag_freq
-     endif
+!---------------------------------------------------------------------
+!    cg_drag_calc is passed the time at the end of each step, so the
+!    first call is one model step after Time (cold start or restart).
+!---------------------------------------------------------------------
+     Time_last_call = Time
 !---------------------------------------------------------------------
 !    mark the module as initialized.
 !---------------------------------------------------------------------
@@ -451,26 +458,20 @@ end subroutine cg_drag_init
 
 !####################################################################
  
-subroutine cg_drag_time_vary (Time, delt)
+subroutine cg_drag_time_vary (Time)
 
 type(time_type),        intent(in)      :: Time
-real           ,        intent(in)      :: delt
 
 integer :: sec, day, dt_step
 
 !---------------------------------------------------------------------
 !    decrement the time remaining until the next cg_drag calculation by
-!    the model time elapsed since the previous call. delt is the physics
-!    time step, which is twice the model step on leapfrog steps, so it
-!    is only used on the first call (a single forward step).
+!    the model time elapsed since the previous call (or since the start
+!    of the run). the physics time step is not used, as it is twice the
+!    model step on leapfrog steps.
 !---------------------------------------------------------------------
-      if (have_last_call) then
-        call get_time (Time - Time_last_call, sec, day)
-        dt_step = sec + day*86400
-      else
-        dt_step = nint(delt)
-        have_last_call = .true.
-      endif
+      call get_time (Time - Time_last_call, sec, day)
+      dt_step = sec + day*86400
       Time_last_call = Time
       cgdrag_alarm = cgdrag_alarm - dt_step
 
@@ -745,7 +746,7 @@ real, dimension(:,:,:), intent(out)     :: gwfcng_x, gwfcng_y
 ! mj now update the alarm clock, for control over how often cg_drag
 !    will recalculate the NOGWD tendencies
      call cg_drag_endts
-     call cg_drag_time_vary(Time, delt)
+     call cg_drag_time_vary(Time)
      
 
 
@@ -763,8 +764,19 @@ subroutine cg_drag_end
 !--------------------------------------------------------------------
 !    local variables
 
-!For version 3 and after, use NetCDF restarts.
-!mj don't restart anymore
+      type(restart_file_type) :: rst
+
+!--------------------------------------------------------------------
+!    write the restart file.
+!--------------------------------------------------------------------
+      if (.not. module_is_initialized) return
+      if (mpp_pe() == mpp_root_pe()) call error_mesg ('cg_drag_mod', &
+           'Writing NetCDF formatted restart file: RESTART/cg_drag.res.nc', NOTE)
+      call open_restart_write(rst, 'RESTART/cg_drag.res.nc', domain)
+      call write_restart_field(rst, 'gwd_u', gwd_u)
+      call write_restart_field(rst, 'gwd_v', gwd_v)
+      call write_restart_field(rst, 'cgdrag_alarm', real(cgdrag_alarm))
+      call close_restart(rst)
 
 
 !---------------------------------------------------------------------
@@ -781,7 +793,6 @@ end subroutine cg_drag_end
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 !
 !                     PRIVATE SUBROUTINES
-!                   mj removed all restart capability
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 !####################################################################

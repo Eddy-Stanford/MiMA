@@ -28,6 +28,10 @@
 !   external modules
         use parkind, only         : im => kind_im, rb => kind_rb
         use mima_interpolator_mod, only: interpolate_type
+        use mpp_domains_mod, only: domain2d
+        use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
+                                    close_restart, read_restart_field, write_restart_field, &
+                                    restart_field_exists
 !
 !  rrtm_radiation variables
 !
@@ -36,6 +40,10 @@
 
         public :: rrtm_radiation_init, interp_temp, run_rrtmg, &
                   rrtm_precip_accum, rrtm_radiation_end
+
+        interface read_saved
+           module procedure read_saved_2d, read_saved_3d
+        end interface
 
         logical                                    :: rrtm_init=.false.    ! has radiation been initialized?
         type(interpolate_type),save                :: o3_interp            ! use external file for ozone
@@ -97,6 +105,10 @@
                                                                             ! has been summed in rrtm_precip
         integer(kind=im)                           :: dt_last               ! time of last radiation calculation
                                                                             ! used for alarm
+        type(domain2d)                             :: domain                ! grid domain, for the restart file
+                                                                            ! RESTART/rrtm_radiation.res.nc, which
+                                                                            ! holds dt_last and the fields kept
+                                                                            ! between radiation steps
 !---------------------------------------------------------------------------------------------------------------
 ! some constants
         real(kind=rb)      :: daypersec=1./86400,deg2rad
@@ -179,7 +191,7 @@
       contains
 
 !*****************************************************************************************
-        subroutine rrtm_radiation_init(axes,Time,ncols,nlay,lonb,latb)
+        subroutine rrtm_radiation_init(axes,Time,ncols,nlay,lonb,latb,domain_in)
 !
 ! Initialize diagnostics, allocate variables, set constants
 !
@@ -201,7 +213,8 @@
           integer, intent(in), dimension(4) :: axes
           type(time_type), intent(in)       :: Time
           integer(kind=im),intent(in)       :: ncols,nlay
-          real(kind=rb),dimension(:),intent(in),optional :: lonb,latb
+          real(kind=rb),dimension(:),intent(in) :: lonb,latb
+          type(domain2d),intent(in)         :: domain_in   ! domain decomposition of the model grid
 
           integer :: i,k,seconds
 
@@ -343,6 +356,9 @@
              rrtm_precip = 0.
              num_precip  = 0
           endif
+
+          domain = domain_in
+          call read_restart_rrtm
 
           call astro_init
 
@@ -808,6 +824,8 @@
 
           if(do_read_ozone)call interpolator_end(o3_interp)
 
+          call write_restart_rrtm
+
           if(allocated(t_half))      deallocate(t_half)
           if(allocated(h2o))         deallocate(h2o, o3, co2, ones, zeros, emis, &
                                                 taucld, tauaer, sw_zro, zro_sw)
@@ -824,5 +842,104 @@
 
         end subroutine rrtm_radiation_end
 
+!*****************************************************************************************
+        subroutine read_restart_rrtm
+!
+! Read the state kept between radiation steps, if INPUT/rrtm_radiation.res.nc exists.
+! If a field in use is missing (e.g. a diagnostic was added), recompute radiation at
+! the first step, as without a restart file.
+!
+          use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE
+          implicit none
+          type(restart_file_type) :: rst
+          real(kind=rb) :: x
+          logical :: found
+
+          if(.not. open_restart_read(rst, 'INPUT/rrtm_radiation.res.nc', domain)) return
+          if(mpp_pe() == mpp_root_pe()) call error_mesg(mod_name, &
+               'Reading NetCDF formatted restart file: INPUT/rrtm_radiation.res.nc', NOTE)
+          found = .true.
+          if(allocated(tdt_rad))    call read_saved(rst, 'tdt_rad',    tdt_rad,    found)
+          if(allocated(sw_flux))    call read_saved(rst, 'sw_flux',    sw_flux,    found)
+          if(allocated(lw_flux))    call read_saved(rst, 'lw_flux',    lw_flux,    found)
+          if(allocated(zencos))     call read_saved(rst, 'zencos',     zencos,     found)
+          if(allocated(tdt_sw_rad)) call read_saved(rst, 'tdt_sw_rad', tdt_sw_rad, found)
+          if(allocated(tdt_lw_rad)) call read_saved(rst, 'tdt_lw_rad', tdt_lw_rad, found)
+          if(allocated(olr))        call read_saved(rst, 'olr',        olr,        found)
+          if(allocated(isr))        call read_saved(rst, 'isr',        isr,        found)
+          if(found)then
+             call read_restart_field(rst, 'dt_last', x)
+             dt_last = nint(x)
+          elseif(mpp_pe() == mpp_root_pe())then
+             call error_mesg(mod_name, 'INPUT/rrtm_radiation.res.nc lacks fields now in use;'// &
+                  ' radiation is recomputed at the first time step', NOTE)
+          endif
+          if(do_precip_albedo)then
+             if(restart_field_exists(rst, 'rrtm_precip'))then
+                call read_restart_field(rst, 'rrtm_precip', rrtm_precip)
+                call read_restart_field(rst, 'num_precip', x)
+                num_precip = nint(x)
+             endif
+          endif
+          call close_restart(rst)
+
+        end subroutine read_restart_rrtm
+
+        subroutine read_saved_2d(rst, name, data, found)
+          implicit none
+          type(restart_file_type),intent(inout)    :: rst
+          character(len=*),intent(in)              :: name
+          real(kind=rb),dimension(:,:),intent(out) :: data
+          logical,intent(inout)                    :: found
+
+          if(restart_field_exists(rst, name))then
+             call read_restart_field(rst, name, data)
+          else
+             found = .false.
+          endif
+        end subroutine read_saved_2d
+
+        subroutine read_saved_3d(rst, name, data, found)
+          implicit none
+          type(restart_file_type),intent(inout)      :: rst
+          character(len=*),intent(in)                :: name
+          real(kind=rb),dimension(:,:,:),intent(out) :: data
+          logical,intent(inout)                      :: found
+
+          if(restart_field_exists(rst, name))then
+             call read_restart_field(rst, name, data)
+          else
+             found = .false.
+          endif
+        end subroutine read_saved_3d
+!*****************************************************************************************
+
+        subroutine write_restart_rrtm
+!
+! Write the state kept between radiation steps (only the fields in use).
+!
+          use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE
+          implicit none
+          type(restart_file_type) :: rst
+
+          if(mpp_pe() == mpp_root_pe()) call error_mesg(mod_name, &
+               'Writing NetCDF formatted restart file: RESTART/rrtm_radiation.res.nc', NOTE)
+          call open_restart_write(rst, 'RESTART/rrtm_radiation.res.nc', domain)
+          call write_restart_field(rst, 'dt_last', real(dt_last))
+          if(allocated(tdt_rad))    call write_restart_field(rst, 'tdt_rad',    tdt_rad)
+          if(allocated(sw_flux))    call write_restart_field(rst, 'sw_flux',    sw_flux)
+          if(allocated(lw_flux))    call write_restart_field(rst, 'lw_flux',    lw_flux)
+          if(allocated(zencos))     call write_restart_field(rst, 'zencos',     zencos)
+          if(allocated(tdt_sw_rad)) call write_restart_field(rst, 'tdt_sw_rad', tdt_sw_rad)
+          if(allocated(tdt_lw_rad)) call write_restart_field(rst, 'tdt_lw_rad', tdt_lw_rad)
+          if(allocated(olr))        call write_restart_field(rst, 'olr',        olr)
+          if(allocated(isr))        call write_restart_field(rst, 'isr',        isr)
+          if(do_precip_albedo)then
+             call write_restart_field(rst, 'rrtm_precip', rrtm_precip)
+             call write_restart_field(rst, 'num_precip',  real(num_precip))
+          endif
+          call close_restart(rst)
+
+        end subroutine write_restart_rrtm
 !*****************************************************************************************
       end module rrtm_radiation

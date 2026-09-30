@@ -358,7 +358,7 @@ contains
 !----- Alexander-Dunkerton gravity wave drag -----
 
    if (do_cg_drag)  then
-     call cg_drag_init (lonb, latb, pref, Time=Time, axes=axes)
+     call cg_drag_init (lonb, latb, domain, pref, Time=Time, axes=axes)
    endif
 
 !-----------------------------------------------------------------------

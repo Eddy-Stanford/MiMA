@@ -26,6 +26,7 @@ private
 
 public :: restart_file_type, open_restart_read, open_restart_write, close_restart
 public :: read_restart_field, write_restart_field, get_restart_field_size
+public :: restart_field_exists
 public :: check_field_size
 
 type restart_field_type
@@ -150,6 +151,16 @@ integer,                 intent(out)   :: siz(4)
 call global_size(rst%fileobj, name, siz)
 
 end subroutine get_restart_field_size
+
+!#######################################################################
+
+logical function restart_field_exists(rst, name)
+type(restart_file_type), intent(inout) :: rst
+character(len=*),        intent(in)    :: name
+
+restart_field_exists = variable_exists(rst%fileobj, name)
+
+end function restart_field_exists
 
 !#######################################################################
 ! Stop unless variable name in fileobj has the sizes expected. Any

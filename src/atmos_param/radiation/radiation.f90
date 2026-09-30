@@ -16,6 +16,7 @@ use fms_mod,            only: input_nml_file, check_nml_error, &
                               mpp_pe, mpp_root_pe, stdlog,       &
                               error_mesg, FATAL, write_version_number
 use time_manager_mod,   only: time_type
+use mpp_domains_mod,    only: domain2d
 use constants_mod,      only: cp_air
 use gray_radiation_mod, only: gray_radiation_init, gray_radiation, gray_radiation_end
 use rrtmg_lw_init,      only: rrtmg_lw_ini
@@ -43,12 +44,13 @@ contains
 
 !#######################################################################
 
-subroutine radiation_init(axes, Time, id, jd, kd, lonb, latb)
+subroutine radiation_init(axes, Time, id, jd, kd, lonb, latb, domain)
 
 integer,         intent(in), dimension(4) :: axes
 type(time_type), intent(in)               :: Time
 integer,         intent(in)               :: id, jd, kd
 real,            intent(in), dimension(:) :: lonb, latb
+type(domain2d),  intent(in)               :: domain   ! grid domain, for restart files
 
 integer :: unit, ierr, io
 
@@ -66,7 +68,7 @@ case ('gray')
 case ('rrtm')
    call rrtmg_lw_ini(cp_air)
    call rrtmg_sw_ini(cp_air)
-   call rrtm_radiation_init(axes, Time, id*jd, kd, lonb, latb)
+   call rrtm_radiation_init(axes, Time, id*jd, kd, lonb, latb, domain)
 case ('none')
 case default
    call error_mesg('radiation_init', 'radiation_scheme must be ''rrtm'', ''gray'' or ''none'', not '// &

@@ -464,7 +464,7 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !-----------------------------------------------------------------------
       call vert_diff_driver_init (Surf_diff, id, jd, kd, axes, Time )
 
-      call radiation_init(axes, Time, id, jd, kd, lonb, latb)
+      call radiation_init(axes, Time, id, jd, kd, lonb, latb, domain_in)
 
       if(do_held_suarez) call held_suarez_init(axes, Time)
 
