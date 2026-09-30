@@ -6,7 +6,7 @@ module mima_diag_integral_mod
 ! </REVIEWER>
 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 ! <OVERVIEW>
-!    mima_diag_integral_mod computes and outputs global and / or 
+!    mima_diag_integral_mod computes and outputs global and / or
 !    hemispheric physics integrals.
 ! </OVERVIEW>
 ! <DESCRIPTION>
@@ -14,109 +14,100 @@ module mima_diag_integral_mod
 
 !! TODO: (ROB KING)
 !! So not to throw too much shade but i think this module is a bit poop
-!! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if the output_interval is not set. 
-!! If one wanted to do this properly then ideally every timestep the integrals should be calculated rather than let them accumulate.  
-!! thoughts... How is AM4 doing this? 
-!! 
+!! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if the output_interval is not set.
+!! If one wanted to do this properly then ideally every timestep the integrals should be calculated rather than let them accumulate.
+!! thoughts... How is AM4 doing this?
+!!
 !  shared modules:
 
-use time_manager_mod, only:  time_type, get_time, set_time,  &
-                             time_manager_init, &
-                             operator(+),  operator(-),      &
-                             operator(==), operator(>=),     &
-                             operator(/=)
-use fms_mod,          only:  error_mesg, &
-                             input_nml_file, check_nml_error, &
-                             fms_init, &
-                             mpp_pe, mpp_root_pe,&
-                             FATAL, write_version_number, &
-                             stdlog
-use constants_mod,    only:  radius, constants_init
-use mpp_mod,          only:  mpp_sum, mpp_init
+  use time_manager_mod, only: time_type, get_time, set_time, &
+                              time_manager_init, &
+                              operator(+), operator(-), &
+                              operator(==), operator(>=), &
+                              operator(/=)
+  use fms_mod, only: error_mesg, &
+                     input_nml_file, check_nml_error, &
+                     fms_init, &
+                     mpp_pe, mpp_root_pe, &
+                     FATAL, write_version_number, &
+                     stdlog
+  use constants_mod, only: radius, constants_init
+  use mpp_mod, only: mpp_sum, mpp_init
 
 !--------------------------------------------------------------------
 
-implicit none
-private
+  implicit none
+  private
 
 !----------------------------------------------------------------------
-!    mima_diag_integral_mod computes and outputs global and / or 
+!    mima_diag_integral_mod computes and outputs global and / or
 !    hemispheric physics integrals.
 !----------------------------------------------------------------------
 
 !---------------------------------------------------------------------
 !----------- version number for this module -------------------
 
-character(len=128) :: version = '$Id: diag_integral.f90,v 11.0 2004/09/28 19:15:46 fms Exp $'
-character(len=128) :: tagname = '$Name: lima $'
-
+  character(len=128) :: version = '$Id: diag_integral.f90,v 11.0 2004/09/28 19:15:46 fms Exp $'
+  character(len=128) :: tagname = '$Name: lima $'
 
 !---------------------------------------------------------------------
 !------ interfaces ------
 
-public      &
-          diag_integral_init, diag_integral_field_init, &
-          sum_diag_integral_field, diag_integral_output,  &
-          diag_integral_end  
+  public &
+    diag_integral_init, diag_integral_field_init, &
+    sum_diag_integral_field, diag_integral_output, &
+    diag_integral_end
 
-interface sum_diag_integral_field
-   module procedure sum_field_2d,   &
-                    sum_field_2d_hemi, &
-                    sum_field_3d,   &
-                    sum_field_wght_3d
-end interface
+  interface sum_diag_integral_field
+    module procedure sum_field_2d, &
+      sum_field_2d_hemi, &
+      sum_field_3d, &
+      sum_field_wght_3d
+  end interface
 
-private         &
-
-!   from diag_integral_init:
-          set_axis_time,  &
-
-!   from diag_integral_field_init and sum_diag_integral_field:
-          get_field_index, &
-
-!   from diag_integral_output and diag_integral_end:
-          write_field_averages,  &           
-
-!   from write_field_averages:
-          format_text_init, format_data_init, &
-          get_axis_time,     &
-
-!   from diag_integral_output:
-          diag_integral_alarm, &
-
-!   from sum_diag_integral_field:
-          vert_diag_integral
+  private &
+    !   from diag_integral_init:
+    set_axis_time, &
+    !   from diag_integral_field_init and sum_diag_integral_field:
+    get_field_index, &
+    !   from diag_integral_output and diag_integral_end:
+    write_field_averages, &
+    !   from write_field_averages:
+    format_text_init, format_data_init, &
+    get_axis_time, &
+    !   from diag_integral_output:
+    diag_integral_alarm, &
+    !   from sum_diag_integral_field:
+    vert_diag_integral
 
 !---------------------------------------------------------------------
 !------ namelist -------
 
-integer, parameter  ::    &
-                      mxch = 64    ! maximum number of characters in 
-                                   ! the optional output file name
-real                ::    &
-         output_interval = -1.0    ! time interval at which integrals
-                                   ! are to be output
-character(len=8)    ::    &
-            time_units = 'hours'   ! time units associated with
-                                   ! output_interval
-character(len=mxch) ::    &
-                 file_name = ' '   ! optional integrals output file name
-logical             ::    &
-           print_header = .true.   ! print a header for the integrals
-                                   ! file ?
-integer             ::    &
-       fields_per_print_line = 4   ! number of fields to write per line
-                                   ! of output
+  integer, parameter  :: &
+    mxch = 64    ! maximum number of characters in
+  ! the optional output file name
+  real                :: &
+    output_interval = -1.0    ! time interval at which integrals
+  ! are to be output
+  character(len=8)    :: &
+    time_units = 'hours'   ! time units associated with
+  ! output_interval
+  character(len=mxch) :: &
+    file_name = ' '   ! optional integrals output file name
+  logical             :: &
+    print_header = .true.   ! print a header for the integrals
+  ! file ?
+  integer             :: &
+    fields_per_print_line = 4   ! number of fields to write per line
+  ! of output
 
-
-namelist / diag_integral_nml /      &
-                                output_interval, time_units,  &
-                                file_name, print_header, &
-                                fields_per_print_line
+  namelist /diag_integral_nml/ &
+    output_interval, time_units, &
+    file_name, print_header, &
+    fields_per_print_line
 
 !---------------------------------------------------------------------
 !------- public data ------
-
 
 !---------------------------------------------------------------------
 !------- private data ------
@@ -124,8 +115,8 @@ namelist / diag_integral_nml /      &
 !---------------------------------------------------------------------
 !    variables associated with the determination of when integrals
 !    are to be written.
-!         Next_alarm_time  next time at which integrals are to be 
-!                          written   
+!         Next_alarm_time  next time at which integrals are to be
+!                          written
 !         Alarm_interval   time interval between writing integrals
 !         Zero_time        time_type variable set to (0,0); used as
 !                          flag to indicate integrals are not being
@@ -133,8 +124,8 @@ namelist / diag_integral_nml /      &
 !         Time_init_save   initial time associated with experiment;
 !                          used as a base for defining time
 !---------------------------------------------------------------------
-type (time_type) :: Next_alarm_time, Alarm_interval, Zero_time
-type (time_type) :: Time_init_save
+  type(time_type) :: Next_alarm_time, Alarm_interval, Zero_time
+  type(time_type) :: Time_init_save
 
 !---------------------------------------------------------------------
 !    variables used in determining weights associated with each
@@ -145,12 +136,12 @@ type (time_type) :: Time_init_save
 !        field_size   number of columns on global domain
 !        sum_area     surface area of globe
 !---------------------------------------------------------------------
-real, allocatable, dimension(:,:) :: area
-integer                           :: idim, jdim, field_size
-real                              :: sum_area
+  real, allocatable, dimension(:, :) :: area
+  integer                           :: idim, jdim, field_size
+  real                              :: sum_area
 
 !---------------------------------------------------------------------
-!    variables used to define the integral fields: 
+!    variables used to define the integral fields:
 !      max_len_name     maximum length of name associated with integral
 !      max_num_field    maximum number of integrals allowed
 !      num_field        number of integrals that have been activated
@@ -159,42 +150,37 @@ real                              :: sum_area
 !      field_sum(i)     integrand for integral i
 !      field_count(i)   number of values in integrand i
 !---------------------------------------------------------------------
-integer, parameter          :: max_len_name   = 12
-integer, parameter          :: max_num_field = 32    
-integer                     :: num_field = 0
-character(len=max_len_name) :: field_name   (max_num_field)
-character(len=16)           :: field_format (max_num_field)
-real                        :: field_sum    (max_num_field)
-integer(kind=8)             :: field_count  (max_num_field)
+  integer, parameter          :: max_len_name = 12
+  integer, parameter          :: max_num_field = 32
+  integer                     :: num_field = 0
+  character(len=max_len_name) :: field_name(max_num_field)
+  character(len=16)           :: field_format(max_num_field)
+  real                        :: field_sum(max_num_field)
+  integer(kind=8)             :: field_count(max_num_field)
 
 !---------------------------------------------------------------------
 !    variables defining output formats.
 !       format_text       format statement for header
 !       format_data       format statement for data output
-!       do_format_data    a data format needs to be generated ? 
+!       do_format_data    a data format needs to be generated ?
 !       nd                number of characters in data format statement
 !       nt                number of characters in text format statement
 !---------------------------------------------------------------------
-character(len=160) :: format_text, format_data
-logical            :: do_format_data = .true.
-integer            :: nd, nt
+  character(len=160) :: format_text, format_data
+  logical            :: do_format_data = .true.
+  integer            :: nd, nt
 
 !--------------------------------------------------------------------
 !    miscellaneous variables.
 !---------------------------------------------------------------------
-integer :: diag_unit = 0             ! unit number for output file
-logical :: module_is_initialized = .false.  
-                                     ! module is initialized ?
-
+  integer :: diag_unit = 0             ! unit number for output file
+  logical :: module_is_initialized = .false.
+  ! module is initialized ?
 
 !-----------------------------------------------------------------------
 !-----------------------------------------------------------------------
 
-
-
-                           contains
-
-
+contains
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 !
@@ -227,15 +213,15 @@ logical :: module_is_initialized = .false.
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine diag_integral_init (Time_init, Time, blon, blat)
+  subroutine diag_integral_init(Time_init, Time, blon, blat)
 
 !--------------------------------------------------------------------
 !    diag_integral_init is the constructor for mima_diag_integral_mod.
 !--------------------------------------------------------------------
 
-type (time_type),  intent(in), optional :: Time_init, Time
-real,dimension(:), intent(in), optional :: blon, blat
-      
+    type(time_type), intent(in), optional :: Time_init, Time
+    real, dimension(:), intent(in), optional :: blon, blat
+
 !--------------------------------------------------------------------
 !  intent(in),optional variables:
 !
@@ -249,12 +235,12 @@ real,dimension(:), intent(in), optional :: blon, blat
 !---------------------------------------------------------------------
 !  local variables:
 
-      real, dimension(:), allocatable :: slat
-      real    :: r2
-      real    :: rsize
-      integer :: unit, io, ierr, seconds, nc, i, j
-      integer :: field_size_local
-      real    :: sum_area_local
+    real, dimension(:), allocatable :: slat
+    real    :: r2
+    real    :: rsize
+    integer :: unit, io, ierr, seconds, nc, i, j
+    integer :: field_size_local
+    real    :: sum_area_local
 
 !---------------------------------------------------------------------
 !  local variables:
@@ -268,42 +254,42 @@ real,dimension(:), intent(in), optional :: blon, blat
 !       seconds
 !       nc
 !       i,j
-!   
+!
 !--------------------------------------------------------------------
 
 !---------------------------------------------------------------------
 !    if routine has already been executed, exit.
 !---------------------------------------------------------------------
-      if (module_is_initialized) return
- 
+    if (module_is_initialized) return
+
 !---------------------------------------------------------------------
 !    verify that modules used by this module that are not called later
 !    have already been initialized.
 !---------------------------------------------------------------------
-      call fms_init
-      call mpp_init
-      call constants_init
-      call time_manager_init 
+    call fms_init
+    call mpp_init
+    call constants_init
+    call time_manager_init
 
 !----------------------------------------------------------------------
 !    if this is the initialization call, proceed. if this was simply
 !    a verification of previous initialization, return.
 !--------------------------------------------------------------------
-      if (present(Time_init) .and. present(Time) .and. &
-          present(blon) .and. present(blat) ) then
+    if (present(Time_init) .and. present(Time) .and. &
+        present(blon) .and. present(blat)) then
 
 !-----------------------------------------------------------------------
 !    read namelist.
 !-----------------------------------------------------------------------
       read (input_nml_file, nml=diag_integral_nml, iostat=io)
-      ierr = check_nml_error(io,'diag_integral_nml')
- 
+      ierr = check_nml_error(io, 'diag_integral_nml')
+
 !---------------------------------------------------------------------
 !    write version number and namelist to logfile.
 !---------------------------------------------------------------------
-      call write_version_number (version, tagname)
-      if (mpp_pe() == mpp_root_pe() ) &
-                       write (stdlog(), nml=diag_integral_nml)
+      call write_version_number(version, tagname)
+      if (mpp_pe() == mpp_root_pe()) &
+        write (stdlog(), nml=diag_integral_nml)
 
 !--------------------------------------------------------------------
 !    save the initial time to time-stamp the integrals which will be
@@ -320,38 +306,38 @@ real,dimension(:), intent(in), optional :: blon, blat
       jdim = size(blat(:)) - 1
       field_size_local = idim*jdim
       rsize = real(field_size_local)
-      call mpp_sum (rsize)
+      call mpp_sum(rsize)
       field_size = nint(rsize)
 
 !---------------------------------------------------------------------
-!    define an array to hold the surface area of each grid column 
-!    so that the integrals may be weighted properly. sum over the 
+!    define an array to hold the surface area of each grid column
+!    so that the integrals may be weighted properly. sum over the
 !    processor, and then over all processors, storing the total
 !    global surface area in sum_area.
 !---------------------------------------------------------------------
-      allocate (area(idim,jdim))
+      allocate (area(idim, jdim))
       r2 = radius*radius
       allocate (slat(size(blat(:))))
       slat = sin(blat)
-      do j=1,jdim
-        do i=1,idim
-         area(i,j) = r2*(blon(i+1) - blon(i))*(slat(j+1) - slat(j))
+      do j = 1, jdim
+        do i = 1, idim
+          area(i, j) = r2*(blon(i + 1) - blon(i))*(slat(j + 1) - slat(j))
         end do
       end do
       sum_area_local = sum(area)
       sum_area = sum_area_local
-      call mpp_sum (sum_area)
+      call mpp_sum(sum_area)
 
 !--------------------------------------------------------------------
 !    if integral output is  to go to a file, open the file on unit
 !    diag_unit.
 !--------------------------------------------------------------------
-      if (file_name(1:1) /= ' ' ) then
+      if (file_name(1:1) /= ' ') then
         nc = len_trim(file_name)
         if (mpp_pe() == mpp_root_pe()) &
           open (newunit=diag_unit, file=file_name(1:nc), form='formatted', &
                 action='write', status='replace')
-      endif
+      end if
 
 !---------------------------------------------------------------------
 !    define the variables needed to control the time interval of
@@ -360,13 +346,13 @@ real,dimension(:), intent(in), optional :: blon, blat
 !    output integrals to be at the value of nml variable
 !    output_interval from now.
 !---------------------------------------------------------------------
-      Zero_time = set_time (0,0)
+      Zero_time = set_time(0, 0)
       if (output_interval >= -0.01) then
-        Alarm_interval = set_axis_time (output_interval, time_units)
+        Alarm_interval = set_axis_time(output_interval, time_units)
         Next_alarm_time = Time + Alarm_interval
       else
         Alarm_interval = Zero_time
-      endif
+      end if
       Next_alarm_time = Time + Alarm_interval
 
 !--------------------------------------------------------------------
@@ -374,14 +360,11 @@ real,dimension(:), intent(in), optional :: blon, blat
 !--------------------------------------------------------------------
       deallocate (slat)
       module_is_initialized = .true.
-   endif  ! (present optional arguments)
+    end if  ! (present optional arguments)
 
 !-----------------------------------------------------------------------
 
-
-end subroutine diag_integral_init
-
-
+  end subroutine diag_integral_init
 
 !######################################################################
 ! <SUBROUTINE NAME="diag_integral_field_init">
@@ -402,13 +385,13 @@ end subroutine diag_integral_init
 !  </IN>
 ! </SUBROUTINE>
 !
- subroutine diag_integral_field_init (name, format)
+  subroutine diag_integral_field_init(name, format)
 
 !---------------------------------------------------------------------
 !
 !---------------------------------------------------------------------
 
-character(len=*), intent(in) :: name, format
+    character(len=*), intent(in) :: name, format
 
 !---------------------------------------------------------------------
 !   intent(in) variables:
@@ -420,8 +403,8 @@ character(len=*), intent(in) :: name, format
 
 !---------------------------------------------------------------------
 !  local variables:
- 
-      integer :: field   ! index assigned to the current integral
+
+    integer :: field   ! index assigned to the current integral
 
 !----------------------------------------------------------------------
 
@@ -433,46 +416,44 @@ character(len=*), intent(in) :: name, format
 !--------------------------------------------------------------------
 !    make sure the integral name is not too long.
 !--------------------------------------------------------------------
-      if (len(name) > max_len_name )  then
-        call error_mesg ('mima_diag_integral_mod',  &
-                ' integral name too long', FATAL)
-      endif
+    if (len(name) > max_len_name) then
+      call error_mesg('mima_diag_integral_mod', &
+                      ' integral name too long', FATAL)
+    end if
 
 !---------------------------------------------------------------------
-!    check to be sure the integral name has not already been 
+!    check to be sure the integral name has not already been
 !    initialized.
 !---------------------------------------------------------------------
-      field = get_field_index (name)
-      if (field /= 0)   then
-        call error_mesg ('mima_diag_integral_mod', &
-                             'integral name already exists', FATAL)
-      endif
+    field = get_field_index(name)
+    if (field /= 0) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'integral name already exists', FATAL)
+    end if
 
 !-------------------------------------------------------------------
 !    prepare to register the integral. make sure that there are not
 !    more integrals registered than space was provided for; if so, exit.
 !----------------------------------------------------------------------
-      num_field = num_field + 1
-      if (num_field > max_num_field)  then
-        call error_mesg ('mima_diag_integral_mod', &
-                              'too many fields initialized', FATAL)
-      endif
+    num_field = num_field + 1
+    if (num_field > max_num_field) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'too many fields initialized', FATAL)
+    end if
 
 !--------------------------------------------------------------------
 !    register the name and output format desired for the given integral.
 !    initialize its value and the number of grid points that have been
 !    counted to zero.
 !--------------------------------------------------------------------
-      field_name   (num_field) = name
-      field_format (num_field) = format
-      field_sum    (num_field) = 0.0
-      field_count  (num_field) = 0
+    field_name(num_field) = name
+    field_format(num_field) = format
+    field_sum(num_field) = 0.0
+    field_count(num_field) = 0
 
 !----------------------------------------------------------------------
 
-
-end subroutine diag_integral_field_init
-
+  end subroutine diag_integral_field_init
 
 !#####################################################################
 
@@ -481,11 +462,11 @@ end subroutine diag_integral_field_init
 !
 !                  INTERFACE SUM_DIAG_INTEGRAL_FIELD
 !
-!  call sum_diag_integral_field (name, data, is, js) 
+!  call sum_diag_integral_field (name, data, is, js)
 !     or
-!  call sum_diag_integral_field (name, data, wt, is, js) 
+!  call sum_diag_integral_field (name, data, wt, is, js)
 !     or
-!  call sum_diag_integral_field (name, data, is, ie, js, je) 
+!  call sum_diag_integral_field (name, data, is, ie, js, je)
 !
 !  in the first option data may be either
 !     real,              intent(in) :: data(:,:)  [ sum_field_2d ]
@@ -506,7 +487,7 @@ end subroutine diag_integral_field_init
 !     data         field of integrands to be summed over
 !     wt           vertical weighting factor to be applied to integrands
 !                  when summing
-!     is,ie,js,je  starting/ending i,j indices over which summation is 
+!     is,ie,js,je  starting/ending i,j indices over which summation is
 !                  to occur
 !
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -529,63 +510,62 @@ end subroutine diag_integral_field_init
 !   field of integrands to be summed over
 !  </IN>
 !  <IN NAME="is, js" TYPE="integer">
-!   starting i,j indices over which summation is 
+!   starting i,j indices over which summation is
 !                  to occur
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine sum_field_2d (name, data, is, js)
+  subroutine sum_field_2d(name, data, is, js)
 
-character(len=*),  intent(in) :: name
-real,              intent(in) :: data(:,:)
-integer, optional, intent(in) :: is, js
+    character(len=*), intent(in) :: name
+    real, intent(in) :: data(:, :)
+    integer, optional, intent(in) :: is, js
 
 !---------------------------------------------------------------------
 ! local variables:
 
-      integer :: field           ! index of desired integral
-      integer :: i1, j1, i2, j2  ! location indices of current data in 
-                                 ! processor-global coordinates
+    integer :: field           ! index of desired integral
+    integer :: i1, j1, i2, j2  ! location indices of current data in
+    ! processor-global coordinates
 
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
-      if (.not. module_is_initialized ) then
-        call error_mesg ('mima_diag_integral_mod',   &
-              'module has not been initialized', FATAL )
-      endif
+    if (.not. module_is_initialized) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'module has not been initialized', FATAL)
+    end if
 
 !---------------------------------------------------------------------
 !    obtain the index of the current integral. make certain it is valid.
 !---------------------------------------------------------------------
-      field = get_field_index (name)
-      if (field == 0)  then
-        call error_mesg ('mima_diag_integral_mod', &
-                                    'field does not exist', FATAL)
-      endif
+    field = get_field_index(name)
+    if (field == 0) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'field does not exist', FATAL)
+    end if
 
 !---------------------------------------------------------------------
-!   define the processor-global indices of the current data. use the 
+!   define the processor-global indices of the current data. use the
 !   value 1 for the initial grid points, if is and js are not input.
 !---------------------------------------------------------------------
-     i1 = 1;  if (present(is)) i1 = is
-     j1 = 1;  if (present(js)) j1 = js
-     i2 = i1 + size(data,1) - 1
-     j2 = j1 + size(data,2) - 1
+    i1 = 1; if (present(is)) i1 = is
+    j1 = 1; if (present(js)) j1 = js
+    i2 = i1 + size(data, 1) - 1
+    j2 = j1 + size(data, 2) - 1
 
 !---------------------------------------------------------------------
-!    increment the count of points toward this integral and add the 
+!    increment the count of points toward this integral and add the
 !    values at this set of grid points to the accumulation array.
 !---------------------------------------------------------------------
-      field_count (field) = field_count(field) +   &
-                            size(data,1)*size(data,2)
-      field_sum   (field) = field_sum   (field) +  &
-                            sum (data * area(i1:i2,j1:j2))
+    field_count(field) = field_count(field) + &
+                         size(data, 1)*size(data, 2)
+    field_sum(field) = field_sum(field) + &
+                       sum(data*area(i1:i2, j1:j2))
 
 !--------------------------------------------------------------------
 
- end subroutine sum_field_2d
-
+  end subroutine sum_field_2d
 
 !#######################################################################
 ! <SUBROUTINE NAME="sum_field_3d">
@@ -605,32 +585,32 @@ integer, optional, intent(in) :: is, js
 !   field of integrands to be summed over
 !  </IN>
 !  <IN NAME="is, js" TYPE="integer">
-!   starting i,j indices over which summation is 
+!   starting i,j indices over which summation is
 !                  to occur
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine sum_field_3d (name, data, is, js)
+  subroutine sum_field_3d(name, data, is, js)
 
-character(len=*),  intent(in) :: name
-real,              intent(in) :: data(:,:,:)
-integer, optional, intent(in) :: is, js
+    character(len=*), intent(in) :: name
+    real, intent(in) :: data(:, :, :)
+    integer, optional, intent(in) :: is, js
 
 !---------------------------------------------------------------------
 ! local variables:
 
-      real, dimension (size(data,1),  &
-                       size(data,2)) :: data2
+    real, dimension(size(data, 1), &
+                    size(data, 2)) :: data2
 
-      integer :: field           
-      integer :: i1, j1, i2, j2  
-                             
+    integer :: field
+    integer :: i1, j1, i2, j2
+
 !---------------------------------------------------------------------
 ! local variables:
 !
 !     data2
 !     field           ! index of desired integral
-!     i1, j1, i2, j2  ! location indices of current data in 
+!     i1, j1, i2, j2  ! location indices of current data in
 !                       processor-global coordinates
 !
 !--------------------------------------------------------------------
@@ -638,44 +618,43 @@ integer, optional, intent(in) :: is, js
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
-      if (.not. module_is_initialized ) then
-        call error_mesg ('mima_diag_integral_mod',   &
-              'module has not been initialized', FATAL )
-      endif
+    if (.not. module_is_initialized) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'module has not been initialized', FATAL)
+    end if
 
 !---------------------------------------------------------------------
 !    obtain the index of the current integral. make certain it is valid.
 !---------------------------------------------------------------------
-      field = get_field_index (name)
-      if (field == 0)   then
-        call error_mesg ('mima_diag_integral_mod', &
-                               'field does not exist', FATAL)
-      endif
+    field = get_field_index(name)
+    if (field == 0) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'field does not exist', FATAL)
+    end if
 
 !---------------------------------------------------------------------
-!   define the processor-global indices of the current data. use the 
+!   define the processor-global indices of the current data. use the
 !   value 1 for the initial grid points, if is and js are not input.
 !---------------------------------------------------------------------
-      i1 = 1;  if (present(is)) i1 = is
-      j1 = 1;  if (present(js)) j1 = js
-      i2 = i1 + size(data,1) - 1
-      j2 = j1 + size(data,2) - 1
+    i1 = 1; if (present(is)) i1 = is
+    j1 = 1; if (present(js)) j1 = js
+    i2 = i1 + size(data, 1) - 1
+    j2 = j1 + size(data, 2) - 1
 
 !---------------------------------------------------------------------
 !    increment the count of points toward this integral. sum first
-!    in the vertical and then add the values at this set of grid points 
+!    in the vertical and then add the values at this set of grid points
 !    to the accumulation array.
 !---------------------------------------------------------------------
-      field_count (field) = field_count (field) +   &
-                            size(data,1)*size(data,2)
-      data2 = sum(data,3)
-      field_sum   (field) = field_sum   (field) +  &
-                            sum (data2 * area(i1:i2,j1:j2))
+    field_count(field) = field_count(field) + &
+                         size(data, 1)*size(data, 2)
+    data2 = sum(data, 3)
+    field_sum(field) = field_sum(field) + &
+                       sum(data2*area(i1:i2, j1:j2))
 
 !---------------------------------------------------------------------
 
-end subroutine sum_field_3d
-
+  end subroutine sum_field_3d
 
 !#######################################################################
 ! <SUBROUTINE NAME="sum_field_wght_3d">
@@ -698,29 +677,29 @@ end subroutine sum_field_3d
 !   the weight function to be evaluated at summation
 !  </IN>
 !  <IN NAME="is, js" TYPE="integer">
-!   starting i,j indices over which summation is 
+!   starting i,j indices over which summation is
 !                  to occur
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine sum_field_wght_3d (name, data, wt, is, js)
+  subroutine sum_field_wght_3d(name, data, wt, is, js)
 
-character(len=*),  intent(in) :: name
-real,              intent(in) :: data(:,:,:), wt(:,:,:)
-integer, optional, intent(in) :: is, js
+    character(len=*), intent(in) :: name
+    real, intent(in) :: data(:, :, :), wt(:, :, :)
+    integer, optional, intent(in) :: is, js
 
 !---------------------------------------------------------------------
 ! local variables:
 
-      real, dimension (size(data,1),size(data,2)) :: data2
-      integer :: field, i1, j1, i2, j2
+    real, dimension(size(data, 1), size(data, 2)) :: data2
+    integer :: field, i1, j1, i2, j2
 
 !---------------------------------------------------------------------
 ! local variables:
 !
 !     data2
 !     field           ! index of desired integral
-!     i1, j1, i2, j2  ! location indices of current data in 
+!     i1, j1, i2, j2  ! location indices of current data in
 !                       processor-global coordinates
 !
 !--------------------------------------------------------------------
@@ -728,47 +707,45 @@ integer, optional, intent(in) :: is, js
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
-      if (.not. module_is_initialized ) then
-        call error_mesg ('mima_diag_integral_mod',   &
-              'module has not been initialized', FATAL )
-      endif
+    if (.not. module_is_initialized) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'module has not been initialized', FATAL)
+    end if
 
 !---------------------------------------------------------------------
 !    obtain the index of the current integral. make certain it is valid.
 !---------------------------------------------------------------------
-      field = get_field_index (name)
-      if (field == 0)   then
-        call error_mesg ('mima_diag_integral_mod', &
-                               'field does not exist', FATAL)
-      endif
+    field = get_field_index(name)
+    if (field == 0) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'field does not exist', FATAL)
+    end if
 
 !---------------------------------------------------------------------
-!   define the processor-global indices of the current data. use the 
+!   define the processor-global indices of the current data. use the
 !   value 1 for the initial grid points, if is and js are not input.
 !---------------------------------------------------------------------
-      i1 = 1;  if (present(is)) i1 = is
-      j1 = 1;  if (present(js)) j1 = js
-      i2 = i1 + size(data,1) - 1
-      j2 = j1 + size(data,2) - 1
+    i1 = 1; if (present(is)) i1 = is
+    j1 = 1; if (present(js)) j1 = js
+    i2 = i1 + size(data, 1) - 1
+    j2 = j1 + size(data, 2) - 1
 
 !---------------------------------------------------------------------
 !    increment the count of points toward this integral. sum first
-!    in the vertical (including a vertical weighting factor) and then 
-!    add the values at this set of grid points to the accumulation 
+!    in the vertical (including a vertical weighting factor) and then
+!    add the values at this set of grid points to the accumulation
 !    array.
 !---------------------------------------------------------------------
-      field_count (field) = field_count (field) +   &
-                            size(data,1)*size(data,2)
-      data2 = vert_diag_integral (data, wt) 
-      field_sum(field) = field_sum   (field) +  &
-                         sum (data2 * area(i1:i2,j1:j2))
+    field_count(field) = field_count(field) + &
+                         size(data, 1)*size(data, 2)
+    data2 = vert_diag_integral(data, wt)
+    field_sum(field) = field_sum(field) + &
+                       sum(data2*area(i1:i2, j1:j2))
 
 !----------------------------------------------------------------------
 
+  end subroutine sum_field_wght_3d
 
-end subroutine sum_field_wght_3d
-
-  
 !#######################################################################
 ! <SUBROUTINE NAME="sum_field_2d_hemi">
 !  <OVERVIEW>
@@ -787,26 +764,26 @@ end subroutine sum_field_wght_3d
 !   field of integrands to be summed over
 !  </IN>
 !  <IN NAME="is, js, ie, je" TYPE="integer">
-!   starting/ending i,j indices over which summation is 
+!   starting/ending i,j indices over which summation is
 !                  to occur
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine sum_field_2d_hemi (name, data, is, ie, js, je)
+  subroutine sum_field_2d_hemi(name, data, is, ie, js, je)
 
-character(len=*),  intent(in) :: name
-real,              intent(in) :: data(:,:)
-integer,           intent(in) :: is, js, ie, je
+    character(len=*), intent(in) :: name
+    real, intent(in) :: data(:, :)
+    integer, intent(in) :: is, js, ie, je
 
 !---------------------------------------------------------------------
 ! local variables:
-   integer :: field, i1, j1, i2, j2
+    integer :: field, i1, j1, i2, j2
 
 !---------------------------------------------------------------------
 ! local variables:
 !
 !     field           ! index of desired integral
-!     i1, j1, i2, j2  ! location indices of current data in 
+!     i1, j1, i2, j2  ! location indices of current data in
 !                       processor-global coordinates
 !
 !--------------------------------------------------------------------
@@ -814,57 +791,53 @@ integer,           intent(in) :: is, js, ie, je
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
-      if (.not. module_is_initialized ) then
-        call error_mesg ('mima_diag_integral_mod',   &
-              'module has not been initialized', FATAL )
-      endif
+    if (.not. module_is_initialized) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'module has not been initialized', FATAL)
+    end if
 
 !---------------------------------------------------------------------
 !    obtain the index of the current integral. make certain it is valid.
 !---------------------------------------------------------------------
-      field = get_field_index (name)
-      if (field == 0)    then
-        call error_mesg ('mima_diag_integral_mod', &
-                               'field does not exist', FATAL)
-      endif
+    field = get_field_index(name)
+    if (field == 0) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'field does not exist', FATAL)
+    end if
 
 !----------------------------------------------------------------------
 !    define the processor-global indices of the current data. this form
-!    is needed to handle case of 2d domain decomposition with physics 
+!    is needed to handle case of 2d domain decomposition with physics
 !    window smaller than processor domain size.
 !----------------------------------------------------------------------
-      i1 = mod ( (is-1), size(data,1) ) + 1
-      i2 = i1 + size(data,1) - 1
+    i1 = mod((is - 1), size(data, 1)) + 1
+    i2 = i1 + size(data, 1) - 1
 
 !--------------------------------------------------------------------
 !    for a hemispheric sum, sum one jrow at a time in case a processor
 !    has data from both hemispheres.
 !--------------------------------------------------------------------
-      j1 = mod ( (js-1) ,size(data,2) ) + 1
-      j2 = j1
+    j1 = mod((js - 1), size(data, 2)) + 1
+    j2 = j1
 
 !----------------------------------------------------------------------
 !    increment the count of points toward this integral. include hemi-
-!    spheric factor of 2 in field_count. add the data values at this 
+!    spheric factor of 2 in field_count. add the data values at this
 !    set of grid points to the accumulation array.
 !----------------------------------------------------------------------
-      field_count (field) = field_count (field) + 2* (i2-i1+1)*(j2-j1+1)
-      field_sum   (field) = field_sum   (field) +  &
-                            sum (data(i1:i2,j1:j2)*area(is:ie,js:je))
+    field_count(field) = field_count(field) + 2*(i2 - i1 + 1)*(j2 - j1 + 1)
+    field_sum(field) = field_sum(field) + &
+                       sum(data(i1:i2, j1:j2)*area(is:ie, js:je))
 
 !---------------------------------------------------------------------
 
-
- end subroutine sum_field_2d_hemi
-
-
+  end subroutine sum_field_2d_hemi
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 !
 !                  END INTERFACE SUM_DIAG_INTEGRAL_FIELD
 !
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 
 !##################################################################
 ! <SUBROUTINE NAME="diag_integral_output">
@@ -882,11 +855,11 @@ integer,           intent(in) :: is, js, ie, je
 !   call diag_integral_output (Time)
 !  </TEMPLATE>
 !  <IN NAME="Time" TYPE="time_type">
-!   integral time stamp at the current time 
+!   integral time stamp at the current time
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine diag_integral_output (Time)
+  subroutine diag_integral_output(Time)
 
 !---------------------------------------------------------------------
 !    diag_integral_output determines if this is a timestep on which
@@ -894,12 +867,12 @@ subroutine diag_integral_output (Time)
 !    write_field_averages.
 !---------------------------------------------------------------------
 
-type (time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time
 
 !-----------------------------------------------------------------------
 !  intent(in) variables:
 !
-!         Time     integral time stamp at the current time 
+!         Time     integral time stamp at the current time
 !                  [ time_type ]
 !
 !---------------------------------------------------------------------
@@ -907,29 +880,27 @@ type (time_type), intent(in) :: Time
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
-      if (.not. module_is_initialized ) then
-        call error_mesg ('mima_diag_integral_mod',   &
-              'module has not been initialized', FATAL )
-      endif
+    if (.not. module_is_initialized) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'module has not been initialized', FATAL)
+    end if
 
 !---------------------------------------------------------------------
-!    see if integral output is desired at this time. 
+!    see if integral output is desired at this time.
 !---------------------------------------------------------------------
-      if ( diag_integral_alarm(Time) ) then   
+    if (diag_integral_alarm(Time)) then
 
 !---------------------------------------------------------------------
-!    write the integrals by calling write_field_averages. upon return 
+!    write the integrals by calling write_field_averages. upon return
 !    reset the alarm to the next diagnostics time.
 !---------------------------------------------------------------------
-        call write_field_averages (Time)
-        Next_alarm_time = Next_alarm_time + Alarm_interval
-      endif
+      call write_field_averages(Time)
+      Next_alarm_time = Next_alarm_time + Alarm_interval
+    end if
 
 !-----------------------------------------------------------------------
 
-
-end subroutine diag_integral_output
-
+  end subroutine diag_integral_output
 
 !#######################################################################
 ! <SUBROUTINE NAME="diag_integral_end">
@@ -943,65 +914,59 @@ end subroutine diag_integral_output
 !   call diag_integral_end (Time)
 !  </TEMPLATE>
 !  <IN NAME="Time" TYPE="time_type">
-!   integral time stamp at the current time 
+!   integral time stamp at the current time
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine diag_integral_end (Time)
+  subroutine diag_integral_end(Time)
 
 !--------------------------------------------------------------------
 !    diag_integral_end is the destructor for mima_diag_integral_mod.
 !--------------------------------------------------------------------
 
-type (time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time
 
 !----------------------------------------------------------------------
 !    be sure module has been initialized.
 !---------------------------------------------------------------------
-      if (.not. module_is_initialized ) then
-        call error_mesg ('mima_diag_integral_mod',   &
-              'module has not been initialized', FATAL )
-      endif
+    if (.not. module_is_initialized) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'module has not been initialized', FATAL)
+    end if
 
 !---------------------------------------------------------------------
-!    if the alarm interval was set to Zero_time (meaning no integral 
+!    if the alarm interval was set to Zero_time (meaning no integral
 !    output during the model run) call write_field_averages to output
-!    the integrals valid over the entire period of integration. 
+!    the integrals valid over the entire period of integration.
 !---------------------------------------------------------------------
       !! TODO: Fix bug here, if time is large or resolution large, then this can easily lead to an integer overflow!
       !! My thought (Rob K) is that if the alarm interval is unset and there is no file name reqested then writing the field averages is not desired.
       !! The only other thought would be to promote the field_count array to a 8-byte integer. That should probably be done anyway...
-      if (Alarm_interval == Zero_time ) then  
-!       if (Alarm_interval /= Zero_time ) then  
+    if (Alarm_interval == Zero_time) then
+!       if (Alarm_interval /= Zero_time ) then
 !       else
-        call write_field_averages (Time)
-      endif
+      call write_field_averages(Time)
+    end if
 
 !---------------------------------------------------------------------
 !    deallocate module variables.
 !---------------------------------------------------------------------
-      deallocate (area)
+    deallocate (area)
 
 !---------------------------------------------------------------------
 !    mark the module as uninitialized.
 !---------------------------------------------------------------------
-      module_is_initialized = .false.
+    module_is_initialized = .false.
 
 !--------------------------------------------------------------------
 
-end subroutine diag_integral_end
-
-
-
+  end subroutine diag_integral_end
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-!                                
+!
 !                    PRIVATE SUBROUTINES
-!                                
+!
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-
 
 !#######################################################################
 ! <FUNCTION NAME="set_axis_time">
@@ -1015,22 +980,22 @@ end subroutine diag_integral_end
 !   time = set_axis_time (atime, units)
 !  </TEMPLATE>
 !  <IN NAME="atime" TYPE="real">
-!   integral time stamp at the current time 
+!   integral time stamp at the current time
 !  </IN>
 !  <IN NAME="units" TYPE="character">
 !   input units, not used
 !  </IN>
 ! </FUNCTION>
 !
-function set_axis_time (atime, units) result (Time)
+  function set_axis_time(atime, units) result(Time)
 
 !--------------------------------------------------------------------
 !
 !--------------------------------------------------------------------
 
-real,             intent(in) :: atime
-character(len=*), intent(in) :: units
-type(time_type)  :: Time
+    real, intent(in) :: atime
+    character(len=*), intent(in) :: units
+    type(time_type)  :: Time
 
 !---------------------------------------------------------------------
 !  intent(in) variables:
@@ -1047,39 +1012,38 @@ type(time_type)  :: Time
 !---------------------------------------------------------------------
 !  local variables:
 
-      integer          :: sec     ! seconds corresponding to the input
-                                  ! variable atime
-      integer          :: day = 0 ! day component of time_type variable
+    integer          :: sec     ! seconds corresponding to the input
+    ! variable atime
+    integer          :: day = 0 ! day component of time_type variable
 
 !--------------------------------------------------------------------
 !    convert the input time to seconds, regardless of input units.
 !--------------------------------------------------------------------
-      if (units(1:3) == 'sec') then
-         sec = int(atime + 0.5)
-      else if (units(1:3) == 'min') then
-         sec = int(atime*60. + 0.5)
-      else if (units(1:3) == 'hou') then
-         sec = int(atime*3600. + 0.5)
-      else if (units(1:3) == 'day') then
-         sec = int(atime*86400. + 0.5)
-      endif
+    if (units(1:3) == 'sec') then
+      sec = int(atime + 0.5)
+    else if (units(1:3) == 'min') then
+      sec = int(atime*60.+0.5)
+    else if (units(1:3) == 'hou') then
+      sec = int(atime*3600.+0.5)
+    else if (units(1:3) == 'day') then
+      sec = int(atime*86400.+0.5)
+    end if
 
 !--------------------------------------------------------------------
 !    convert the time in seconds to a time_type variable.
 !--------------------------------------------------------------------
-      Time = set_time (sec, day)
+    Time = set_time(sec, day)
 
-
-end function set_axis_time
+  end function set_axis_time
 
 !######################################################################
 ! <FUNCTION NAME="get_field_index">
 !  <OVERVIEW>
-!   get_field_index returns returns the index associated with an 
+!   get_field_index returns returns the index associated with an
 !   integral name.
 !  </OVERVIEW>
 !  <DESCRIPTION>
-!   get_field_index returns returns the index associated with an 
+!   get_field_index returns returns the index associated with an
 !   integral name.
 !  </DESCRIPTION>
 !  <TEMPLATE>
@@ -1090,15 +1054,15 @@ end function set_axis_time
 !  </IN>
 ! </FUNCTION>
 !
-function get_field_index (name) result (index)
+  function get_field_index(name) result(index)
 
 !---------------------------------------------------------------------
-!   get_field_index returns returns the index associated with an 
+!   get_field_index returns returns the index associated with an
 !   integral name.
 !---------------------------------------------------------------------
 
-character(len=*),  intent(in) :: name
-integer                       :: index
+    character(len=*), intent(in) :: name
+    integer                       :: index
 
 !--------------------------------------------------------------------
 !  intent(in) variables:
@@ -1114,39 +1078,36 @@ integer                       :: index
 !---------------------------------------------------------------------
 !   local variables:
 
-      character(len=max_len_name) :: fname
-      integer :: nc
-      integer :: i
+    character(len=max_len_name) :: fname
+    integer :: nc
+    integer :: i
 
 !---------------------------------------------------------------------
 !
 !--------------------------------------------------------------------
-      nc = len_trim (name)
-      if (nc > max_len_name)  then
-        call error_mesg ('mima_diag_integral_mod',  &
-                                        'name too long', FATAL)
-      endif
+    nc = len_trim(name)
+    if (nc > max_len_name) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'name too long', FATAL)
+    end if
 
 !--------------------------------------------------------------------
 !    search each field name for the current string. when found exit
 !    with the index. if not found index will be 0 upon return, which
 !    initiates error condition.
 !--------------------------------------------------------------------
-      index = 0
-      do i = 1, num_field
-        if (name(1:nc) ==     &
-                       field_name(i) (1:len_trim(field_name(i))) ) then
-          index = i
-          exit
-        endif
-      end do
+    index = 0
+    do i = 1, num_field
+      if (name(1:nc) == &
+          field_name(i) (1:len_trim(field_name(i)))) then
+        index = i
+        exit
+      end if
+    end do
 
 !---------------------------------------------------------------------
 
-
-
- end function get_field_index
-
+  end function get_field_index
 
 !#####################################################################
 ! <SUBROUTINE NAME="write_field_averages">
@@ -1162,17 +1123,17 @@ integer                       :: index
 !   call  write_field_averages (Time)
 !  </TEMPLATE>
 !  <IN NAME="Time" TYPE="time_type">
-!   integral time stamp at the current time 
+!   integral time stamp at the current time
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine write_field_averages (Time)
+  subroutine write_field_averages(Time)
 
 !---------------------------------------------------------------------
 !
 !---------------------------------------------------------------------
 
-type (time_type), intent(in) :: Time
+    type(time_type), intent(in) :: Time
 
 !--------------------------------------------------------------------
 !  intent(in) variables:
@@ -1184,12 +1145,12 @@ type (time_type), intent(in) :: Time
 !--------------------------------------------------------------------
 !   local variables:
 
-      real    :: field_avg(max_num_field)
-      real    :: xtime, rcount
-      integer :: nn, ninc, nst, nend, fields_to_print
-      integer :: i
-      integer(kind=8) :: kount
-      character(len=24) :: chcount, chsize
+    real    :: field_avg(max_num_field)
+    real    :: xtime, rcount
+    integer :: nn, ninc, nst, nend, fields_to_print
+    integer :: i
+    integer(kind=8) :: kount
+    character(len=24) :: chcount, chsize
 
 !--------------------------------------------------------------------
 !   local variables:
@@ -1210,91 +1171,87 @@ type (time_type), intent(in) :: Time
 !--------------------------------------------------------------------
 !    each header and data format may be different and must be generated
 !    as needed.
-!---------------------------------------------------------------------- 
-      fields_to_print = 0
-      do i = 1, num_field
+!----------------------------------------------------------------------
+    fields_to_print = 0
+    do i = 1, num_field
 
 !--------------------------------------------------------------------
 !    increment the fields_to_print counter.  sum the integrand and the
-!    number of data points contributing to it over all processors. 
+!    number of data points contributing to it over all processors.
 !--------------------------------------------------------------------
-        fields_to_print = fields_to_print + 1
-        rcount = real(field_count(i))
-        call mpp_sum (rcount)
-        call mpp_sum (field_sum(i))
-        field_count(i) = nint(rcount, kind=8)
+      fields_to_print = fields_to_print + 1
+      rcount = real(field_count(i))
+      call mpp_sum(rcount)
+      call mpp_sum(field_sum(i))
+      field_count(i) = nint(rcount, kind=8)
 
 !--------------------------------------------------------------------
-!    verify that all the data expected for an integral has been 
+!    verify that all the data expected for an integral has been
 !    obtained.
 !--------------------------------------------------------------------
 !    an integral with no data (its scheme is switched off, e.g. prec
 !    without moist physics) is written as zero.
-        if (field_count(i) == 0 ) then
-          field_avg(fields_to_print) = 0.0
-          cycle
-        endif
-        kount = field_count(i)/field_size
-        if ((field_size)*kount /= field_count(i)) then
-          write (chsize, '(i0)') field_size
-          write (chcount, '(i0)') field_count(i)
-          call error_mesg &
-                 ('mima_diag_integral_mod',  &
-                  'field_count not a multiple of field_size. ' // &
-                  'field_name is ' // trim( field_name(i)) // &
-                  ', field_size=' // trim(chsize) // &
-                  ', field_count=' // trim(chcount), FATAL )
-        endif
+      if (field_count(i) == 0) then
+        field_avg(fields_to_print) = 0.0
+        cycle
+      end if
+      kount = field_count(i)/field_size
+      if ((field_size)*kount /= field_count(i)) then
+        write (chsize, '(i0)') field_size
+        write (chcount, '(i0)') field_count(i)
+        call error_mesg &
+          ('mima_diag_integral_mod', &
+           'field_count not a multiple of field_size. '// &
+           'field_name is '//trim(field_name(i))// &
+           ', field_size='//trim(chsize)// &
+           ', field_count='//trim(chcount), FATAL)
+      end if
 
 !----------------------------------------------------------------------
 !    define the global integral for field i. reinitialize the point
 !    and data accumulators.
 !----------------------------------------------------------------------
-        field_avg(fields_to_print) = field_sum(i)/  &
-                                     (sum_area*real(kount))
-        field_sum  (i) = 0.0
-        field_count(i) = 0
-      end do
+      field_avg(fields_to_print) = field_sum(i)/ &
+                                   (sum_area*real(kount))
+      field_sum(i) = 0.0
+      field_count(i) = 0
+    end do
 
 !--------------------------------------------------------------------
 !    only the root pe will write out data.
 !--------------------------------------------------------------------
-      if ( mpp_pe() /= mpp_root_pe() ) return
+    if (mpp_pe() /= mpp_root_pe()) return
 
 !---------------------------------------------------------------------
 !    define the time associated with the integrals just calculated.
 !---------------------------------------------------------------------
-      xtime = get_axis_time (Time-Time_init_save, time_units)
+    xtime = get_axis_time(Time - Time_init_save, time_units)
 
 !---------------------------------------------------------------------
 !    generate the new header and data formats.
 !---------------------------------------------------------------------
-      nst = 1
-      nend = fields_per_print_line
-      ninc = (num_field-1)/fields_per_print_line + 1
-      do nn=1, ninc
-        nst = 1 + (nn-1)*fields_per_print_line
-        nend = MIN (nn*fields_per_print_line, num_field)
-        if (print_header)  call format_text_init (nst, nend)
-        call format_data_init (nst, nend)
-        if (diag_unit /= 0) then
-          write (diag_unit,format_data(1:nd)) &
-                 xtime, (field_avg(i),i=nst,nend)
-          ! flush buffer
-          flush(diag_unit)
-        else
-          write (*, format_data(1:nd)) &
-                 xtime, (field_avg(i),i=nst,nend)
-        endif
-      end do
+    nst = 1
+    nend = fields_per_print_line
+    ninc = (num_field - 1)/fields_per_print_line + 1
+    do nn = 1, ninc
+      nst = 1 + (nn - 1)*fields_per_print_line
+      nend = min(nn*fields_per_print_line, num_field)
+      if (print_header) call format_text_init(nst, nend)
+      call format_data_init(nst, nend)
+      if (diag_unit /= 0) then
+        write (diag_unit, format_data(1:nd)) &
+          xtime, (field_avg(i), i=nst, nend)
+        ! flush buffer
+        flush (diag_unit)
+      else
+        write (*, format_data(1:nd)) &
+          xtime, (field_avg(i), i=nst, nend)
+      end if
+    end do
 
 !-----------------------------------------------------------------------
 
-
-end subroutine write_field_averages
-
-
-
+  end subroutine write_field_averages
 
 !#######################################################################
 ! <SUBROUTINE NAME="format_text_init">
@@ -1315,14 +1272,14 @@ end subroutine write_field_averages
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine format_text_init (nst_in, nend_in)
+  subroutine format_text_init(nst_in, nend_in)
 
 !----------------------------------------------------------------------
 !    format_text_init generates the header records to be output in the
 !    integrals file.
 !----------------------------------------------------------------------
 
-integer, intent(in), optional :: nst_in, nend_in
+    integer, intent(in), optional :: nst_in, nend_in
 
 !---------------------------------------------------------------------
 !  intent(in),optional variables:
@@ -1337,7 +1294,7 @@ integer, intent(in), optional :: nst_in, nend_in
 !--------------------------------------------------------------------
 !   local variables:
 
-      integer :: i, nc, nst, nend
+    integer :: i, nc, nst, nend
 
 !--------------------------------------------------------------------
 !   local variables:
@@ -1346,65 +1303,62 @@ integer, intent(in), optional :: nst_in, nend_in
 !        nc
 !        nst
 !        nend
-! 
+!
 !---------------------------------------------------------------------
 
 !---------------------------------------------------------------------
-!    only the root pe need execute this routine, since only it will 
+!    only the root pe need execute this routine, since only it will
 !    be outputting integrals.
 !---------------------------------------------------------------------
-      if (mpp_pe() /= mpp_root_pe()) return
+    if (mpp_pe() /= mpp_root_pe()) return
 
 !----------------------------------------------------------------------
 !    define the starting and ending integral indices that will be
 !    included in this format statement.
 !----------------------------------------------------------------------
-      if (present (nst_in) ) then
-        nst = nst_in
-        nend = nend_in
-      else
-        nst = 1
-        nend = num_field
-      endif
+    if (present(nst_in)) then
+      nst = nst_in
+      nend = nend_in
+    else
+      nst = 1
+      nend = num_field
+    end if
 
 !--------------------------------------------------------------------
 !    define the first 11 characters in the format statement.
 !--------------------------------------------------------------------
-      nt = 11
-      format_text(1:nt) = "('#    time"
+    nt = 11
+    format_text(1:nt) = "('#    time"
 
 !--------------------------------------------------------------------
 !    generate the rest of the format statement, which will cover
 !    integral indices nst to nend. if satndard printout is desired,
 !    cycle through the loop.
 !--------------------------------------------------------------------
-      do i=nst,nend
-        nc = len_trim(field_name(i))
-        format_text(nt+1:nt+nc+5) =  '     ' // field_name(i)(1:nc)
-        nt = nt+nc+5
-      end do
+    do i = nst, nend
+      nc = len_trim(field_name(i))
+      format_text(nt + 1:nt + nc + 5) = '     '//field_name(i) (1:nc)
+      nt = nt + nc + 5
+    end do
 
 !---------------------------------------------------------------------
 !    include the end of the format statement.
 !---------------------------------------------------------------------
-      format_text(nt+1:nt+2) = "')"
-      nt = nt+2
+    format_text(nt + 1:nt + 2) = "')"
+    nt = nt + 2
 
 !--------------------------------------------------------------------
 !    write the format statement to either an output file or to stdout.
 !--------------------------------------------------------------------
-      if (diag_unit /= 0) then
-        write (diag_unit, format_text(1:nt))
-      else
-        write (*, format_text(1:nt))
-      endif
+    if (diag_unit /= 0) then
+      write (diag_unit, format_text(1:nt))
+    else
+      write (*, format_text(1:nt))
+    end if
 
 !---------------------------------------------------------------------
 
-
-end subroutine format_text_init
-
-
+  end subroutine format_text_init
 
 !#######################################################################
 ! <SUBROUTINE NAME="format_data_init">
@@ -1425,15 +1379,15 @@ end subroutine format_text_init
 !  </IN>
 ! </SUBROUTINE>
 !
-subroutine format_data_init (nst_in, nend_in)
+  subroutine format_data_init(nst_in, nend_in)
 
 !---------------------------------------------------------------------
 !    format_data_init generates the format that will write out the
 !    integral data.
 !---------------------------------------------------------------------
 
-integer, intent(in), optional :: nst_in, nend_in
-   
+    integer, intent(in), optional :: nst_in, nend_in
+
 !--------------------------------------------------------------------
 !  intent(in),optional variables:
 !
@@ -1447,7 +1401,7 @@ integer, intent(in), optional :: nst_in, nend_in
 !--------------------------------------------------------------------
 !   local variables:
 
-      integer :: i, nc, nst, nend
+    integer :: i, nc, nst, nend
 
 !--------------------------------------------------------------------
 !   local variables:
@@ -1456,51 +1410,47 @@ integer, intent(in), optional :: nst_in, nend_in
 !        nc
 !        nst
 !        nend
-! 
+!
 !---------------------------------------------------------------------
 
 !--------------------------------------------------------------------
 !    define the start of the format, which covers the time stamp of the
 !    integrals. this section is 9 characters long.
 !--------------------------------------------------------------------
-      nd = 9
-      format_data(1:nd) = '(1x,f10.2'
+    nd = 9
+    format_data(1:nd) = '(1x,f10.2'
 
 !--------------------------------------------------------------------
 !    define the indices of the integrals that are to be written by this
 !    format statement.
 !--------------------------------------------------------------------
-      if ( present (nst_in) ) then
-        nst = nst_in
-        nend = nend_in
-      else
-        nst = 1 
-        nend = num_field
-      endif
+    if (present(nst_in)) then
+      nst = nst_in
+      nend = nend_in
+    else
+      nst = 1
+      nend = num_field
+    end if
 
 !-------------------------------------------------------------------
-!    complete the data format. use the format defined for the 
+!    complete the data format. use the format defined for the
 !    particular integral in setting up the format statement.
 !-------------------------------------------------------------------
-      do i=nst,nend
-         nc = len_trim(field_format(i))
-         format_data(nd+1:nd+nc+5) =  ',1x,' // field_format(i)(1:nc)
-         nd = nd+nc+5
-      end do
+    do i = nst, nend
+      nc = len_trim(field_format(i))
+      format_data(nd + 1:nd + nc + 5) = ',1x,'//field_format(i) (1:nc)
+      nd = nd + nc + 5
+    end do
 
 !-------------------------------------------------------------------
 !    close the format statement.
 !-------------------------------------------------------------------
-      format_data(nd+1:nd+1) = ')'
-      nd = nd + 1
+    format_data(nd + 1:nd + 1) = ')'
+    nd = nd + 1
 
 !-------------------------------------------------------------------
 
-
-
-end subroutine format_data_init
-
-
+  end subroutine format_data_init
 
 !#######################################################################
 ! <FUNCTION NAME="get_axis_time">
@@ -1523,15 +1473,15 @@ end subroutine format_data_init
 !  </IN>
 ! </FUNCTION>
 !
-function get_axis_time (Time, units) result (atime)
+  function get_axis_time(Time, units) result(atime)
 
 !---------------------------------------------------------------------
 !
 !---------------------------------------------------------------------
 
-type(time_type),  intent(in) :: Time
-character(len=*), intent(in) :: units
-real                         :: atime
+    type(time_type), intent(in) :: Time
+    character(len=*), intent(in) :: units
+    real                         :: atime
 
 !----------------------------------------------------------------------
 !  intent(in) variables:
@@ -1548,39 +1498,35 @@ real                         :: atime
 !---------------------------------------------------------------------
 !   local variables:
 
-      integer      :: sec, day  ! components of time_type variable
+    integer      :: sec, day  ! components of time_type variable
 
 !-------------------------------------------------------------------
 !    get_axis_time converts the time_type input variable into units of
 !    units and returns it in atime.
 !-------------------------------------------------------------------
-      call get_time (Time, sec, day)
-      if (units(1:3) == 'sec') then
-         atime = float(sec) + 86400.*float(day)
-      else if (units(1:3) == 'min') then
-         atime = float(sec)/60. + 1440.*float(day)
-      else if (units(1:3) == 'hou') then
-         atime = float(sec)/3600. + 24.*float(day)
-      else if (units(1:3) == 'day') then
-         atime = float(sec)/86400. + float(day)
-      endif
+    call get_time(Time, sec, day)
+    if (units(1:3) == 'sec') then
+      atime = float(sec) + 86400.*float(day)
+    else if (units(1:3) == 'min') then
+      atime = float(sec)/60.+1440.*float(day)
+    else if (units(1:3) == 'hou') then
+      atime = float(sec)/3600.+24.*float(day)
+    else if (units(1:3) == 'day') then
+      atime = float(sec)/86400.+float(day)
+    end if
 
 !--------------------------------------------------------------------
- 
 
-
-end function get_axis_time
-
-
+  end function get_axis_time
 
 !#####################################################################
 ! <FUNCTION NAME="diag_integral_alarm">
 !  <OVERVIEW>
-!   Function to check if it is time to write integrals. 
+!   Function to check if it is time to write integrals.
 !   if not writing integrals, return.
 !  </OVERVIEW>
 !  <DESCRIPTION>
-!   Function to check if it is time to write integrals. 
+!   Function to check if it is time to write integrals.
 !   if not writing integrals, return.
 !  </DESCRIPTION>
 !  <TEMPLATE>
@@ -1591,14 +1537,14 @@ end function get_axis_time
 !  </IN>
 ! </FUNCTION>
 !
- function diag_integral_alarm (Time) result (answer)
+  function diag_integral_alarm(Time) result(answer)
 
 !--------------------------------------------------------------------
 !
 !--------------------------------------------------------------------
 
-type (time_type), intent(in) :: Time
-logical                      :: answer
+    type(time_type), intent(in) :: Time
+    logical                      :: answer
 
 !---------------------------------------------------------------------
 !  intent(in) variables:
@@ -1615,25 +1561,22 @@ logical                      :: answer
 !    check if it is time to write integrals. if not writing integrals,
 !    return.
 !--------------------------------------------------------------------
-      answer = .false.
-      if (Alarm_interval == Zero_time) return
-      if (Time >= Next_alarm_time) answer = .true.
+    answer = .false.
+    if (Alarm_interval == Zero_time) return
+    if (Time >= Next_alarm_time) answer = .true.
 
 !--------------------------------------------------------------------
 
-
-end function diag_integral_alarm
-
-
+  end function diag_integral_alarm
 
 !#######################################################################
 ! <FUNCTION NAME="vert_diag_integral">
 !  <OVERVIEW>
-!   Function to perform a weighted integral in the vertical 
+!   Function to perform a weighted integral in the vertical
 !    direction of a 3d data field
 !  </OVERVIEW>
 !  <DESCRIPTION>
-!   Function to perform a weighted integral in the vertical 
+!   Function to perform a weighted integral in the vertical
 !    direction of a 3d data field
 !  </DESCRIPTION>
 !  <TEMPLATE>
@@ -1647,14 +1590,14 @@ end function diag_integral_alarm
 !  </IN>
 ! </FUNCTION>
 !
-function vert_diag_integral (data, wt) result (data2)
+  function vert_diag_integral(data, wt) result(data2)
 
 !----------------------------------------------------------------------
 !
 !----------------------------------------------------------------------
 
-real, dimension (:,:,:),         intent(in) :: data, wt
-real, dimension (size(data,1),size(data,2)) :: data2
+    real, dimension(:, :, :), intent(in) :: data, wt
+    real, dimension(size(data, 1), size(data, 2)) :: data2
 
 !---------------------------------------------------------------------
 !  intent(in) variables;
@@ -1664,13 +1607,13 @@ real, dimension (size(data,1),size(data,2)) :: data2
 !
 !  result:
 !      data2
-! 
+!
 !---------------------------------------------------------------------
 
 !---------------------------------------------------------------------
 !  local variables:
- 
-      real, dimension(size(data,1),size(data,2)) :: wt2
+
+    real, dimension(size(data, 1), size(data, 2)) :: wt2
 
 !---------------------------------------------------------------------
 !  local variables:
@@ -1680,25 +1623,18 @@ real, dimension (size(data,1),size(data,2)) :: data2
 !---------------------------------------------------------------------
 
 !--------------------------------------------------------------------
-      wt2 = sum(wt,3)
-      if (count(wt2 == 0.) > 0)  then
-        call error_mesg ('mima_diag_integral_mod',  &
-                             'vert sum of weights equals zero', FATAL)
-      endif
-      data2 = sum(data*wt,3) / wt2
+    wt2 = sum(wt, 3)
+    if (count(wt2 == 0.) > 0) then
+      call error_mesg('mima_diag_integral_mod', &
+                      'vert sum of weights equals zero', FATAL)
+    end if
+    data2 = sum(data*wt, 3)/wt2
 
 !---------------------------------------------------------------------
 
-
- end function vert_diag_integral
-
-
-
+  end function vert_diag_integral
 
 !#######################################################################
-
-
-
 
 end module mima_diag_integral_mod
 

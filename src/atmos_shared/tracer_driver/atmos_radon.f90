@@ -10,10 +10,10 @@ module atmos_radon_mod
 ! <HISTORY SRC="http://www.gfdl.noaa.gov/fms-cgi-bin/cvsweb.cgi/FMS/"/>
 
 ! <OVERVIEW>
-!     This code allows the implementation of an extremely simplified 
+!     This code allows the implementation of an extremely simplified
 !     radon tracer in the FMS framework.
 !
-!    It should be taken as the implementation of a very simple tracer 
+!    It should be taken as the implementation of a very simple tracer
 !   which bears some characteristics of radon.
 ! </OVERVIEW>
 
@@ -24,51 +24,47 @@ module atmos_radon_mod
 
 !-----------------------------------------------------------------------
 
-use              fms_mod, only : &
-                                 write_version_number, &
-                                 mpp_pe, &
-                                 mpp_root_pe, &
-                                 error_mesg, &
-                                 FATAL,WARNING, NOTE, &
-                                 stdlog
-use     time_manager_mod, only : time_type
-use     diag_manager_mod, only : send_data
-use   tracer_manager_mod, only : get_tracer_index
-use    field_manager_mod, only : MODEL_ATMOS
-use atmos_tracer_utilities_mod, only : wet_deposition,       &
-                                 dry_deposition
+  use fms_mod, only: &
+    write_version_number, &
+    mpp_pe, &
+    mpp_root_pe, &
+    error_mesg, &
+    FATAL, WARNING, NOTE, &
+    stdlog
+  use time_manager_mod, only: time_type
+  use diag_manager_mod, only: send_data
+  use tracer_manager_mod, only: get_tracer_index
+  use field_manager_mod, only: MODEL_ATMOS
+  use atmos_tracer_utilities_mod, only: wet_deposition, &
+                                        dry_deposition
 
-
-implicit none
-private
+  implicit none
+  private
 !-----------------------------------------------------------------------
 !----- interfaces -------
 
-public  atmos_radon_sourcesink, atmos_radon_init, atmos_radon_end
+  public atmos_radon_sourcesink, atmos_radon_init, atmos_radon_end
 
 !-----------------------------------------------------------------------
 !----------- namelist -------------------
 !-----------------------------------------------------------------------
-integer  :: ncopies_radon = 9
- 
-namelist /atmos_radon_nml/  &
-                            ncopies_radon
+  integer  :: ncopies_radon = 9
 
+  namelist /atmos_radon_nml/ &
+    ncopies_radon
 
 !--- Arrays to help calculate tracer sources/sinks ---
 
-character(len=6), parameter :: module_name = 'tracer'
+  character(len=6), parameter :: module_name = 'tracer'
 
-logical :: module_is_initialized=.FALSE.
-
+  logical :: module_is_initialized = .false.
 
 !---- version number -----
-character(len=128) :: version = '$Id: atmos_radon.f90,v 11.0 2004/09/28 19:26:41 fms Exp $'
-character(len=128) :: tagname = '$Name: lima $'
+  character(len=128) :: version = '$Id: atmos_radon.f90,v 11.0 2004/09/28 19:26:41 fms Exp $'
+  character(len=128) :: tagname = '$Name: lima $'
 !-----------------------------------------------------------------------
 
 contains
-
 
 !#######################################################################
 !<SUBROUTINE NAME="atmos_radon_sourcesink">
@@ -78,17 +74,17 @@ contains
 !<DESCRIPTION>
 ! This is a very rudimentary implementation of radon.
 !
-! It is assumed that the Rn222 flux is 3.69e-21 kg/m*m/sec over land 
+! It is assumed that the Rn222 flux is 3.69e-21 kg/m*m/sec over land
 ! for latitudes < 60N
 !
 !   Between 60N and 70N the source  = source * .5
 !
-!  Rn222 has a half-life time of 3.83 days, which corresponds to an 
+!  Rn222 has a half-life time of 3.83 days, which corresponds to an
 !  e-folding time of 5.52 days.
 !
 !</DESCRIPTION>
 !<TEMPLATE>
-!call atmos_radon_sourcesink (lon, lat, land, pwt, radon, radon_dt, 
+!call atmos_radon_sourcesink (lon, lat, land, pwt, radon, radon_dt,
 !                              Time, kbot)
 !</TEMPLATE>
 !   <IN NAME="lon" TYPE="real" DIM="(:,:)">
@@ -116,28 +112,28 @@ contains
 !   <OUT NAME="radon_dt" TYPE="real" DIM="(:,:,:)">
 !     The array of the tendency of the radon mixing ratio.
 !   </OUT>
- subroutine atmos_radon_sourcesink (lon, lat, land, pwt, radon, radon_dt,  &
-                              Time, kbot)
+  subroutine atmos_radon_sourcesink(lon, lat, land, pwt, radon, radon_dt, &
+                                    Time, kbot)
 
 !-----------------------------------------------------------------------
-   real, intent(in),  dimension(:,:)   :: lon, lat
-   real, intent(in),  dimension(:,:)   :: land
-   real, intent(in),  dimension(:,:,:) :: pwt, radon
-   real, intent(out), dimension(:,:,:) :: radon_dt
-     type(time_type), intent(in) :: Time     
-integer, intent(in),  dimension(:,:), optional :: kbot
+    real, intent(in), dimension(:, :)   :: lon, lat
+    real, intent(in), dimension(:, :)   :: land
+    real, intent(in), dimension(:, :, :) :: pwt, radon
+    real, intent(out), dimension(:, :, :) :: radon_dt
+    type(time_type), intent(in) :: Time
+    integer, intent(in), dimension(:, :), optional :: kbot
 !-----------------------------------------------------------------------
-   real, dimension(size(radon,1),size(radon,2),size(radon,3)) ::  &
-         source, sink
-logical, dimension(size(radon,1),size(radon,2)) ::  maskeq,masknh
-   real  radon_flux, dtr, deg60, deg70, deg300, deg336
-integer  i,j,kb,id,jd,kd,lat1
+    real, dimension(size(radon, 1), size(radon, 2), size(radon, 3)) :: &
+      source, sink
+    logical, dimension(size(radon, 1), size(radon, 2)) ::  maskeq, masknh
+    real radon_flux, dtr, deg60, deg70, deg300, deg336
+    integer i, j, kb, id, jd, kd, lat1
 !-----------------------------------------------------------------------
 
-      id=size(radon,1); jd=size(radon,2); kd=size(radon,3)
+    id = size(radon, 1); jd = size(radon, 2); kd = size(radon, 3)
 
-      dtr=acos(0.0)/90.
-      deg60=60.*dtr; deg70=70.*dtr; deg300=300.*dtr; deg336=336.*dtr
+    dtr = acos(0.0)/90.
+    deg60 = 60.*dtr; deg70 = 70.*dtr; deg300 = 300.*dtr; deg336 = 336.*dtr
 
 !----------- compute radon source ------------
 !
@@ -155,49 +151,47 @@ integer  i,j,kb,id,jd,kd,lat1
 !  must initialize all rn to .001
 !
 
-      radon_flux = 3.69e-21 * 28.9644 * 1.e+21 / 222.
-      source = 0.0
-      maskeq = (land > 0.5) .and. lat > -deg60 .and. lat < deg60
-      masknh = (land > 0.5) .and. lat >= deg60 .and. lat < deg70
+    radon_flux = 3.69e-21*28.9644*1.e+21/222.
+    source = 0.0
+    maskeq = (land > 0.5) .and. lat > -deg60 .and. lat < deg60
+    masknh = (land > 0.5) .and. lat >= deg60 .and. lat < deg70
 
-      if (present(kbot)) then
-          do j=1,jd
-          do i=1,id
-             kb=kbot(i,j)
-             if (maskeq(i,j)) source(i,j,kb)=radon_flux/pwt(i,j,kb)
-             if (masknh(i,j)) source(i,j,kb)=0.5*radon_flux/pwt(i,j,kb)
-          enddo
-          enddo
-      else
-          where (maskeq) source(:,:,kd)=radon_flux/pwt(:,:,kd)
-          where (masknh) source(:,:,kd)=0.5*radon_flux/pwt(:,:,kd)
-          where (masknh .and. lon > deg300 .and. lon < deg336)  &
-               source(:,:,kd)=0.0
-      endif
-
+    if (present(kbot)) then
+      do j = 1, jd
+      do i = 1, id
+        kb = kbot(i, j)
+        if (maskeq(i, j)) source(i, j, kb) = radon_flux/pwt(i, j, kb)
+        if (masknh(i, j)) source(i, j, kb) = 0.5*radon_flux/pwt(i, j, kb)
+      end do
+      end do
+    else
+      where (maskeq) source(:, :, kd) = radon_flux/pwt(:, :, kd)
+      where (masknh) source(:, :, kd) = 0.5*radon_flux/pwt(:, :, kd)
+      where (masknh .and. lon > deg300 .and. lon < deg336) &
+        source(:, :, kd) = 0.0
+    end if
 
 !------- compute radon sink --------------
 !
-!  rn222 has a half-life time of 3.83days 
+!  rn222 has a half-life time of 3.83days
 !   (corresponds to an e-folding time of 5.52 days)
 !
 !  sink = 1./(86400.*5.52) = 2.09675e-6
 !
 
-    where (radon(:,:,:) >= 0.0)
-       sink(:,:,:) = -2.09675e-6*radon(:,:,:)
+    where (radon(:, :, :) >= 0.0)
+      sink(:, :, :) = -2.09675e-6*radon(:, :, :)
     elsewhere
-       sink(:,:,:) = 0.0
-    endwhere
+      sink(:, :, :) = 0.0
+    end where
 
 !------- tendency ------------------
 
-      radon_dt=source+sink
-      
+    radon_dt = source + sink
 
 !-----------------------------------------------------------------------
 
- end subroutine atmos_radon_sourcesink
+  end subroutine atmos_radon_sourcesink
 !</SUBROUTINE>
 
 !#######################################################################
@@ -213,7 +207,7 @@ integer  i,j,kb,id,jd,kd,lat1
 !call radon_init (r, mask, axes, Time)
 !</TEMPLATE>
 !   <INOUT NAME="r" TYPE="real" DIM="(:,:,:,:)">
-!     Tracer fields dimensioned as (nlon,nlat,nlev,ntrace). 
+!     Tracer fields dimensioned as (nlon,nlat,nlev,ntrace).
 !   </INOUT>
 !   <IN NAME="mask" TYPE="real, optional" DIM="(:,:,:)">
 !      optional mask (0. or 1.) that designates which grid points
@@ -227,7 +221,7 @@ integer  i,j,kb,id,jd,kd,lat1
 !     The axes relating to the tracer array dimensioned as
 !      (nlon, nlat, nlev, ntime)
 !   </IN>
- subroutine atmos_radon_init (r, axes, Time, nradon, mask)
+  subroutine atmos_radon_init(r, axes, Time, nradon, mask)
 
 !-----------------------------------------------------------------------
 !
@@ -237,66 +231,65 @@ integer  i,j,kb,id,jd,kd,lat1
 !          (nlon,nlat,nlev).
 !
 !-----------------------------------------------------------------------
-real,             intent(inout), dimension(:,:,:,:) :: r
-type(time_type),  intent(in)                        :: Time
-integer,          intent(in)                        :: axes(4)
-integer, dimension(:), pointer                         :: nradon
-real, intent(in), dimension(:,:,:), optional        :: mask
+    real, intent(inout), dimension(:, :, :, :) :: r
+    type(time_type), intent(in)                        :: Time
+    integer, intent(in)                        :: axes(4)
+    integer, dimension(:), pointer                         :: nradon
+    real, intent(in), dimension(:, :, :), optional        :: mask
 
-logical :: flag
-integer :: n
+    logical :: flag
+    integer :: n
 !
 !-----------------------------------------------------------------------
 !
-      integer  log_unit,unit,io,index,ntr,nt
-      character(len=16) ::  fld
-      character(len=64) ::  search_name
-      character(len=4) ::  chname
-      integer :: nn
+    integer log_unit, unit, io, index, ntr, nt
+    character(len=16) ::  fld
+    character(len=64) ::  search_name
+    character(len=4) ::  chname
+    integer :: nn
 
-      if (module_is_initialized) return
+    if (module_is_initialized) return
 
 !---- write namelist ------------------
 
-      call write_version_number (version, tagname)
-      if ( mpp_pe() == mpp_root_pe() ) &
-        write ( stdlog(), nml=atmos_radon_nml )
- 
-      if (ncopies_radon > 9) then
-        call error_mesg ('atmos_radonm_mod', &
-          'currently no more than 9 copies of the radon tracer '//&
-                                               'are allowed', FATAL)
-      endif
-      allocate (nradon(ncopies_radon))
-      nradon = -1
+    call write_version_number(version, tagname)
+    if (mpp_pe() == mpp_root_pe()) &
+      write (stdlog(), nml=atmos_radon_nml)
 
-      do nn=1,ncopies_radon
-        write (chname,'(i1)') nn
-        if (nn > 1) then
-          search_name = 'radon_'// trim(chname)
-        else
-          search_name = 'radon'
-        endif
+    if (ncopies_radon > 9) then
+      call error_mesg('atmos_radonm_mod', &
+                      'currently no more than 9 copies of the radon tracer '// &
+                      'are allowed', FATAL)
+    end if
+    allocate (nradon(ncopies_radon))
+    nradon = -1
+
+    do nn = 1, ncopies_radon
+      write (chname, '(i1)') nn
+      if (nn > 1) then
+        search_name = 'radon_'//trim(chname)
+      else
+        search_name = 'radon'
+      end if
 !----- set initial value of radon ------------
 
-       n = get_tracer_index(MODEL_ATMOS,search_name)
-       if (n>0) then
-         nradon(nn)=n
-         if (nradon(nn) > 0 .and. mpp_pe() == mpp_root_pe()) write (*,30) trim(search_name), nradon(nn)
-         if (nradon(nn) > 0 .and. mpp_pe() == mpp_root_pe()) write (stdlog(),30) trim(search_name), nradon(nn)
-       endif
+      n = get_tracer_index(MODEL_ATMOS, search_name)
+      if (n > 0) then
+        nradon(nn) = n
+        if (nradon(nn) > 0 .and. mpp_pe() == mpp_root_pe()) write (*, 30) trim(search_name), nradon(nn)
+        if (nradon(nn) > 0 .and. mpp_pe() == mpp_root_pe()) write (stdlog(), 30) trim(search_name), nradon(nn)
+      end if
 
-      end do
+    end do
 
-  30        format (A,' was initialized as tracer number ',i2)
+30  format(A, ' was initialized as tracer number ', i2)
 !
 
-      module_is_initialized = .TRUE.
-
+    module_is_initialized = .true.
 
 !-----------------------------------------------------------------------
 
- end subroutine atmos_radon_init
+  end subroutine atmos_radon_init
 !</SUBROUTINE>
 
 !#######################################################################
@@ -306,20 +299,17 @@ integer :: n
 !  The destructor routine for the radon module.
 !</OVERVIEW>
 ! <DESCRIPTION>
-! This subroutine writes the version name to logfile and exits. 
+! This subroutine writes the version name to logfile and exits.
 ! </DESCRIPTION>
 !<TEMPLATE>
 ! call atmos_radon_end
 !</TEMPLATE>
- subroutine atmos_radon_end
- 
-      module_is_initialized = .FALSE.
+  subroutine atmos_radon_end
 
- end subroutine atmos_radon_end
+    module_is_initialized = .false.
+
+  end subroutine atmos_radon_end
 !</SUBROUTINE>
 
-
 end module atmos_radon_mod
-
-
 

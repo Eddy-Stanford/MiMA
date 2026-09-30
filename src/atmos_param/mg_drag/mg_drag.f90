@@ -6,36 +6,36 @@ module mg_drag_mod
 
 !-------------------------------------------------------------------
 !  Calculates partial tendencies for the zonal and meridional winds
-!  due to the effect of mountain gravity wave drag 
+!  due to the effect of mountain gravity wave drag
 !-------------------------------------------------------------------
 
- use  topography_mod, only: get_topog_stdev
+  use topography_mod, only: get_topog_stdev
 
- use         fms_mod, only: mpp_npes, write_version_number, stdlog, &
-                            mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE,  &
-                            input_nml_file, check_nml_error, mpp_error
- use mpp_domains_mod, only: domain2d
- use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
-                             close_restart, read_restart_field, write_restart_field
- use   constants_mod, only: Grav, Kappa, RDgas, cp_air
+  use fms_mod, only: mpp_npes, write_version_number, stdlog, &
+                     mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, &
+                     input_nml_file, check_nml_error, mpp_error
+  use mpp_domains_mod, only: domain2d
+  use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
+                              close_restart, read_restart_field, write_restart_field
+  use constants_mod, only: Grav, Kappa, RDgas, cp_air
 
 !-----------------------------------------------------------------------
- implicit none
+  implicit none
 !-----------------------------------------------------------------------
 
- private
+  private
 
- character(len=128) :: version = '$Id: mg_drag.f90,v 11.0 2004/09/28 19:19:38 fms Exp $'
- character(len=128) :: tagname = '$Name: lima $'
+  character(len=128) :: version = '$Id: mg_drag.f90,v 11.0 2004/09/28 19:19:38 fms Exp $'
+  character(len=128) :: tagname = '$Name: lima $'
 
- real, parameter :: p00 = 1.e5
+  real, parameter :: p00 = 1.e5
 
 !---------------------------------------------------------------------
 !     Ghprime - array of sub-grid scale mountain height variance
 !     domain  - grid domain, for the restart file
 !-----------------------------------------------------------------------
 
-  real, allocatable, dimension(:,:) :: Ghprime
+  real, allocatable, dimension(:, :) :: Ghprime
   type(domain2d) :: domain
 !-----------------------------------------------------------------------
 !Contants
@@ -44,57 +44,57 @@ module mg_drag_mod
 !     kappa  2/7 (i.e., R/Cp)
 !-----------------------------------------------------------------------
 
- logical :: module_is_initialized = .false.
+  logical :: module_is_initialized = .false.
 
 !---------------------------------------------------------------------
 ! --- NAMELIST (mg_drag_nml)
 !---------------------------------------------------------------------
 !     xl_mtn      effective mountain length ( set currently to 100km)
 !     acoef       order unity "tunable" parameter
-!     gmax    order unity "tunable" parameter 
+!     gmax    order unity "tunable" parameter
 !             (may be enhanced to increase drag)
 !     rho     stand value for density of the air at sea-level (1.13 KG/M**3)
 !     low_lev_frac - fraction of atmosphere (from bottom up) considered
 !              to be "low-level-layer for base flux calc. and where no
 !              wave breaking is allowed.
-!     flux_cut_level pressure level (Pa) above which flux divergence is set to zero 
+!     flux_cut_level pressure level (Pa) above which flux divergence is set to zero
 !-----------------------------------------------------------------------
 
- real :: &
-      xl_mtn=1.0e5 &
-!     & ,gmax=1.0, acoef=1.0
-!  v197 value of gmax = 2.0
-      ,gmax=2.0, acoef=1.0, rho=1.13  &
-!  v197 value for low-level-layer
-      ,low_lev_frac = .23
+  real :: &
+    xl_mtn = 1.0e5 &
+    !     & ,gmax=1.0, acoef=1.0
+    !  v197 value of gmax = 2.0
+    , gmax = 2.0, acoef = 1.0, rho = 1.13 &
+    !  v197 value for low-level-layer
+    , low_lev_frac = .23
 
-real  ::  flux_cut_level= 0.0
+  real  ::  flux_cut_level = 0.0
 
-logical :: do_conserve_energy = .false.
-character(len=128) :: source_of_sgsmtn = 'input'
+  logical :: do_conserve_energy = .false.
+  character(len=128) :: source_of_sgsmtn = 'input'
 
-    namelist / mg_drag_nml / xl_mtn, gmax, acoef, rho, low_lev_frac, &
-                             do_conserve_energy,                     &
-                             source_of_sgsmtn, flux_cut_level 
+  namelist /mg_drag_nml/ xl_mtn, gmax, acoef, rho, low_lev_frac, &
+    do_conserve_energy, &
+    source_of_sgsmtn, flux_cut_level
 
- public mg_drag, mg_drag_init, mg_drag_end
+  public mg_drag, mg_drag_init, mg_drag_end
 
- contains
+contains
 
-!#############################################################################      
+!#############################################################################
 
- subroutine mg_drag (is, js, delt, uwnd, vwnd, temp, pfull, phalf, &
-                    zfull,zhalf,dtaux,dtauy,dtemp,taubx, tauby, tausf,&
-                    kbot)
+  subroutine mg_drag(is, js, delt, uwnd, vwnd, temp, pfull, phalf, &
+                     zfull, zhalf, dtaux, dtauy, dtemp, taubx, tauby, tausf, &
+                     kbot)
 !===================================================================
 
 ! Arguments (intent in)
 
- integer, intent(in) :: is,js
- real, intent(in)    :: delt
- real, intent(in), dimension (:,:,:) :: &
-     &             uwnd, vwnd, temp, pfull, phalf, zfull, zhalf
- integer, intent(in), optional, dimension(:,:)   :: kbot
+    integer, intent(in) :: is, js
+    real, intent(in)    :: delt
+    real, intent(in), dimension(:, :, :) :: &
+        &             uwnd, vwnd, temp, pfull, phalf, zfull, zhalf
+    integer, intent(in), optional, dimension(:, :)   :: kbot
 
 !
 !      INPUT
@@ -120,8 +120,8 @@ character(len=128) :: source_of_sgsmtn = 'input'
 !===================================================================
 ! Arguments (intent out)
 
- real, intent(out), dimension (:,:) :: taubx, tauby
- real, intent(out), dimension (:,:,:) :: dtaux, dtauy, dtemp, tausf
+    real, intent(out), dimension(:, :) :: taubx, tauby
+    real, intent(out), dimension(:, :, :) :: dtaux, dtauy, dtemp, tausf
 
 !      OUTPUT
 !      ------
@@ -130,14 +130,14 @@ character(len=128) :: source_of_sgsmtn = 'input'
 !                   (dimensioned IDIM x JDIM)-kg/m/s**2
 !                   = -(RHO*U**3/(N*XL))*G(FR) FOR N**2 > 0
 !                   =          0               FOR N**2 <=0
-!      DTAUX    Tendency of the zonal wind component deceleration 
+!      DTAUX    Tendency of the zonal wind component deceleration
 !                   (dimensioned IDIM x JDIM x KDIM)
-!      DTAUY    Tendency of the meridional wind component deceleration 
+!      DTAUY    Tendency of the meridional wind component deceleration
 !                   (dimensioned IDIM x JDIM x KDIM)
 !      dtemp    Tendency of temperature due to dissipation of ke
 !
 !      TAUSF = "CLIPPED" SAT MOMENTUM FLUX ( AT HALF LEVELS below top)
-!                  
+!
 !===================================================================
 
 !-----------------------------------------------------------------------
@@ -178,12 +178,12 @@ character(len=128) :: source_of_sgsmtn = 'input'
 
 !=======================================================================
 !  (Intent local)
- real , dimension(size(uwnd,1),size(uwnd,2)) ::  xn, yn, psurf,ptop,taub
- real , dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) ::  theta 
- real , dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)+1) ::  taus
- real vsamp
-integer, dimension (size(uwnd,1),size(uwnd,2)) :: ktop, kbtm
-integer id, jd, idim, jdim, kdim, kdimm1, kdimp1, ie, je
+    real, dimension(size(uwnd, 1), size(uwnd, 2)) ::  xn, yn, psurf, ptop, taub
+    real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3)) ::  theta
+    real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3) + 1) ::  taus
+    real vsamp
+    integer, dimension(size(uwnd, 1), size(uwnd, 2)) :: ktop, kbtm
+    integer id, jd, idim, jdim, kdim, kdimm1, kdimp1, ie, je
 
 !              XN,YN  = PROJECTIONS OF "LOW LEVEL" WIND
 !                       IN ZONAL & MERIDIONAL DIRECTIONS
@@ -196,39 +196,39 @@ integer id, jd, idim, jdim, kdim, kdimm1, kdimp1, ie, je
 !                   -> -AETA(L)*PS*UMAG(L)*D(L)*GMAX/XL
 !      THETA    POTENTIAL temperature at full model levels
 !                   (dimensioned IDIM x JDIM x KDIM)
-!      PSURF    Surface pressure 
+!      PSURF    Surface pressure
 !                   (dimensioned IDIM x JDIM)
 !      PTOP     Pressure at top of low-level layer
 !                   (dimensioned IDIM x JDIM)
 !      KTOP     Top model level index included in low-level layer
 !                   (dimensioned IDIM x JDIM)
 !      KBTM     Bottom model level index included in low-level layer
-!                   usually the lowest level 
+!                   usually the lowest level
 !                   (dimensioned IDIM x JDIM)
 !-----------------------------------------------------------------------
 !  type loop indicies
- integer i, j, k, kd, kb, kt, kbp1, ktm1 
+    integer i, j, k, kd, kb, kt, kbp1, ktm1
 !-----------------------------------------------------------------------
 !  Local variables needed only for code that
 !  implements supersource-like gravity wave drag.
 
-integer :: klast, kcrit
-real    :: sigtop, small=1.e-10
+    integer :: klast, kcrit
+    real    :: sigtop, small = 1.e-10
 
-real,    dimension(size(uwnd,1),size(uwnd,2))              :: ulow, vlow, tlow, thlow
-real,    dimension(size(uwnd,1),size(uwnd,2))              :: rlow, zsvar, bvfreq, x
-real,    dimension(size(uwnd,1),size(uwnd,2))              :: depth, ave_p
-integer, dimension(size(uwnd,1),size(uwnd,2))              :: ntop 
-real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) :: th, sh_ang, test
+    real, dimension(size(uwnd, 1), size(uwnd, 2))              :: ulow, vlow, tlow, thlow
+    real, dimension(size(uwnd, 1), size(uwnd, 2))              :: rlow, zsvar, bvfreq, x
+    real, dimension(size(uwnd, 1), size(uwnd, 2))              :: depth, ave_p
+    integer, dimension(size(uwnd, 1), size(uwnd, 2))              :: ntop
+    real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3)) :: th, sh_ang, test
 !real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)+1) :: sigma_half
 
 !---------------------------------------------------------------------
 
-  idim = size( uwnd, 1 )
-  jdim = size( uwnd, 2 )
-  kdim = size( uwnd, 3 )
-  kdimm1 = kdim - 1
-  kdimp1 = kdim + 1
+    idim = size(uwnd, 1)
+    jdim = size(uwnd, 2)
+    kdim = size(uwnd, 3)
+    kdimm1 = kdim - 1
+    kdimp1 = kdim + 1
 
 !-----------------------------------------------------------------------
 
@@ -259,20 +259,19 @@ real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) :: th, sh_ang, test
 !              BNV,BNVK = "LOW-LEVEL",V. PROFILE -  BRUNT VAISALA FREQ(1
 !                                                                 (= N,N
 !              BNV2,BNVK2 = N**2, N(L)**2
-!              HPRIME = Sub-grid scale mountain height 
+!              HPRIME = Sub-grid scale mountain height
 !                       over local domain (IDIM x JDIM)
 !              XL = EFFECTIVE MOUNTAIN LENGTH = (100KM EVERYWHERE)
 !              SIGTOP = HIGHEST LEVEL TO WHICH GRAVITY WAVE
 !                         MOMENTUM FLUX WILL BE DISTRIBUTED.
 !              G = GMAX*FR**2/(FR**2+A**2)
-!              	  GMAX = 1.0
-!              	  A = 1.0
+!                        GMAX = 1.0
+!                        A = 1.0
 !=======================================================================
 
-
 !--- export sub grid scale topography
-  ie = is + idim - 1
-  je = js + jdim - 1
+    ie = is + idim - 1
+    je = js + jdim - 1
 
 !-----------------------------------------------------------------------
 !     vsamp is a vertical sampling coefficient which serves to amplify
@@ -281,72 +280,69 @@ real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) :: th, sh_ang, test
 !     vertical resolution properly resolving the vertical windshear.
 
 !     vsamp = (kdim+63)/kdim
-      vsamp = 1.0
+    vsamp = 1.0
 !-----------------------------------------------------------------------
 !  calculate bottom of low-level layer = lowest level unless kbot is present
     if (present(kbot)) then
-       kbtm(:,:) = kbot(:,:)
+      kbtm(:, :) = kbot(:, :)
     else
-       kbtm(:,:) = kdim
-    endif
+      kbtm(:, :) = kdim
+    end if
 !  calculate top of low-level layer, first get surface p from phalf
     if (present(kbot)) then
-       do j=1,jdim
-       do i=1,idim
-         psurf(i,j) = phalf(i,j,kbtm(i,j)+1)
-       end do
-       end do
+      do j = 1, jdim
+      do i = 1, idim
+        psurf(i, j) = phalf(i, j, kbtm(i, j) + 1)
+      end do
+      end do
     else
-       psurf(:,:) = phalf(:,:,kdimp1)
-    endif
+      psurf(:, :) = phalf(:, :, kdimp1)
+    end if
 !     print *,'psurf=', psurf
 !  Based on fraction of model atmosphere to be considered "low-level"
 !  (input via namelist), find highest model level.
 
-    ptop(:,:) = (1.-low_lev_frac)*psurf(:,:)
-    do kd=kdim,1,-1 
-         where (pfull(:,:,kd) .ge. ptop(:,:)) 
-           ktop(:,:) = kd
-         end where
+    ptop(:, :) = (1.-low_lev_frac)*psurf(:, :)
+    do kd = kdim, 1, -1
+      where (pfull(:, :, kd) .ge. ptop(:, :))
+        ktop(:, :) = kd
+      end where
     end do
 !  Make sure that low-level layer is at least 2 layer thick
-    ktop(:,:) = min(ktop(:,:),(kbtm(:,:)-1) )
+    ktop(:, :) = min(ktop(:, :), (kbtm(:, :) - 1))
 !     print *,'ptop=', ptop
 !     print *,'ktop=', ktop
 
 !  calculate base flux
-    call mgwd_base_flux (is,js,uwnd,vwnd,temp,pfull,phalf,ktop,kbtm,theta, &
-         &               xn,yn,taub)
+    call mgwd_base_flux(is, js, uwnd, vwnd, temp, pfull, phalf, ktop, kbtm, theta, &
+         &               xn, yn, taub)
 
 !  split taub in to x and y components
-    taubx(:,:) = taub(:,:)*xn(:,:)
-    tauby(:,:) = taub(:,:)*yn(:,:)
+    taubx(:, :) = taub(:, :)*xn(:, :)
+    tauby(:, :) = taub(:, :)*yn(:, :)
 
 !  calculate saturation flux profile
-    call mgwd_satur_flux (uwnd,vwnd,temp,theta,ktop,kbtm, &
-         &                xn,yn,taub,pfull, phalf,zfull,zhalf,vsamp,taus)
+    call mgwd_satur_flux(uwnd, vwnd, temp, theta, ktop, kbtm, &
+         &                xn, yn, taub, pfull, phalf, zfull, zhalf, vsamp, taus)
 
 !  calculate mountain gravity wave drag tendency contributions
-    call mgwd_tend (is,js,xn,yn,taub,phalf,taus,dtaux,dtauy, tausf)
-
+    call mgwd_tend(is, js, xn, yn, taub, phalf, taus, dtaux, dtauy, tausf)
 
 !  calculate temperature tendency due to dissipation of kinetic energy
-if (do_conserve_energy) then
-  dtemp = -((uwnd+.5*delt*dtaux)*dtaux + (vwnd+.5*delt*dtauy)*dtauy)/cp_air
-else
-  dtemp = 0.0
-endif
+    if (do_conserve_energy) then
+      dtemp = -((uwnd + .5*delt*dtaux)*dtaux + (vwnd + .5*delt*dtauy)*dtauy)/cp_air
+    else
+      dtemp = 0.0
+    end if
 
-return
-end subroutine mg_drag
+    return
+  end subroutine mg_drag
 !=======================================================================
 
-!#############################################################################      
- 
-subroutine mgwd_base_flux (is,js,uwnd,vwnd,temp,pfull,phalf,ktop,kbtm,  &
-                          theta,xn,yn,taub)
-                                  
+!#############################################################################
 
+  subroutine mgwd_base_flux(is, js, uwnd, vwnd, temp, pfull, phalf, ktop, kbtm, &
+                            theta, xn, yn, taub)
 
 !-------------------------------------------------------------------
 !  calculates base momentum flux  - taub
@@ -354,24 +350,24 @@ subroutine mgwd_base_flux (is,js,uwnd,vwnd,temp,pfull,phalf,ktop,kbtm,  &
 
 !===================================================================
 ! Arguments (intent in)
- real, intent(in), dimension (:,:,:) :: uwnd, vwnd, temp, pfull, phalf
- integer, intent(in), dimension (:,:) :: ktop, kbtm
- integer, intent(in)   :: is, js
+    real, intent(in), dimension(:, :, :) :: uwnd, vwnd, temp, pfull, phalf
+    integer, intent(in), dimension(:, :) :: ktop, kbtm
+    integer, intent(in)   :: is, js
 !===================================================================
 ! Arguments (intent out)
- real, intent(out), dimension (:,:) :: xn, yn, taub
- real , intent(out), dimension (:,:,:) :: theta
+    real, intent(out), dimension(:, :) :: xn, yn, taub
+    real, intent(out), dimension(:, :, :) :: theta
 !===================================================================
 ! Arguments (intent inout)
 !=======================================================================
 !  (Intent local)
-real , dimension(size(uwnd,1),size(uwnd,2)) :: sumw, delp, ulow, bnv, &
-     &  hprime, fr, g, ubar, vbar, bnv2 
-real grav2, xli, a, small
- integer idim, jdim,kdim,ie, je
+    real, dimension(size(uwnd, 1), size(uwnd, 2)) :: sumw, delp, ulow, bnv, &
+         &  hprime, fr, g, ubar, vbar, bnv2
+    real grav2, xli, a, small
+    integer idim, jdim, kdim, ie, je
 !-----------------------------------------------------------------------
 !  type loop indicies
- integer i, j, k, kb, kt, kbp1, ktm1 
+    integer i, j, k, kb, kt, kbp1, ktm1
 !-----------------------------------------------------------------------
 !===================================================================
 
@@ -379,137 +375,133 @@ real grav2, xli, a, small
 ! --- DEFINE CURRENT WINDOW & GET GLOBAL VARIABLES
 !-------------------------------------------------------------------
 
-  idim = size( uwnd, 1 )
-  jdim = size( uwnd, 2 )
-  kdim = size( uwnd, 3 )
-  ie = is + idim - 1
-  je = js + jdim - 1
-  hprime(:,:) = Ghprime(is:ie,js:je)
+    idim = size(uwnd, 1)
+    jdim = size(uwnd, 2)
+    kdim = size(uwnd, 3)
+    ie = is + idim - 1
+    je = js + jdim - 1
+    hprime(:, :) = Ghprime(is:ie, js:je)
 
 ! define local scalar variables
-  xli=1.0/xl_mtn
-  grav2=grav*grav
-  a = acoef 
-
+    xli = 1.0/xl_mtn
+    grav2 = grav*grav
+    a = acoef
 
 !-----------------------------------------------------------------------
 !     <><><><><><><><>   base flux code   <><><><><><><><>
 !-----------------------------------------------------------------------
 
 !  initialize arrays
-        sumw(:,:) = 0.0
-        ubar(:,:) = 0.0
-        vbar(:,:) = 0.0
-        ulow(:,:) = 0.0
-        taub(:,:) = 0.0
-        xn  (:,:) = 0.0
-        yn  (:,:) = 0.0
-
+    sumw(:, :) = 0.0
+    ubar(:, :) = 0.0
+    vbar(:, :) = 0.0
+    ulow(:, :) = 0.0
+    taub(:, :) = 0.0
+    xn(:, :) = 0.0
+    yn(:, :) = 0.0
 
 !     compute low-level averages
 !     --------------------------
 
-      do j=1,jdim
-        do i=1,idim
-          do k=ktop(i,j),kbtm(i,j)
-            delp(i,j) = phalf(i,j,k+1)-phalf(i,j,k)
-            sumw(i,j) = sumw(i,j) + delp(i,j)
-            ubar(i,j) = ubar(i,j) + uwnd(i,j,k)*delp(i,j)
-            vbar(i,j) = vbar(i,j) + vwnd(i,j,k)*delp(i,j)
-          end do
+    do j = 1, jdim
+      do i = 1, idim
+        do k = ktop(i, j), kbtm(i, j)
+          delp(i, j) = phalf(i, j, k + 1) - phalf(i, j, k)
+          sumw(i, j) = sumw(i, j) + delp(i, j)
+          ubar(i, j) = ubar(i, j) + uwnd(i, j, k)*delp(i, j)
+          vbar(i, j) = vbar(i, j) + vwnd(i, j, k)*delp(i, j)
         end do
       end do
+    end do
 !    print *, 'low-lev aves computed, ubar, vbar =', ubar, vbar
 
 !     calculate projections of low level flow onto wind components (u&v)
 !     ------------------------------------------------------------------
-        sumw(:,:) = 1./sumw(:,:)
-        ubar(:,:) = ubar(:,:) * sumw(:,:)
-        vbar(:,:) = vbar(:,:) * sumw(:,:)
-        ulow(:,:) =sqrt(ubar(:,:)*ubar(:,:) + vbar(:,:)*vbar(:,:))
-        xn(:,:) = ubar(:,:)/(ulow(:,:) + 1.0e-20)
-        yn(:,:) = vbar(:,:)/(ulow(:,:) + 1.0e-20)
-
+    sumw(:, :) = 1./sumw(:, :)
+    ubar(:, :) = ubar(:, :)*sumw(:, :)
+    vbar(:, :) = vbar(:, :)*sumw(:, :)
+    ulow(:, :) = sqrt(ubar(:, :)*ubar(:, :) + vbar(:, :)*vbar(:, :))
+    xn(:, :) = ubar(:, :)/(ulow(:, :) + 1.0e-20)
+    yn(:, :) = vbar(:, :)/(ulow(:, :) + 1.0e-20)
 
 !     calculate squared brunt vaisala freq
 !     ------------------------------------
 
-      theta(:,:,:)=temp(:,:,:)*(pfull(:,:,:)/p00)**(-kappa)
+    theta(:, :, :) = temp(:, :, :)*(pfull(:, :, :)/p00)**(-kappa)
 !  v197 uses p* as reference vlues for theta, in above 1000 hPa is used
 !      theta(:,:,:)=temp(:,:,:)*(pfull(:,:,:)/ &
 !     &             phalf(:,:,kdim+1))**(-kappa)
- 
-      do j=1,jdim
-        do i=1,idim
-          kt=ktop(i,j)
-          kb=kbtm(i,j)
-          bnv2(i,j) = grav2*(pfull(i,j,kt)+pfull(i,j,kb)) &
-                 * (theta(i,j,kt)-theta(i,j,kb)) &
-              / ( rdgas*(theta(i,j,kt)+theta(i,j,kb)) &
-                 * (pfull(i,j,kb)-pfull(i,j,kt)) &
-                 *.5*(temp(i,j,kt)+temp(i,j,kb)))
-        end do
+
+    do j = 1, jdim
+      do i = 1, idim
+        kt = ktop(i, j)
+        kb = kbtm(i, j)
+        bnv2(i, j) = grav2*(pfull(i, j, kt) + pfull(i, j, kb)) &
+                     *(theta(i, j, kt) - theta(i, j, kb)) &
+                     /(rdgas*(theta(i, j, kt) + theta(i, j, kb)) &
+                       *(pfull(i, j, kb) - pfull(i, j, kt)) &
+                       *.5*(temp(i, j, kt) + temp(i, j, kb)))
       end do
+    end do
 
 !      calculate bnv,fr,g,taub,xn,yn - if n**2>0
 !      -----------------------------------------
-           small = epsilon(ulow)
+    small = epsilon(ulow)
 
-           where (bnv2(:,:) .gt. 0.0) 
-             bnv(:,:) = sqrt(bnv2(:,:))
-             fr (:,:) = bnv(:,:)*hprime(:,:)/(ulow(:,:) + small)
-             g  (:,:) = gmax*fr(:,:)*fr(:,:)/(fr(:,:)*fr(:,:)+a*a)
-             taub(:,:) = -rho*xli*ulow(:,:)*ulow(:,:)*ulow(:,:) &
-     &                 / bnv(:,:)*g(:,:)
-           elsewhere
-             bnv(:,:) = 0.0
-             fr (:,:) = 0.0
-             g  (:,:) = 0.0
-           endwhere
+    where (bnv2(:, :) .gt. 0.0)
+      bnv(:, :) = sqrt(bnv2(:, :))
+      fr(:, :) = bnv(:, :)*hprime(:, :)/(ulow(:, :) + small)
+      g(:, :) = gmax*fr(:, :)*fr(:, :)/(fr(:, :)*fr(:, :) + a*a)
+      taub(:, :) = -rho*xli*ulow(:, :)*ulow(:, :)*ulow(:, :) &
+&                 /bnv(:, :)*g(:, :)
+    elsewhere
+      bnv(:, :) = 0.0
+      fr(:, :) = 0.0
+      g(:, :) = 0.0
+    end where
 
-end subroutine mgwd_base_flux
+  end subroutine mgwd_base_flux
 
-!#############################################################################      
+!#############################################################################
 
-subroutine mgwd_satur_flux (uwnd,vwnd,temp,theta,ktop,kbtm, &
-                           xn,yn,taub,pfull,phalf,zfull,zhalf,vsamp,taus)
+  subroutine mgwd_satur_flux(uwnd, vwnd, temp, theta, ktop, kbtm, &
+                             xn, yn, taub, pfull, phalf, zfull, zhalf, vsamp, taus)
 
 !===================================================================
 ! Arguments (intent in)
- real, intent(in), dimension (:,:,:)  :: &
-     &             uwnd, vwnd, temp, theta, pfull, phalf,zfull, zhalf
- real, intent(in), dimension (:,:)    :: xn, yn, taub
- real, intent(in)                     :: vsamp 
- integer, intent(in), dimension (:,:) :: ktop, kbtm
+    real, intent(in), dimension(:, :, :)  :: &
+        &             uwnd, vwnd, temp, theta, pfull, phalf, zfull, zhalf
+    real, intent(in), dimension(:, :)    :: xn, yn, taub
+    real, intent(in)                     :: vsamp
+    integer, intent(in), dimension(:, :) :: ktop, kbtm
 !===================================================================
 ! Arguments (intent out)
- real, intent(out), dimension (:,:,:) :: taus
+    real, intent(out), dimension(:, :, :) :: taus
 !=======================================================================
 !  (Intent local)
- real , dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)) ::  &
-     &       dterm, dudz  
- real , dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)+1) ::  &
-     &       umag, bnvk2, d,d2, d2i, d2udz2, extend
- real grav2, xli, small
- integer :: idim, jdim, kdim, kdimm1, kdimp1
+    real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3)) ::  &
+        &       dterm, dudz
+    real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3) + 1) ::  &
+        &       umag, bnvk2, d, d2, d2i, d2udz2, extend
+    real grav2, xli, small
+    integer :: idim, jdim, kdim, kdimm1, kdimp1
 !-----------------------------------------------------------------------
 !  type loop indicies
- integer i, j, k, kb, kt, kbp1, ktm1 
+    integer i, j, k, kb, kt, kbp1, ktm1
 !-----------------------------------------------------------------------
-!  type flux cutoff 
- integer kcut
+!  type flux cutoff
+    integer kcut
 !=======================================================================
 
-
-  idim = size( uwnd, 1 )
-  jdim = size( uwnd, 2 )
-  kdim = size( uwnd, 3 )
-  kdimm1 = kdim - 1
-  kdimp1 = kdim + 1
+    idim = size(uwnd, 1)
+    jdim = size(uwnd, 2)
+    kdim = size(uwnd, 3)
+    kdimm1 = kdim - 1
+    kdimp1 = kdim + 1
 
 ! define local scalar variables
-  xli=1.0/xl_mtn
-  grav2=grav*grav
+    xli = 1.0/xl_mtn
+    grav2 = grav*grav
 
 !-----------------------------------------------------------------------
 !     <><><><><><><><>   saturation flux code   <><><><><><><><>
@@ -527,39 +519,36 @@ subroutine mgwd_satur_flux (uwnd,vwnd,temp,theta,ktop,kbtm, &
 
 !-----------------------------------------------------------------------
 
-
 !     calculate wind magnitude at 1/2 levels
 !     --------------------------------------------
 
-      do k=2,kdim
-        umag(:,:,k) =  (0.50*(uwnd(:,:,k-1)+uwnd(:,:,k))*xn(:,:) &
-                     + 0.50*(vwnd(:,:,k-1)+vwnd(:,:,k))*yn(:,:))
-        umag(:,:,k) = abs( umag(:,:,k) )
-      end do
-
+    do k = 2, kdim
+      umag(:, :, k) = (0.50*(uwnd(:, :, k - 1) + uwnd(:, :, k))*xn(:, :) &
+                       + 0.50*(vwnd(:, :, k - 1) + vwnd(:, :, k))*yn(:, :))
+      umag(:, :, k) = abs(umag(:, :, k))
+    end do
 
 !     set wind magnitude at top of model = to magnitude at top full
 !     level.
 
-        umag(:,:,1) = uwnd(:,:,1)*xn(:,:) + vwnd(:,:,1)*yn(:,:)
-        umag(:,:,1) = abs( umag(:,:,1) )
+    umag(:, :, 1) = uwnd(:, :, 1)*xn(:, :) + vwnd(:, :, 1)*yn(:, :)
+    umag(:, :, 1) = abs(umag(:, :, 1))
 
 !     set wind magnitude at ground = 0.
 
-      do j=1,jdim
-        do i=1,idim
-          kbp1=kbtm(i,j)+1
-          do k=kbp1,kdimp1
-            umag(i,j,k) = 0.0
-          end do
+    do j = 1, jdim
+      do i = 1, idim
+        kbp1 = kbtm(i, j) + 1
+        do k = kbp1, kdimp1
+          umag(i, j, k) = 0.0
         end do
       end do
+    end do
 
 !     set minimum wind magnitude
 
-      small = epsilon (umag)
-      where ( umag .lt. small ) umag = 0.0
-
+    small = epsilon(umag)
+    where (umag .lt. small) umag = 0.0
 
 !      print *, ' umag for sat flux =', umag
 
@@ -571,85 +560,78 @@ subroutine mgwd_satur_flux (uwnd,vwnd,temp,theta,ktop,kbtm, &
 !        full levels and stored in dudz.
 !     dudz(1) is defined using an uncentered difference
 
-         dudz(:,:,1) = (umag(:,:,1)-umag(:,:,2)) &
-     &                /(zfull(:,:,1)-zhalf(:,:,2))
+    dudz(:, :, 1) = (umag(:, :, 1) - umag(:, :, 2)) &
+&                /(zfull(:, :, 1) - zhalf(:, :, 2))
 
-      do k=2,kdim
-         dudz(:,:,k) = (umag(:,:,k)-umag(:,:,k+1)) &
-     &                /(zhalf(:,:,k)-zhalf(:,:,k+1))
-      end do
+    do k = 2, kdim
+      dudz(:, :, k) = (umag(:, :, k) - umag(:, :, k + 1)) &
+  &                /(zhalf(:, :, k) - zhalf(:, :, k + 1))
+    end do
 
 !      print *, ' dudz for sat flux =', dudz
-
-
 
 !     assume vertical derivative of umag at the boundaries=0 and
 !     compute 2nd derivatives there using uncentered differencing
 
-      do k=2,kdim
-         d2udz2(:,:,k) = (dudz(:,:,k)-dudz(:,:,k-1)) &
-     &                  /(zfull(:,:,k)-zfull(:,:,k-1))
-      end do
+    do k = 2, kdim
+      d2udz2(:, :, k) = (dudz(:, :, k) - dudz(:, :, k - 1)) &
+  &                  /(zfull(:, :, k) - zfull(:, :, k - 1))
+    end do
 
 !     set d2udz2 = 0 at the top of the atmosphere (original code)
 !     set d2udz2 at the top of atm to level 2 value (new code)
 
 !del    d2udz2(:,:,1) = 0.0
-        d2udz2(:,:,1) = d2udz2(:,:,2)
+    d2udz2(:, :, 1) = d2udz2(:, :, 2)
 
-      do  j=1,jdim
-      do  i=1,idim
-        kb=kbtm(i,j)
-        kbp1=kb+1
-        d2udz2(i,j,kbp1) = dudz(i,j,kb)/(zfull(i,j,kb)-zhalf(i,j,kbp1))
-      end do
-      end do
+    do j = 1, jdim
+    do i = 1, idim
+      kb = kbtm(i, j)
+      kbp1 = kb + 1
+      d2udz2(i, j, kbp1) = dudz(i, j, kb)/(zfull(i, j, kb) - zhalf(i, j, kbp1))
+    end do
+    end do
 
 !      print *, ' d2udz2 for sat flux =', d2udz2
-
 
 !-----------------------------------------------------------------------
 
 !     compute wkb extension term for umag > 0
 !     ---------------------------------------
 
-         where (umag(:,:,:).gt.0.0) 
-            extend(:,:,:) = vsamp*d2udz2(:,:,:)/umag(:,:,:)
-         elsewhere
-            extend(:,:,:) = 0.0
-         endwhere
+    where (umag(:, :, :) .gt. 0.0)
+      extend(:, :, :) = vsamp*d2udz2(:, :, :)/umag(:, :, :)
+    elsewhere
+      extend(:, :, :) = 0.0
+    end where
 
 !      print *, ' wkb exten for sat flux =', extend
-
 
 !     calculate brunt vaisala frequency at 1/2 levels
 !     -----------------------------------------------------
 
-      do k=2,kdim
-        bnvk2(:,:,k) =  grav2*(pfull(:,:,k-1)+pfull(:,:,k)) &
-     &          * (theta(:,:,k-1)-theta(:,:,k)) &
-     &      /     ( rdgas*(theta(:,:,k-1)+theta(:,:,k)) &
-     &  * (pfull(:,:,k)-pfull(:,:,k-1))*.5*(temp(:,:,k-1)+temp(:,:,k)) )
-      end do
-
+    do k = 2, kdim
+      bnvk2(:, :, k) = grav2*(pfull(:, :, k - 1) + pfull(:, :, k)) &
+   &          *(theta(:, :, k - 1) - theta(:, :, k)) &
+   &      /(rdgas*(theta(:, :, k - 1) + theta(:, :, k)) &
+   &  *(pfull(:, :, k) - pfull(:, :, k - 1))*.5*(temp(:, :, k - 1) + temp(:, :, k)))
+    end do
 
 !     keep static stability constant in top & bottom layers of model
 !     for taus calculations.
 
-        bnvk2(:,:,1) = bnvk2(:,:,2)
+    bnvk2(:, :, 1) = bnvk2(:, :, 2)
 
-
-      do j=1,jdim
-      do i=1,idim
-        kb=kbtm(i,j)
-        kbp1=kb+1
-        bnvk2(i,j,kbp1)   = bnvk2(i,j,kb)
-        bnvk2(i,j,kdimp1) = bnvk2(i,j,kdim)
-      end do
-      end do
+    do j = 1, jdim
+    do i = 1, idim
+      kb = kbtm(i, j)
+      kbp1 = kb + 1
+      bnvk2(i, j, kbp1) = bnvk2(i, j, kb)
+      bnvk2(i, j, kdimp1) = bnvk2(i, j, kdim)
+    end do
+    end do
 
 !      print *, ' brunt vaisala for sat flux =', bnvk2
-
 
 !-----------------------------------------------------------------------
 
@@ -657,32 +639,29 @@ subroutine mgwd_satur_flux (uwnd,vwnd,temp,theta,ktop,kbtm, &
 !     initialize d2i to a large number, which will result in a very
 !     small vertical wavelength (d) where umag = 0.
 
-         where (umag(:,:,:).gt.0.0) 
-            d2i(:,:,:) = (bnvk2(:,:,:)/(umag(:,:,:)* &
-     &                   umag(:,:,:)) - extend(:,:,:) )
-         elsewhere
-            d2i(:,:,:) = 1.0e+30
-         endwhere
+    where (umag(:, :, :) .gt. 0.0)
+      d2i(:, :, :) = (bnvk2(:, :, :)/(umag(:, :, :)* &
+&                   umag(:, :, :)) - extend(:, :, :))
+    elsewhere
+      d2i(:, :, :) = 1.0e+30
+    end where
 
 !      print *, ' 1/d**2 for sat flux =', d2i
-
 
 !     for 1/d**2 approaching 0 calculate d by dividing by a
 !     very small but finite number
 
-         where (d2i(:,:,:) .lt. 1.e-30) 
-            d(:,:,:) = 1.e+30
-         elsewhere
-            d2(:,:,:) = 1./d2i(:,:,:)
-            d (:,:,:) = sqrt(d2(:,:,:))
-         endwhere
-
+    where (d2i(:, :, :) .lt. 1.e-30)
+      d(:, :, :) = 1.e+30
+    elsewhere
+      d2(:, :, :) = 1./d2i(:, :, :)
+      d(:, :, :) = sqrt(d2(:, :, :))
+    end where
 
 !     set d=0 for umag=0.
-         where (umag(:,:,:).eq.0.0) 
-            d(:,:,:) = 0.0
-         endwhere
-
+    where (umag(:, :, :) .eq. 0.0)
+      d(:, :, :) = 0.0
+    end where
 
 !-----------------------------------------------------------------------
 
@@ -691,86 +670,81 @@ subroutine mgwd_satur_flux (uwnd,vwnd,temp,theta,ktop,kbtm, &
 !     calculation of the saturation flux profile for scheme 2
 !     -------------------------------------------------------
 
-      do j=1,jdim
-        do i=1,idim
-          kb=kbtm(i,j)
-          kt=ktop(i,j)
-          ktm1=kt-1
+    do j = 1, jdim
+      do i = 1, idim
+        kb = kbtm(i, j)
+        kt = ktop(i, j)
+        ktm1 = kt - 1
 
-          do k=2,ktm1
-            taus(i,j,k) = -phalf(i,j,k)*umag(i,j,k)*umag(i,j,k) &
-     &                  *d(i,j,k)*xli*gmax &
-     &                / (0.50*(temp(i,j,k-1)+temp(i,j,k))*rdgas)
-          end do
-
-          do k = kt,kdimp1
-            taus(i,j,k) = taub(i,j)
-          end do
-
+        do k = 2, ktm1
+          taus(i, j, k) = -phalf(i, j, k)*umag(i, j, k)*umag(i, j, k) &
+   &                  *d(i, j, k)*xli*gmax &
+   &                /(0.50*(temp(i, j, k - 1) + temp(i, j, k))*rdgas)
         end do
-      end do
 
+        do k = kt, kdimp1
+          taus(i, j, k) = taub(i, j)
+        end do
+
+      end do
+    end do
 
 !     keep taus profile constant across top model layer (original code)
 !     calculate taus profile in top model layer (new code)
- 
-        taus(:,:,1) = taus(:,:,2)
+
+    taus(:, :, 1) = taus(:, :, 2)
 !del        taus(:,:,1) = -phalf(:,:,1)*umag(:,:,1)*umag(:,:,1) &
 !del     &                  *d(:,:,1)*xli*gmax / (temp(:,:,1)*rdgas)
 
-
 !     do not allow wave breaking for unstable layers
- 
-       do k = 1,kdimp1
-         where ( bnvk2(:,:,k) .lt. 0.0) 
-           taus(:,:,k) =  taub(:,:)
-         endwhere
-       end do
 
+    do k = 1, kdimp1
+      where (bnvk2(:, :, k) .lt. 0.0)
+        taus(:, :, k) = taub(:, :)
+      end where
+    end do
 
 ! -------------------------------------------
 !        tausat(:,:,1) = 0.             ! use all forcing
 !         Instead,  let remaining flux escape above flux_cut_level
-      if( flux_cut_level > 0.0 ) then 
-         kcut= 1 
-         do while( phalf(1,1,kcut) < flux_cut_level )
-            kcut= kcut+1
-         enddo
+    if (flux_cut_level > 0.0) then
+      kcut = 1
+      do while (phalf(1, 1, kcut) < flux_cut_level)
+        kcut = kcut + 1
+      end do
 
-        do k= 1, kcut-1
-            taus(:,:,k)= taus(:,:,kcut)
-        enddo
-      endif
+      do k = 1, kcut - 1
+        taus(:, :, k) = taus(:, :, kcut)
+      end do
+    end if
 
-end subroutine mgwd_satur_flux
+  end subroutine mgwd_satur_flux
 
-!#############################################################################      
+!#############################################################################
 
-subroutine mgwd_tend (is,js,xn,yn,taub,phalf,taus,dtaux,dtauy,tausf)
+  subroutine mgwd_tend(is, js, xn, yn, taub, phalf, taus, dtaux, dtauy, tausf)
 
 !===================================================================
 ! Arguments (intent in)
- real, intent(in), dimension (:,:,:) :: phalf, taus
- real, intent(in), dimension (:,:) :: xn, yn, taub
- integer, intent(in)   :: is, js
+    real, intent(in), dimension(:, :, :) :: phalf, taus
+    real, intent(in), dimension(:, :) :: xn, yn, taub
+    integer, intent(in)   :: is, js
 !===================================================================
 ! Arguments (intent out)
- real, intent(out), dimension (:,:,:) :: dtaux, dtauy, tausf
+    real, intent(out), dimension(:, :, :) :: dtaux, dtauy, tausf
 !=======================================================================
 !  (Intent local)
- real , dimension(size(phalf,1),size(phalf,2),size(phalf,3)) ::  dterm 
- real , dimension(size(phalf,1),size(phalf,2),size(phalf,3)+1) ::  taup
- integer kdim, kdimp1
+    real, dimension(size(phalf, 1), size(phalf, 2), size(phalf, 3)) ::  dterm
+    real, dimension(size(phalf, 1), size(phalf, 2), size(phalf, 3) + 1) ::  taup
+    integer kdim, kdimp1
 !-----------------------------------------------------------------------
 !  type loop indicies
- integer k, kd
+    integer k, kd
 !-----------------------------------------------------------------------
 !=======================================================================
 
-
-  kdim = size( dtaux, 3 )
-  kdimp1 = kdim + 1
-
+    kdim = size(dtaux, 3)
+    kdimp1 = kdim + 1
 
 !-----------------------------------------------------------------------
 !     <><><><><><><><>   MOMENTUM FLUX CODE   <><><><><><><><>
@@ -779,45 +753,44 @@ subroutine mgwd_tend (is,js,xn,yn,taub,phalf,taus,dtaux,dtauy,tausf)
 !     CALCULATE FLUX FROM GROUND UP
 !     -----------------------------
 
-        taup (:,:,kdimp1) = taub(:,:)
+    taup(:, :, kdimp1) = taub(:, :)
 
-      do kd=2,kdimp1
-        k = kdimp1-kd+1
-        tausf(:,:,k)=taup(:,:,k+1)
-        taup(:,:,k) = max (taus(:,:,k),taup(:,:,k+1))
-      end do
+    do kd = 2, kdimp1
+      k = kdimp1 - kd + 1
+      tausf(:, :, k) = taup(:, :, k + 1)
+      taup(:, :, k) = max(taus(:, :, k), taup(:, :, k + 1))
+    end do
 
 !     ALLOW FLUX TO ESCAPE THE TOP - DO NOT RE-DISTRIBUTE
 
 !     <><><><><><><><><><><><><><><><><><><><><><><><><><><><>
 
 !     <><><><><><><><>   DE-CELERATION CODE   <><><><><><><><>
- 
+
 !     CALCULATE DECELERATION TERMS - DTAUX,DTAUY
 !     ------------------------------------------
 
-       do k=1,kdim
-          dterm(:,:,k) = grav*(taup (:,:,k+1)-taup (:,:,k)) &
-     &                     /(phalf(:,:,k+1)-phalf(:,:,k))
- 
-        dtaux(:,:,k) = xn(:,:)*dterm(:,:,k)
-        dtauy(:,:,k) = yn(:,:)*dterm(:,:,k)
-       end do
+    do k = 1, kdim
+      dterm(:, :, k) = grav*(taup(:, :, k + 1) - taup(:, :, k)) &
+ &                     /(phalf(:, :, k + 1) - phalf(:, :, k))
+
+      dtaux(:, :, k) = xn(:, :)*dterm(:, :, k)
+      dtauy(:, :, k) = yn(:, :)*dterm(:, :, k)
+    end do
 
 !  print sample output
 !            print*, ' mgdrag output for i,j=', is,js
-!            print *,'taub = ', taub(is,js)     
-!            print *,'taus = ', taus(is,js,:)     
-!            print *,'taup = ', taup(is,js,:)     
-
+!            print *,'taub = ', taub(is,js)
+!            print *,'taus = ', taus(is,js,:)
+!            print *,'taup = ', taup(is,js,:)
 
 !     ***********************************************************
 
-end subroutine mgwd_tend
+  end subroutine mgwd_tend
 
 !#######################################################################
 
-  subroutine mg_drag_init( lonb, latb, domain_in, hprime )
+  subroutine mg_drag_init(lonb, latb, domain_in, hprime)
 
 !=======================================================================
 ! ***** INITIALIZE Mountain Gravity Wave Drag
@@ -829,96 +802,96 @@ end subroutine mgwd_tend
 !     latb  = latitude  in radians of the grid box edges
 !     domain_in = domain decomposition of the model grid
 !---------------------------------------------------------------------
- real, intent(in), dimension(:) :: lonb, latb
- type(domain2d), intent(in) :: domain_in
- 
+    real, intent(in), dimension(:) :: lonb, latb
+    type(domain2d), intent(in) :: domain_in
+
 !---------------------------------------------------------------------
 ! Arguments (Intent out - optional)
 !     hprime  = array of sub-grid scale mountain heights
 !---------------------------------------------------------------------
- real, intent(out), dimension(:,:), optional :: hprime
- 
+    real, intent(out), dimension(:, :), optional :: hprime
+
 !---------------------------------------------------------------------
 !  (Intent local)
 !---------------------------------------------------------------------
- integer  ::  ix, iy, io, ierr
- logical  ::  answer
- integer :: global_num_lon, global_num_lat
- type(restart_file_type) :: rst
+    integer  ::  ix, iy, io, ierr
+    logical  ::  answer
+    integer :: global_num_lon, global_num_lat
+    type(restart_file_type) :: rst
 
 !=====================================================================
 
-if(module_is_initialized) return
+    if (module_is_initialized) return
 
 !---------------------------------------------------------------------
 ! --- Read namelist
 !---------------------------------------------------------------------
-  read (input_nml_file, nml=mg_drag_nml, iostat=io)
-  ierr = check_nml_error(io,'mg_drag_nml')
+    read (input_nml_file, nml=mg_drag_nml, iostat=io)
+    ierr = check_nml_error(io, 'mg_drag_nml')
 
 !---------------------------------------------------------------------
 ! --- Output version
 !---------------------------------------------------------------------
 
-  call write_version_number(version, tagname)
-  if(mpp_pe() == mpp_root_pe()) write (stdlog(), nml=mg_drag_nml)
+    call write_version_number(version, tagname)
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=mg_drag_nml)
 
 !---------------------------------------------------------------------
 ! --- Allocate storage for Ghprime
 !---------------------------------------------------------------------
 
-  ix = size(lonb(:)) - 1
-  iy = size(latb(:)) - 1
+    ix = size(lonb(:)) - 1
+    iy = size(latb(:)) - 1
 
-  allocate( Ghprime(ix,iy) ) ; Ghprime = 0.0
-  domain = domain_in
-  
+    allocate (Ghprime(ix, iy)); Ghprime = 0.0
+    domain = domain_in
+
 !-------------------------------------------------------------------
-  module_is_initialized = .true.
+    module_is_initialized = .true.
 !---------------------------------------------------------------------
 ! --- Input hprime
 !---------------------------------------------------------------------
 
-  if ( trim(source_of_sgsmtn) == 'computed' ) then
-    answer = get_topog_stdev ( lonb, latb, Ghprime )
-    if ( .not.answer ) then
-      call error_mesg('mg_drag_init','source_of_sgsmtn="'//trim(source_of_sgsmtn)//'"'// &
-                      ', but topography data file does not exist', FATAL)
-    endif
-  else if ( trim(source_of_sgsmtn) == 'input' ) then
-    if ( open_restart_read(rst, 'INPUT/mg_drag.res.nc', domain) ) then
-       if (mpp_pe() == mpp_root_pe()) call mpp_error ('mg_drag_mod', &
-            'Reading NetCDF formatted restart file: INPUT/mg_drag.res.nc', NOTE)
-       call read_restart_field(rst, 'ghprime', Ghprime)
-       call close_restart(rst)
+    if (trim(source_of_sgsmtn) == 'computed') then
+      answer = get_topog_stdev(lonb, latb, Ghprime)
+      if (.not. answer) then
+        call error_mesg('mg_drag_init', 'source_of_sgsmtn="'//trim(source_of_sgsmtn)//'"'// &
+                        ', but topography data file does not exist', FATAL)
+      end if
+    else if (trim(source_of_sgsmtn) == 'input') then
+      if (open_restart_read(rst, 'INPUT/mg_drag.res.nc', domain)) then
+        if (mpp_pe() == mpp_root_pe()) call mpp_error('mg_drag_mod', &
+                                                      'Reading NetCDF formatted restart file: INPUT/mg_drag.res.nc', NOTE)
+        call read_restart_field(rst, 'ghprime', Ghprime)
+        call close_restart(rst)
+      else
+        call error_mesg('mg_drag_init', 'source_of_sgsmtn="'//trim(source_of_sgsmtn)//'"'// &
+                        ', but ./INPUT/mg_drag.res.nc does not exist', FATAL)
+      end if
     else
-      call error_mesg ('mg_drag_init','source_of_sgsmtn="'//trim(source_of_sgsmtn)//'"'// &
-                       ', but ./INPUT/mg_drag.res.nc does not exist', FATAL)
-    endif
-  else
-    call error_mesg ('mg_drag_init','"'//trim(source_of_sgsmtn)//'"'// &
-          ' is not a valid value for source_of_sgsmtn', FATAL)
-  endif
+      call error_mesg('mg_drag_init', '"'//trim(source_of_sgsmtn)//'"'// &
+                      ' is not a valid value for source_of_sgsmtn', FATAL)
+    end if
 
 ! return sub-grid scale topography?
-  if (present(hprime)) hprime = Ghprime
- 
+    if (present(hprime)) hprime = Ghprime
+
 !=====================================================================
   end subroutine mg_drag_init
 
 !#######################################################################
 
   subroutine mg_drag_end
-  type(restart_file_type) :: rst
+    type(restart_file_type) :: rst
 
-  if(.not.module_is_initialized) return
-  if (mpp_pe() == mpp_root_pe()) call mpp_error ('mg_drag_mod', &
-       'Writing NetCDF formatted restart file: RESTART/mg_drag.res.nc', NOTE)
-  call open_restart_write(rst, 'RESTART/mg_drag.res.nc', domain)
-  call write_restart_field(rst, 'ghprime', Ghprime)
-  call close_restart(rst)
-  deallocate(ghprime)
-  module_is_initialized = .false.
+    if (.not. module_is_initialized) return
+    if (mpp_pe() == mpp_root_pe()) call mpp_error('mg_drag_mod', &
+                                                  'Writing NetCDF formatted restart file: RESTART/mg_drag.res.nc', NOTE)
+    call open_restart_write(rst, 'RESTART/mg_drag.res.nc', domain)
+    call write_restart_field(rst, 'ghprime', Ghprime)
+    call close_restart(rst)
+    deallocate (ghprime)
+    module_is_initialized = .false.
 
   end subroutine mg_drag_end
 

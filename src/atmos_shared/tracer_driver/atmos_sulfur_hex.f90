@@ -26,10 +26,10 @@ module atmos_sulfur_hex_mod
 ! These are based on the annual estimates of Levin and Hesshaimer
 ! (submitted), and have been linearly interpolated to monthly values. The
 ! last half of 1993 has been extrapolated using the trend for the previous 12
-! months. 
+! months.
 !
 !   The dataset can be obtained from the contact person above.
-! </DATASET>  
+! </DATASET>
 ! <INFO>
 
 !   <REFERENCE>
@@ -40,31 +40,31 @@ module atmos_sulfur_hex_mod
 ! </REFERENCE>
 !</INFO>
 
-use              fms_mod, only : &
-!                                 open_file,            &
-                                 mpp_pe,               &
-                                 mpp_root_pe,          &
-                                 stdlog,               &
-                                 write_version_number
-use     time_manager_mod, only : time_type,            &
-                                 set_date,             &
-                                 operator( > ),        &
-                                 operator( < ),        &
-                                 operator( >= )
-use     diag_manager_mod, only : send_data,            &
-                                 register_diag_field,  &
-                                 register_static_field
-use   tracer_manager_mod, only : get_tracer_index
-use    field_manager_mod, only : MODEL_ATMOS
-use atmos_tracer_utilities_mod, only : interp_emiss
-use        constants_mod, only : grav, PI
+  use fms_mod, only: &
+    !                                 open_file,            &
+    mpp_pe, &
+    mpp_root_pe, &
+    stdlog, &
+    write_version_number
+  use time_manager_mod, only: time_type, &
+                              set_date, &
+                              operator(>), &
+                              operator(<), &
+                              operator(>=)
+  use diag_manager_mod, only: send_data, &
+                              register_diag_field, &
+                              register_static_field
+  use tracer_manager_mod, only: get_tracer_index
+  use field_manager_mod, only: MODEL_ATMOS
+  use atmos_tracer_utilities_mod, only: interp_emiss
+  use constants_mod, only: grav, PI
 
-implicit none
-private
+  implicit none
+  private
 !-----------------------------------------------------------------------
 !----- interfaces -------
 
-public  atmos_sf6_sourcesink, atmos_sulfur_hex_init, atmos_sulfur_hex_end
+  public atmos_sf6_sourcesink, atmos_sulfur_hex_init, atmos_sulfur_hex_end
 
 !-----------------------------------------------------------------------
 !----------- namelist -------------------
@@ -74,36 +74,35 @@ public  atmos_sf6_sourcesink, atmos_sulfur_hex_init, atmos_sulfur_hex_end
 !  following changes.
 !
 !  Add an integer variable below for each additional tracer. This should
-!  be initialized to zero. 
+!  be initialized to zero.
 !
 !-----------------------------------------------------------------------
 
 ! tracer number for radon
-integer :: nsf6     =0
-
+  integer :: nsf6 = 0
 
 !--- identification numbers for  diagnostic fields and axes ----
 
-integer :: id_emiss
+  integer :: id_emiss
 
 !--- Arrays to help calculate tracer sources/sinks ---
-real, allocatable, dimension(:,:) :: sf6_grid
+  real, allocatable, dimension(:, :) :: sf6_grid
 
-integer, parameter :: NUM_SF6_RATE = 62 !number of entries in file 'monthly.emissions'
-type sf6_rate_type
-  type(time_type) :: Time
-  real :: rate
-end type sf6_rate_type
-type(sf6_rate_type), dimension(NUM_SF6_RATE) :: sf6_rate
+  integer, parameter :: NUM_SF6_RATE = 62 !number of entries in file 'monthly.emissions'
+  type sf6_rate_type
+    type(time_type) :: Time
+    real :: rate
+  end type sf6_rate_type
+  type(sf6_rate_type), dimension(NUM_SF6_RATE) :: sf6_rate
 
-character(len=6), parameter :: module_name = 'tracer'
+  character(len=6), parameter :: module_name = 'tracer'
 
-logical :: module_is_initialized=.FALSE.
-logical :: used
+  logical :: module_is_initialized = .false.
+  logical :: used
 
 !---- version number -----
-character(len=128) :: version = '$Id: atmos_sulfur_hex.f90,v 11.0 2004/09/28 19:26:46 fms Exp $'
-character(len=128) :: tagname = '$Name: lima $'
+  character(len=128) :: version = '$Id: atmos_sulfur_hex.f90,v 11.0 2004/09/28 19:26:46 fms Exp $'
+  character(len=128) :: tagname = '$Name: lima $'
 !-----------------------------------------------------------------------
 
 contains
@@ -117,7 +116,7 @@ contains
 ! A routine to calculate the sources and sinks of sulfur hexafluoride.
 !</DESCRIPTION>
 !<TEMPLATE>
-!call atmos_sf6_sourcesink (lon, lat, land, pwt, sf6, sf6_dt, 
+!call atmos_sf6_sourcesink (lon, lat, land, pwt, sf6, sf6_dt,
 !        Time, is, ie, js, je, kbot)
 !
 !</TEMPLATE>
@@ -150,63 +149,63 @@ contains
 !     The array of the tendency of the sulfur hexafluoride mixing ratio.
 !   </OUT>
 !
-subroutine atmos_sf6_sourcesink (lon, lat, land, pwt, sf6, sf6_dt, &
-        Time, is, ie, js, je, kbot)
+  subroutine atmos_sf6_sourcesink(lon, lat, land, pwt, sf6, sf6_dt, &
+                                  Time, is, ie, js, je, kbot)
 !-----------------------------------------------------------------------
-   real, intent(in),  dimension(:,:)   :: lon, lat
-   real, intent(in),  dimension(:,:)   :: land
-   real, intent(in),  dimension(:,:,:) :: pwt, sf6
-   real, intent(out), dimension(:,:,:) :: sf6_dt
-     type(time_type), intent(in) :: Time     
-integer, intent(in),  dimension(:,:), optional :: kbot
-integer, intent(in)                    :: is, ie, js, je
+    real, intent(in), dimension(:, :)   :: lon, lat
+    real, intent(in), dimension(:, :)   :: land
+    real, intent(in), dimension(:, :, :) :: pwt, sf6
+    real, intent(out), dimension(:, :, :) :: sf6_dt
+    type(time_type), intent(in) :: Time
+    integer, intent(in), dimension(:, :), optional :: kbot
+    integer, intent(in)                    :: is, ie, js, je
 !-----------------------------------------------------------------------
-   real, dimension(size(sf6,1),size(sf6,2),size(sf6,3)) ::  &
-         source, sink
-logical, dimension(size(sf6,1),size(sf6,2)) ::  maskeq,masknh
-integer :: i,j,kb,kd, id,jd
-real :: rate ! sf6 interpolated emission rate
+    real, dimension(size(sf6, 1), size(sf6, 2), size(sf6, 3)) :: &
+      source, sink
+    logical, dimension(size(sf6, 1), size(sf6, 2)) ::  maskeq, masknh
+    integer :: i, j, kb, kd, id, jd
+    real :: rate ! sf6 interpolated emission rate
 !-----------------------------------------------------------------------
 
-      id=size(sf6,1); jd=size(sf6,2); kd=size(sf6,3)
+    id = size(sf6, 1); jd = size(sf6, 2); kd = size(sf6, 3)
 
-source=0.0
+    source = 0.0
 ! Interpolate SF6 global emission rate from sf6_rate (time dependent). For now
 ! just use first or last entry if time falls outside the bounds of the table.
 
-      if (Time < sf6_rate(1)%Time) then
-        rate=0. !previously sf6_rate(1)%Rate
+    if (Time < sf6_rate(1)%Time) then
+      rate = 0. !previously sf6_rate(1)%Rate
+    else
+      if (Time > sf6_rate(size(sf6_rate(:)))%Time) then
+        rate = sf6_rate(size(sf6_rate(:)))%Rate !just keep fixed past end of array
       else
-        if (Time > sf6_rate(size(sf6_rate(:)))%Time) then
-          rate=sf6_rate(size(sf6_rate(:)))%Rate !just keep fixed past end of array
-        else
-          do i=1,size(sf6_rate(:))-1 !This can be optimized with efficient search
-            if (Time >= sf6_rate(i)%Time .and. Time < sf6_rate(i+1)%Time) then
-              rate=sf6_rate(i)%Rate
-              exit
-            endif
-          enddo
-        endif
-      endif
+        do i = 1, size(sf6_rate(:)) - 1 !This can be optimized with efficient search
+          if (Time >= sf6_rate(i)%Time .and. Time < sf6_rate(i + 1)%Time) then
+            rate = sf6_rate(i)%Rate
+            exit
+          end if
+        end do
+      end if
+    end if
 
-      if (present(kbot)) then
-          do j=1,jd
-          do i=1,id
-             kb=kbot(i,j)
-             source(i,j,kb)=sf6_grid(i,j+js-1)*rate/pwt(i,j,kb)
-          enddo
-          enddo
-      else
-          do j=1,jd
-            source(:,j,kd)=sf6_grid(:,j+js-1)*rate/pwt(:,j,kd)
-          enddo
-      endif
-      
-      sink=0.0
+    if (present(kbot)) then
+      do j = 1, jd
+      do i = 1, id
+        kb = kbot(i, j)
+        source(i, j, kb) = sf6_grid(i, j + js - 1)*rate/pwt(i, j, kb)
+      end do
+      end do
+    else
+      do j = 1, jd
+        source(:, j, kd) = sf6_grid(:, j + js - 1)*rate/pwt(:, j, kd)
+      end do
+    end if
 
-      sf6_dt=source+sink
+    sink = 0.0
 
-end subroutine atmos_sf6_sourcesink
+    sf6_dt = source + sink
+
+  end subroutine atmos_sf6_sourcesink
 !</SUBROUTINE>
 
 !#######################################################################
@@ -227,7 +226,7 @@ end subroutine atmos_sf6_sourcesink
 !     The latitudes for the local domain.
 !   </IN>
 !   <INOUT NAME="r" TYPE="real" DIM="(:,:,:,:)">
-!     Tracer fields dimensioned as (nlon,nlat,nlev,ntrace). 
+!     Tracer fields dimensioned as (nlon,nlat,nlev,ntrace).
 !   </INOUT>
 !   <IN NAME="mask" TYPE="real, optional" DIM="(:,:,:)">
 !      optional mask (0. or 1.) that designates which grid points
@@ -242,7 +241,7 @@ end subroutine atmos_sf6_sourcesink
 !      (nlon, nlat, nlev, ntime)
 !   </IN>
 
- subroutine atmos_sulfur_hex_init (lonb, latb, r, axes, Time, mask)
+  subroutine atmos_sulfur_hex_init(lonb, latb, r, axes, Time, mask)
 
 !-----------------------------------------------------------------------
 !
@@ -252,85 +251,81 @@ end subroutine atmos_sf6_sourcesink
 !          (nlon,nlat,nlev).
 !
 !-----------------------------------------------------------------------
-real,            intent(in),    dimension(:)               :: lonb, latb
-real,            intent(inout), dimension(:,:,:,:)         :: r
-real,            intent(in),    dimension(:,:,:), optional :: mask
-type(time_type), intent(in)                                :: Time
-integer        , intent(in)                                :: axes(4)
+    real, intent(in), dimension(:)               :: lonb, latb
+    real, intent(inout), dimension(:, :, :, :)         :: r
+    real, intent(in), dimension(:, :, :), optional :: mask
+    type(time_type), intent(in)                                :: Time
+    integer, intent(in)                                :: axes(4)
 
-logical :: flag
-integer :: n
+    logical :: flag
+    integer :: n
 !-----------------------------------------------------------------------
 !
-!  When initializing additional tracers, the user needs to make changes 
-!  to two namelists. 
+!  When initializing additional tracers, the user needs to make changes
+!  to two namelists.
 !
 !  In what is core_namelist in the run_script (atmos_*_input.nml)
-!  ntrace and ntprog need to be changed in &atmosphere_nml so that 
-!  the number is the numbers of tracers in this module plus 
+!  ntrace and ntprog need to be changed in &atmosphere_nml so that
+!  the number is the numbers of tracers in this module plus
 !  one (specific humidity I believe)
 !
 !  In what is phys_namelist in the run_script ( atmos_param_*_input.nml)
-!  the namelist &tracer_driver_nml needs to be extended with numbers 
-!  corresponding to each tracer. Thes numbers should be positive and 
+!  the namelist &tracer_driver_nml needs to be extended with numbers
+!  corresponding to each tracer. Thes numbers should be positive and
 !  non-zero.
 !
 !-----------------------------------------------------------------------
-      integer  log_unit,unit,io,index,ntr,nt
+    integer log_unit, unit, io, index, ntr, nt
 
-      if (module_is_initialized) return
+    if (module_is_initialized) return
 
 !---- write namelist ------------------
 
-      call write_version_number (version, tagname)
+    call write_version_number(version, tagname)
 
-      n = get_tracer_index(MODEL_ATMOS,'sf6')
-      if (n>0) then
-        nsf6=n
-        if (nsf6 > 0 .and. mpp_pe() == mpp_root_pe()) write (*,30) 'SF6',nsf6
-        if (nsf6 > 0 .and. mpp_pe() == mpp_root_pe()) write (stdlog(),30) 'SF6',nsf6
-      endif
+    n = get_tracer_index(MODEL_ATMOS, 'sf6')
+    if (n > 0) then
+      nsf6 = n
+      if (nsf6 > 0 .and. mpp_pe() == mpp_root_pe()) write (*, 30) 'SF6', nsf6
+      if (nsf6 > 0 .and. mpp_pe() == mpp_root_pe()) write (stdlog(), 30) 'SF6', nsf6
+    end if
 
-  30        format (A,' was initialized as tracer number ',i2)
-      !Read in emission files
-      
+30  format(A, ' was initialized as tracer number ', i2)
+    !Read in emission files
 
-     id_emiss = register_static_field ( 'tracers',                    &
-                     'sf6emiss', axes(1:2),       &
-                     'SF6 emission', 'g/m2/s')
+    id_emiss = register_static_field('tracers', &
+                                     'sf6emiss', axes(1:2), &
+                                     'SF6 emission', 'g/m2/s')
 
-   allocate (sf6_grid(size(lonb(:))-1,size(latb(:))-1))
+    allocate (sf6_grid(size(lonb(:)) - 1, size(latb(:)) - 1))
 
+    call sf6_init(Time)
 
-      call sf6_init(Time)
-
-      module_is_initialized = .TRUE.
+    module_is_initialized = .true.
 !-----------------------------------------------------------------------
- end subroutine atmos_sulfur_hex_init
+  end subroutine atmos_sulfur_hex_init
 !</SUBROUTINE>
-
-
 
 !######################################################################
 
-subroutine sf6_init(Time)
-type(time_type), intent(in) :: Time
+  subroutine sf6_init(Time)
+    type(time_type), intent(in) :: Time
 !-------------------------------------------------
 !-------------------------------------------------
-      integer      :: i,j,unit !,imon,irec,n,io
-      real         :: dtr,deg_90, deg_180, gxdeg, gydeg
-      real         :: GEIA(720, 360)
-      integer, parameter :: k6=selected_int_kind(6) ! find kind sufficient for 6 digit integer precision
-      integer(kind=k6) :: t ! temporary time variable of kind k6
-      integer      :: y,m,d ! calendar vars
-      real,pointer         :: data_out1(:,:) ! temporary sf6_grid output
+    integer      :: i, j, unit !,imon,irec,n,io
+    real         :: dtr, deg_90, deg_180, gxdeg, gydeg
+    real         :: GEIA(720, 360)
+    integer, parameter :: k6 = selected_int_kind(6) ! find kind sufficient for 6 digit integer precision
+    integer(kind=k6) :: t ! temporary time variable of kind k6
+    integer      :: y, m, d ! calendar vars
+    real, pointer         :: data_out1(:, :) ! temporary sf6_grid output
 !-------------------------------------------------
-      real :: MW_air=28.9644 ! molecular wt. of air (gm/mole)
-      real :: MW_sf6=86.0 ! molecular wt. of sf6 (gm/mole) PLEASE CHECK!
-      logical :: used, opened
+    real :: MW_air = 28.9644 ! molecular wt. of air (gm/mole)
+    real :: MW_sf6 = 86.0 ! molecular wt. of sf6 (gm/mole) PLEASE CHECK!
+    logical :: used, opened
 
-      dtr=PI/180.
-      deg_90= -90.*dtr; deg_180= -180.*dtr ! -90 and -180 degrees are the southwest boundaries of the emission field you are reading in.
+    dtr = PI/180.
+    deg_90 = -90.*dtr; deg_180 = -180.*dtr ! -90 and -180 degrees are the southwest boundaries of the emission field you are reading in.
 
 ! Read in GEIA SF6 emission distribution grid and determine sizes:
 !
@@ -349,28 +344,28 @@ type(time_type), intent(in) :: Time
 !       90s -   | - - - | - - - | - - - |
 !              180w   179.5w  179w    178.5w
 
-do unit = 30,100
-INQUIRE(unit=unit, opened= opened)
-if (.NOT. opened) exit
-enddo
-      open(unit,file='distribution.grid', form='formatted',action='read')
-      do j = 1, 360 !rearrange input array so begins at 0 E
-        read(unit,'(5e16.8)') (GEIA(I,J), I=361,720)
-        read(unit,'(5e16.8)') (GEIA(I,J), I=  1,360)
-      end do
-      close (unit) 
+    do unit = 30, 100
+      inquire (unit=unit, opened=opened)
+      if (.not. opened) exit
+    end do
+    open (unit, file='distribution.grid', form='formatted', action='read')
+    do j = 1, 360 !rearrange input array so begins at 0 E
+      read (unit, '(5e16.8)') (GEIA(I, J), I=361, 720)
+      read (unit, '(5e16.8)') (GEIA(I, J), I=1, 360)
+    end do
+    close (unit)
 
-      gxdeg=360./size(GEIA,1)*dtr
-      gydeg=180./size(GEIA,2)*dtr
+    gxdeg = 360./size(GEIA, 1)*dtr
+    gydeg = 180./size(GEIA, 2)*dtr
 
-      call interp_emiss (GEIA, deg_180, deg_90, gxdeg, gydeg, sf6_grid)
+    call interp_emiss(GEIA, deg_180, deg_90, gxdeg, gydeg, sf6_grid)
 
 ! Note: must do scaling of global integral to 3.1828e-2 (for kg/m2/s) or 2750.
 ! (for kg/m2/day), according to S.-M. Fan.
 
 ! Scale to same units as used for radon (see radon_sourcesink):
 
-      sf6_grid=sf6_grid * grav * MW_air / MW_sf6
+    sf6_grid = sf6_grid*grav*MW_air/MW_sf6
 
 ! Now read in emission rate table. Comments from README file supplied by
 ! Song-Miao Fan:
@@ -389,28 +384,28 @@ enddo
 ! Note time is in integer YYMMDD format, which must be converted to Time_type
 ! for storage in the sf6_rate array.
 !
-do unit = 30,100
-INQUIRE(unit=unit, opened= opened)
-if (.NOT. opened) exit
-enddo
-      open(unit,file='monthly.emissions', form='formatted',action='read')
-      do j = 1, size(sf6_rate(:))
-        read(unit,'(i6,2x,f7.5)') t, sf6_rate(j)%rate
+    do unit = 30, 100
+      inquire (unit=unit, opened=opened)
+      if (.not. opened) exit
+    end do
+    open (unit, file='monthly.emissions', form='formatted', action='read')
+    do j = 1, size(sf6_rate(:))
+      read (unit, '(i6,2x,f7.5)') t, sf6_rate(j)%rate
 ! convert YYMMDD into components:
-        y=int(t/10000)
-        m=int((t-y*10000)/100)
-        d=mod(t,100)
+      y = int(t/10000)
+      m = int((t - y*10000)/100)
+      d = mod(t, 100)
 ! shift start year to 1981 (start date 1981.12.15):
-        y=y-88+1981 ! y was 2-digit year
+      y = y - 88 + 1981 ! y was 2-digit year
 ! now convert to time_type format and store:
-        sf6_rate(j)%Time=set_date(y, m, d)
-      end do
-      close (unit) 
+      sf6_rate(j)%Time = set_date(y, m, d)
+    end do
+    close (unit)
 
-         if (id_emiss > 0 ) &
-         used = send_data ( id_emiss, sf6_grid )
-         
-      end subroutine sf6_init
+    if (id_emiss > 0) &
+      used = send_data(id_emiss, sf6_grid)
+
+  end subroutine sf6_init
 
 !######################################################################
 !<SUBROUTINE NAME="sulfur_hex_end">
@@ -424,15 +419,12 @@ enddo
 ! call atmos_sulfur_hex_end
 !</TEMPLATE>
 
- subroutine atmos_sulfur_hex_end
- 
-      module_is_initialized = .FALSE.
+  subroutine atmos_sulfur_hex_end
 
- end subroutine atmos_sulfur_hex_end
+    module_is_initialized = .false.
+
+  end subroutine atmos_sulfur_hex_end
 !</SUBROUTINE>
 
-
 end module atmos_sulfur_hex_mod
-
-
 

@@ -2,40 +2,39 @@
 module lscale_cond_mod
 
 !-----------------------------------------------------------------------
-use            fms_mod, only:  error_mesg, input_nml_file,  &
-                               check_nml_error, mpp_pe, mpp_root_pe, FATAL,  &
-                               write_version_number, stdlog
-use sat_vapor_pres_mod, only:  escomp, descomp
-use      constants_mod, only:  HLv,HLs,Cp_Air,Grav,rdgas,rvgas
+  use fms_mod, only: error_mesg, input_nml_file, &
+                     check_nml_error, mpp_pe, mpp_root_pe, FATAL, &
+                     write_version_number, stdlog
+  use sat_vapor_pres_mod, only: escomp, descomp
+  use constants_mod, only: HLv, HLs, Cp_Air, Grav, rdgas, rvgas
 
-implicit none
-private
+  implicit none
+  private
 !-----------------------------------------------------------------------
 !  ---- public interfaces ----
 
-   public  lscale_cond, lscale_cond_init, lscale_cond_end
+  public lscale_cond, lscale_cond_init, lscale_cond_end
 
 !-----------------------------------------------------------------------
 !   ---- version number ----
 
- character(len=128) :: version = '$Id: lscale_cond.f90,v 10.0.6.1 2005/05/13 18:16:37 pjp Exp $'
- character(len=128) :: tagname = '$Name:  $'
- logical            :: module_is_initialized=.false.
+  character(len=128) :: version = '$Id: lscale_cond.f90,v 10.0.6.1 2005/05/13 18:16:37 pjp Exp $'
+  character(len=128) :: tagname = '$Name:  $'
+  logical            :: module_is_initialized = .false.
 
 !-----------------------------------------------------------------------
 !   ---- local/private data ----
 
-    real, parameter :: d622 = rdgas/rvgas
-    real, parameter :: d378 = 1.-d622
-
+  real, parameter :: d622 = rdgas/rvgas
+  real, parameter :: d378 = 1.-d622
 
 !-----------------------------------------------------------------------
 !   --- namelist ----
 
-real    :: hc=1.00
-logical :: do_evap=.true.
+  real    :: hc = 1.00
+  logical :: do_evap = .true.
 
-namelist /lscale_cond_nml/  hc, do_evap
+  namelist /lscale_cond_nml/ hc, do_evap
 
 !-----------------------------------------------------------------------
 !           description of namelist variables
@@ -53,8 +52,8 @@ contains
 
 !#######################################################################
 
-   subroutine lscale_cond (tin, qin, pfull, phalf, coldT, &
-                           rain, snow, tdel, qdel, mask, conv)
+  subroutine lscale_cond(tin, qin, pfull, phalf, coldT, &
+                         rain, snow, tdel, qdel, mask, conv)
 
 !-----------------------------------------------------------------------
 !
@@ -83,159 +82,159 @@ contains
 !-----------------------------------------------------------------------
 !--------------------- interface arguments -----------------------------
 
-   real   , intent(in) , dimension(:,:,:) :: tin, qin, pfull, phalf
-   logical   , intent(in) , dimension(:,:):: coldT
-   real   , intent(out), dimension(:,:)   :: rain,snow
-   real   , intent(out), dimension(:,:,:) :: tdel, qdel
-   real   , intent(in) , dimension(:,:,:), optional :: mask
-   logical, intent(in) , dimension(:,:,:), optional :: conv
+    real, intent(in), dimension(:, :, :) :: tin, qin, pfull, phalf
+    logical, intent(in), dimension(:, :):: coldT
+    real, intent(out), dimension(:, :)   :: rain, snow
+    real, intent(out), dimension(:, :, :) :: tdel, qdel
+    real, intent(in), dimension(:, :, :), optional :: mask
+    logical, intent(in), dimension(:, :, :), optional :: conv
 !-----------------------------------------------------------------------
 !---------------------- local data -------------------------------------
 
-logical,dimension(size(tin,1),size(tin,2),size(tin,3)) :: do_adjust
-   real,dimension(size(tin,1),size(tin,2),size(tin,3)) ::  &
-                             esat, qsat, desat, dqsat, pmes, pmass
-   real,dimension(size(tin,1),size(tin,2))             :: hlcp, precip
-integer :: k, kx, i, j
+    logical, dimension(size(tin, 1), size(tin, 2), size(tin, 3)) :: do_adjust
+    real, dimension(size(tin, 1), size(tin, 2), size(tin, 3)) :: &
+      esat, qsat, desat, dqsat, pmes, pmass
+    real, dimension(size(tin, 1), size(tin, 2))             :: hlcp, precip
+    integer :: k, kx, i, j
 !-----------------------------------------------------------------------
 !     computation of precipitation by condensation processes
 !-----------------------------------------------------------------------
 
-      if (.not. module_is_initialized) call error_mesg ('lscale_cond',  &
-                         'lscale_cond_init has not been called.', FATAL)
+    if (.not. module_is_initialized) call error_mesg('lscale_cond', &
+                                                     'lscale_cond_init has not been called.', FATAL)
 
-      kx=size(tin,3)
+    kx = size(tin, 3)
 
 !----- compute proper latent heat --------------------------------------
-      hlcp = HLv/Cp_Air
+    hlcp = HLv/Cp_Air
 
 !----- saturation vapor pressure (esat) & specific humidity (qsat) -----
 
-      call  escomp (tin,esat)
-      call descomp (tin,desat)
+    call escomp(tin, esat)
+    call descomp(tin, desat)
 
-      esat(:,:,:)=esat(:,:,:)*hc
+    esat(:, :, :) = esat(:, :, :)*hc
 
-   do k=1,kx
-   do j=1,size(tin,2)
-   do i=1,size(tin,1)
-     if(pfull(i,j,k) > d378*esat(i,j,k)) then
-       pmes(i,j,k)=1.0/pfull(i,j,k)
-       qsat(i,j,k)=d622*esat(i,j,k)*pmes(i,j,k)
-       qsat(i,j,k)=max(0.0,qsat(i,j,k))
-      dqsat(i,j,k)=d622*pfull(i,j,k)*desat(i,j,k)*pmes(i,j,k)*pmes(i,j,k)
-     else
-       pmes(i,j,k)=0.0
-       qsat(i,j,k)=0.0
-      dqsat(i,j,k)=0.0
-     endif
-   enddo
-   enddo
-   enddo
+    do k = 1, kx
+    do j = 1, size(tin, 2)
+    do i = 1, size(tin, 1)
+      if (pfull(i, j, k) > d378*esat(i, j, k)) then
+        pmes(i, j, k) = 1.0/pfull(i, j, k)
+        qsat(i, j, k) = d622*esat(i, j, k)*pmes(i, j, k)
+        qsat(i, j, k) = max(0.0, qsat(i, j, k))
+        dqsat(i, j, k) = d622*pfull(i, j, k)*desat(i, j, k)*pmes(i, j, k)*pmes(i, j, k)
+      else
+        pmes(i, j, k) = 0.0
+        qsat(i, j, k) = 0.0
+        dqsat(i, j, k) = 0.0
+      end if
+    end do
+    end do
+    end do
 
 !--------- do adjustment where greater than saturated value ------------
 
-   if (present(conv)) then
+    if (present(conv)) then
 !!!!  do_adjust(:,:,:)=(.not.conv(:,:,:) .and. qin(:,:,:) > qsat(:,:,:))
-      do_adjust(:,:,:)=(.not.conv(:,:,:) .and.   &
-                         (qin(:,:,:) - qsat(:,:,:))*qsat(:,:,:) > 0.0)
-   else
+      do_adjust(:, :, :) = (.not. conv(:, :, :) .and. &
+                            (qin(:, :, :) - qsat(:, :, :))*qsat(:, :, :) > 0.0)
+    else
 !!!!  do_adjust(:,:,:)=(qin(:,:,:) > qsat(:,:,:))
-      do_adjust(:,:,:)=( (qin(:,:,:) - qsat(:,:,:))*qsat(:,:,:) > 0.0)
-   endif
+      do_adjust(:, :, :) = ((qin(:, :, :) - qsat(:, :, :))*qsat(:, :, :) > 0.0)
+    end if
 
-   if (present(mask)) then
-      do_adjust(:,:,:)=do_adjust(:,:,:) .and. (mask(:,:,:) > 0.5)
-   end if
+    if (present(mask)) then
+      do_adjust(:, :, :) = do_adjust(:, :, :) .and. (mask(:, :, :) > 0.5)
+    end if
 
 !----------- compute adjustments to temp and spec humidity -------------
-   do k = 1,kx
-   where (do_adjust(:,:,k))
-      qdel(:,:,k)=(qsat(:,:,k)-qin(:,:,k))/(1.0+hlcp(:,:)*dqsat(:,:,k))
-      tdel(:,:,k)=-hlcp(:,:)*qdel(:,:,k)
-   elsewhere
-      qdel(:,:,k)=0.0
-      tdel(:,:,k)=0.0
-   endwhere
-   end do
+    do k = 1, kx
+      where (do_adjust(:, :, k))
+        qdel(:, :, k) = (qsat(:, :, k) - qin(:, :, k))/(1.0 + hlcp(:, :)*dqsat(:, :, k))
+        tdel(:, :, k) = -hlcp(:, :)*qdel(:, :, k)
+      elsewhere
+        qdel(:, :, k) = 0.0
+        tdel(:, :, k) = 0.0
+      end where
+    end do
 !------------ pressure mass of each layer ------------------------------
 
-   do k=1,kx
-      pmass(:,:,k)=(phalf(:,:,k+1)-phalf(:,:,k))/Grav
-   enddo
+    do k = 1, kx
+      pmass(:, :, k) = (phalf(:, :, k + 1) - phalf(:, :, k))/Grav
+    end do
 
 !------------ re-evaporation of precipitation in dry layer below -------
 
-   if (do_evap) then
+    if (do_evap) then
       if (present(mask)) then
-         call precip_evap (pmass,tin,qin,qsat,dqsat,hlcp,tdel,qdel,mask)
+        call precip_evap(pmass, tin, qin, qsat, dqsat, hlcp, tdel, qdel, mask)
       else
-         call precip_evap (pmass,tin,qin,qsat,dqsat,hlcp,tdel,qdel)
-      endif
-   endif
+        call precip_evap(pmass, tin, qin, qsat, dqsat, hlcp, tdel, qdel)
+      end if
+    end if
 
 !------------ integrate precip -----------------------------------------
 
-      precip(:,:)=0.0
-   do k=1,kx
-      precip(:,:)=precip(:,:)-pmass(:,:,k)*qdel(:,:,k)
-   enddo
-      precip(:,:)=max(precip(:,:),0.0)
+    precip(:, :) = 0.0
+    do k = 1, kx
+      precip(:, :) = precip(:, :) - pmass(:, :, k)*qdel(:, :, k)
+    end do
+    precip(:, :) = max(precip(:, :), 0.0)
 
-   !assign precip to snow or rain
-   rain = precip
-   snow = 0.
+    !assign precip to snow or rain
+    rain = precip
+    snow = 0.
 
 !-----------------------------------------------------------------------
 
-   end subroutine lscale_cond
+  end subroutine lscale_cond
 
 !#######################################################################
 
-subroutine precip_evap (pmass, tin, qin, qsat, dqsat, hlcp, &
-                        tdel, qdel, mask)
+  subroutine precip_evap(pmass, tin, qin, qsat, dqsat, hlcp, &
+                         tdel, qdel, mask)
 
 !-----------------------------------------------------------------------
 !        performs re-evaporation of falling precipitation
 !-----------------------------------------------------------------------
-   real, intent(in),    dimension(:,:,:) :: pmass, tin, qin, qsat, dqsat
-   real, intent(in),    dimension(:,:)   :: hlcp
-   real, intent(inout), dimension(:,:,:) :: tdel, qdel
-   real, intent(in), dimension(:,:,:), optional :: mask
+    real, intent(in), dimension(:, :, :) :: pmass, tin, qin, qsat, dqsat
+    real, intent(in), dimension(:, :)   :: hlcp
+    real, intent(inout), dimension(:, :, :) :: tdel, qdel
+    real, intent(in), dimension(:, :, :), optional :: mask
 !-----------------------------------------------------------------------
-   real, dimension(size(tin,1),size(tin,2)) :: exq, def
+    real, dimension(size(tin, 1), size(tin, 2)) :: exq, def
 
-   integer  k
+    integer k
 !-----------------------------------------------------------------------
-    exq(:,:)=0.0
+    exq(:, :) = 0.0
 
-    do k=1,size(tin,3)
+    do k = 1, size(tin, 3)
 
-        where (qdel(:,:,k) < 0.0)  exq(:,:) = exq(:,:) -  &
-                                               qdel(:,:,k)*pmass(:,:,k)
+      where (qdel(:, :, k) < 0.0) exq(:, :) = exq(:, :) - &
+                                              qdel(:, :, k)*pmass(:, :, k)
 
-        if (present(mask)) exq(:,:) = exq(:,:)*mask(:,:,k)
+      if (present(mask)) exq(:, :) = exq(:, :)*mask(:, :, k)
 
 !  ---- evaporate precip where needed ------
 
-        where ( (qdel(:,:,k) >= 0.0) .and. (exq(:,:) > 0.0) )
-            exq(:,:) = exq(:,:) / pmass(:,:,k)
-            def(:,:) = (qsat(:,:,k)-qin(:,:,k))/(1.+hlcp(:,:)*dqsat(:,:,k))
-            def(:,:) = min(max(def(:,:),0.0),exq(:,:))
-            qdel(:,:,k) = qdel(:,:,k) + def(:,:)
-            tdel(:,:,k) = tdel(:,:,k) - def(:,:)*hlcp(:,:)
-            exq(:,:) = (exq(:,:)-def(:,:))*pmass(:,:,k)
-        endwhere
+      where ((qdel(:, :, k) >= 0.0) .and. (exq(:, :) > 0.0))
+        exq(:, :) = exq(:, :)/pmass(:, :, k)
+        def(:, :) = (qsat(:, :, k) - qin(:, :, k))/(1.+hlcp(:, :)*dqsat(:, :, k))
+        def(:, :) = min(max(def(:, :), 0.0), exq(:, :))
+        qdel(:, :, k) = qdel(:, :, k) + def(:, :)
+        tdel(:, :, k) = tdel(:, :, k) - def(:, :)*hlcp(:, :)
+        exq(:, :) = (exq(:, :) - def(:, :))*pmass(:, :, k)
+      end where
 
-    enddo
+    end do
 
 !-----------------------------------------------------------------------
 
-   end subroutine precip_evap
+  end subroutine precip_evap
 
 !#######################################################################
 
-   subroutine lscale_cond_init ()
+  subroutine lscale_cond_init()
 
 !-----------------------------------------------------------------------
 !
@@ -243,32 +242,32 @@ subroutine precip_evap (pmass, tin, qin, qsat, dqsat, hlcp, &
 !
 !-----------------------------------------------------------------------
 
-  integer  unit,io,ierr
+    integer unit, io, ierr
 
 !----------- read namelist ---------------------------------------------
 
-      read (input_nml_file, nml=lscale_cond_nml, iostat=io)
-      ierr = check_nml_error (io,'lscale_cond_nml')
+    read (input_nml_file, nml=lscale_cond_nml, iostat=io)
+    ierr = check_nml_error(io, 'lscale_cond_nml')
 
 !---------- output namelist --------------------------------------------
 
-      if ( mpp_pe() == mpp_root_pe() ) then
-           call write_version_number(version, tagname)
-           write (stdlog(),nml=lscale_cond_nml)
-      endif
+    if (mpp_pe() == mpp_root_pe()) then
+      call write_version_number(version, tagname)
+      write (stdlog(), nml=lscale_cond_nml)
+    end if
 
-      module_is_initialized=.true.
+    module_is_initialized = .true.
 
-   end subroutine lscale_cond_init
+  end subroutine lscale_cond_init
 
 !#######################################################################
-   subroutine lscale_cond_end
+  subroutine lscale_cond_end
 
-      module_is_initialized=.false.
+    module_is_initialized = .false.
 
 !---------------------------------------------------------------------
 
-   end subroutine lscale_cond_end
+  end subroutine lscale_cond_end
 
 !#######################################################################
 

@@ -10,23 +10,22 @@ module diffusivity_mod
 !
 !=======================================================================
 
+  use constants_mod, only: grav, vonkarm, cp_air, rdgas, rvgas
 
-use     constants_mod, only : grav, vonkarm, cp_air, rdgas, rvgas
+  use fms_mod, only: error_mesg, FATAL, &
+                     check_nml_error, input_nml_file, &
+                     mpp_pe, mpp_root_pe, &
+                     write_version_number, stdlog
 
-use           fms_mod, only : error_mesg, FATAL, &
-                              check_nml_error, input_nml_file,      &
-                              mpp_pe, mpp_root_pe, &
-                              write_version_number, stdlog
+  use mima_monin_obukhov_mod, only: mo_diff
 
-use mima_monin_obukhov_mod, only : mo_diff
-
-implicit none
-private
+  implicit none
+  private
 
 ! public interfaces
 !=======================================================================
 
- public diffusivity, pbl_depth, molecular_diff
+  public diffusivity, pbl_depth, molecular_diff
 
 !=======================================================================
 
@@ -91,326 +90,310 @@ private
 !
 !=======================================================================
 
-
 !--------------------- version number ----------------------------------
 
-character(len=128) :: version = '$Id: diffusivity.f90,v 10.0.6.1 2005/05/13 18:16:36 pjp Exp $'
-character(len=128) :: tagname = '$Name:  $'
+  character(len=128) :: version = '$Id: diffusivity.f90,v 10.0.6.1 2005/05/13 18:16:36 pjp Exp $'
+  character(len=128) :: tagname = '$Name:  $'
 
 !=======================================================================
 
 !  DEFAULT VALUES OF NAMELIST PARAMETERS:
 
-logical :: fixed_depth         = .false.
-real    :: depth_0             =  5000.0
-real    :: frac_inner          =  0.1
-real    :: rich_crit_pbl       =  1.0
-real    :: background_m        =  0.0
-real    :: background_t        =  0.0
+  logical :: fixed_depth = .false.
+  real    :: depth_0 = 5000.0
+  real    :: frac_inner = 0.1
+  real    :: rich_crit_pbl = 1.0
+  real    :: background_m = 0.0
+  real    :: background_t = 0.0
 
-namelist /diffusivity_nml/ fixed_depth, depth_0, frac_inner,&
-                           rich_crit_pbl, &
-                           background_m, background_t
+  namelist /diffusivity_nml/ fixed_depth, depth_0, frac_inner, &
+    rich_crit_pbl, &
+    background_m, background_t
 
 !=======================================================================
 
 !  OTHER MODULE VARIABLES
 
-real    :: small  = 1.e-04
-real    :: gcp    = grav/cp_air
-logical :: module_is_initialized   = .false.
-real    :: beta   = 1.458e-06
-real    :: rbop1  = 110.4
-real    :: rbop2  = 1.405
+  real    :: small = 1.e-04
+  real    :: gcp = grav/cp_air
+  logical :: module_is_initialized = .false.
+  real    :: beta = 1.458e-06
+  real    :: rbop1 = 110.4
+  real    :: rbop2 = 1.405
 
-real, parameter :: d608 = (rvgas-rdgas)/rdgas
-
+  real, parameter :: d608 = (rvgas - rdgas)/rdgas
 
 contains
 
 !=======================================================================
 
-subroutine diffusivity_init
+  subroutine diffusivity_init
 
-integer :: unit, ierr, io
+    integer :: unit, ierr, io
 
 !------------------- read namelist input -------------------------------
 
-      read (input_nml_file, nml=diffusivity_nml, iostat=io)
-      ierr = check_nml_error(io,'diffusivity_nml')
+    read (input_nml_file, nml=diffusivity_nml, iostat=io)
+    ierr = check_nml_error(io, 'diffusivity_nml')
 
 !------------------- dummy checks --------------------------------------
-      if (frac_inner .le. 0. .or. frac_inner .ge. 1.) &
-         call error_mesg ('diffusivity_init',  &
-         'frac_inner must be between 0 and 1', FATAL)
-      if (rich_crit_pbl .lt. 0.) &
-         call error_mesg ('diffusivity_init',  &
-        'rich_crit_pbl must be greater than or equal to zero', FATAL)
-      if (background_m .lt. 0.) &
-         call error_mesg ('diffusivity_init',  &
-         'background_m must be greater than or equal to zero', FATAL)
-      if (background_t .lt. 0.) &
-         call error_mesg ('diffusivity_init',  &
-         'background_t must be greater than or equal to zero', FATAL)
+    if (frac_inner .le. 0. .or. frac_inner .ge. 1.) &
+      call error_mesg('diffusivity_init', &
+                      'frac_inner must be between 0 and 1', FATAL)
+    if (rich_crit_pbl .lt. 0.) &
+      call error_mesg('diffusivity_init', &
+                      'rich_crit_pbl must be greater than or equal to zero', FATAL)
+    if (background_m .lt. 0.) &
+      call error_mesg('diffusivity_init', &
+                      'background_m must be greater than or equal to zero', FATAL)
+    if (background_t .lt. 0.) &
+      call error_mesg('diffusivity_init', &
+                      'background_t must be greater than or equal to zero', FATAL)
 
 !---------- output namelist to log-------------------------------------
 
-      if ( mpp_pe() == mpp_root_pe() ) then
-           call write_version_number(version, tagname)
-           write (stdlog(), nml=diffusivity_nml)
-      endif
+    if (mpp_pe() == mpp_root_pe()) then
+      call write_version_number(version, tagname)
+      write (stdlog(), nml=diffusivity_nml)
+    end if
 
-      module_is_initialized = .true.
+    module_is_initialized = .true.
 
-return
-end subroutine diffusivity_init
-
-!=======================================================================
-
-subroutine diffusivity_end
-
-      module_is_initialized = .false.
-
-end subroutine diffusivity_end
+    return
+  end subroutine diffusivity_init
 
 !=======================================================================
 
-subroutine diffusivity(t, q, u, v, p_full, p_half, z_full, z_half,  &
-                       u_star, b_star, h, k_m, k_t, kbot)
+  subroutine diffusivity_end
 
-real,    intent(in),           dimension(:,:,:) :: t, q, u, v
-real,    intent(in),           dimension(:,:,:) :: p_full, p_half
-real,    intent(in),           dimension(:,:,:) :: z_full, z_half
-real,    intent(in),           dimension(:,:)   :: u_star, b_star
-real,    intent(inout),        dimension(:,:,:) :: k_m, k_t
-real,    intent(out),          dimension(:,:)   :: h
-integer, intent(in), optional, dimension(:,:)   :: kbot
+    module_is_initialized = .false.
 
-real, dimension(size(t,1),size(t,2),size(t,3))  :: svcp,z_full_ag, &
-                                                   k_m_save, k_t_save
-real, dimension(size(t,1),size(t,2),size(t,3)+1):: z_half_ag
-real, dimension(size(t,1),size(t,2))            :: z_surf
-integer                                         :: i,j,k,nlev,nlat,nlon
+  end subroutine diffusivity_end
 
-if(.not.module_is_initialized) call diffusivity_init
+!=======================================================================
 
-nlev = size(t,3)
+  subroutine diffusivity(t, q, u, v, p_full, p_half, z_full, z_half, &
+                         u_star, b_star, h, k_m, k_t, kbot)
 
-k_m_save = k_m
-k_t_save = k_t
+    real, intent(in), dimension(:, :, :) :: t, q, u, v
+    real, intent(in), dimension(:, :, :) :: p_full, p_half
+    real, intent(in), dimension(:, :, :) :: z_full, z_half
+    real, intent(in), dimension(:, :)   :: u_star, b_star
+    real, intent(inout), dimension(:, :, :) :: k_m, k_t
+    real, intent(out), dimension(:, :)   :: h
+    integer, intent(in), optional, dimension(:, :)   :: kbot
+
+    real, dimension(size(t, 1), size(t, 2), size(t, 3))  :: svcp, z_full_ag, &
+                                                            k_m_save, k_t_save
+    real, dimension(size(t, 1), size(t, 2), size(t, 3) + 1):: z_half_ag
+    real, dimension(size(t, 1), size(t, 2))            :: z_surf
+    integer                                         :: i, j, k, nlev, nlat, nlon
+
+    if (.not. module_is_initialized) call diffusivity_init
+
+    nlev = size(t, 3)
+
+    k_m_save = k_m
+    k_t_save = k_t
 
 !compute height of surface
-if (present(kbot)) then
-   nlat = size(t,2)
-   nlon = size(t,1)
-   do j=1,nlat
-   do i=1,nlon
-          z_surf(i,j) = z_half(i,j,kbot(i,j)+1)
-   enddo
-   enddo
-else
-   z_surf(:,:) = z_half(:,:,nlev+1)
-end if
-
+    if (present(kbot)) then
+      nlat = size(t, 2)
+      nlon = size(t, 1)
+      do j = 1, nlat
+      do i = 1, nlon
+        z_surf(i, j) = z_half(i, j, kbot(i, j) + 1)
+      end do
+      end do
+    else
+      z_surf(:, :) = z_half(:, :, nlev + 1)
+    end if
 
 !compute density profile, and heights relative to surface
-do k = 1, nlev
-  z_full_ag(:,:,k) = z_full(:,:,k) - z_surf(:,:)
-  z_half_ag(:,:,k) = z_half(:,:,k) - z_surf(:,:)
-  svcp(:,:,k)  =   t(:,:,k) + gcp*(z_full_ag(:,:,k))
-end do
-z_half_ag(:,:,nlev+1) = z_half(:,:,nlev+1) - z_surf(:,:)
+    do k = 1, nlev
+      z_full_ag(:, :, k) = z_full(:, :, k) - z_surf(:, :)
+      z_half_ag(:, :, k) = z_half(:, :, k) - z_surf(:, :)
+      svcp(:, :, k) = t(:, :, k) + gcp*(z_full_ag(:, :, k))
+    end do
+    z_half_ag(:, :, nlev + 1) = z_half(:, :, nlev + 1) - z_surf(:, :)
 
+    if (fixed_depth) then
+      h = depth_0
+    else
+      call pbl_depth(svcp, u, v, z_full_ag, u_star, b_star, h, kbot=kbot)
+    end if
 
-if(fixed_depth)  then
-   h = depth_0
-else
-   call pbl_depth(svcp,u,v,z_full_ag,u_star,b_star,h,kbot=kbot)
-end if
+    call diffusivity_pbl(svcp, u, v, z_half_ag, h, u_star, b_star, &
+                         k_m, k_t, kbot=kbot)
 
-call diffusivity_pbl  (svcp, u, v, z_half_ag, h, u_star, b_star,&
-                     k_m, k_t, kbot=kbot)
-
-k_m = k_m + k_m_save
-k_t = k_t + k_t_save
+    k_m = k_m + k_m_save
+    k_t = k_t + k_t_save
 
 !set background diffusivities
-if(background_m.gt.0.0) k_m = max(k_m,background_m)
-if(background_t.gt.0.0) k_t = max(k_t,background_t)
+    if (background_m .gt. 0.0) k_m = max(k_m, background_m)
+    if (background_t .gt. 0.0) k_t = max(k_t, background_t)
 
-
-return
-end subroutine diffusivity
+    return
+  end subroutine diffusivity
 
 !=======================================================================
 
-subroutine pbl_depth(t, u, v, z, u_star, b_star, h, kbot)
+  subroutine pbl_depth(t, u, v, z, u_star, b_star, h, kbot)
 
+    real, intent(in), dimension(:, :, :) :: t, u, v, z
+    real, intent(in), dimension(:, :)   :: u_star, b_star
+    real, intent(out), dimension(:, :)   :: h
+    integer, intent(in), optional, dimension(:, :)   :: kbot
 
-real,   intent(in) ,           dimension(:,:,:) :: t, u, v, z
-real,   intent(in) ,           dimension(:,:)   :: u_star,b_star
-real,   intent(out),           dimension(:,:)   :: h
-integer,intent(in) , optional, dimension(:,:)   :: kbot
+    real, dimension(size(t, 1), size(t, 2), size(t, 3))  :: rich
+    real, dimension(size(t, 1), size(t, 2))            :: tbot
+    real                                               :: rich1, rich2, &
+                                                          h1, h2
+    integer, dimension(size(t, 1), size(t, 2))            :: ibot
+    integer                                            :: i, j, k, nlon, &
+                                                          nlat, nlev
 
-real,    dimension(size(t,1),size(t,2),size(t,3))  :: rich
-real,    dimension(size(t,1),size(t,2))            :: tbot
-real                                               :: rich1, rich2,&
-                                                      h1,h2
-integer, dimension(size(t,1),size(t,2))            :: ibot
-integer                                            :: i,j,k,nlon,&
-                                                      nlat, nlev
-
-nlev = size(t,3)
-nlat = size(t,2)
-nlon = size(t,1)
+    nlev = size(t, 3)
+    nlat = size(t, 2)
+    nlon = size(t, 1)
 
 !assign ibot, compute tbot (virtual temperature at lowest level)
-if (present(kbot)) then
-    ibot(:,:) = kbot
-    do j = 1,nlat
-    do i = 1,nlon
-          tbot(i,j) = t(i,j,ibot(i,j))
-    enddo
-    enddo
-else
-    ibot(:,:) = nlev
-    tbot(:,:) = t(:,:,nlev)
-end if
-
+    if (present(kbot)) then
+      ibot(:, :) = kbot
+      do j = 1, nlat
+      do i = 1, nlon
+        tbot(i, j) = t(i, j, ibot(i, j))
+      end do
+      end do
+    else
+      ibot(:, :) = nlev
+      tbot(:, :) = t(:, :, nlev)
+    end if
 
 !compute richardson number for use in pbl depth of neutral/stable side
-do k = 1,nlev
-  rich(:,:,k) =  z(:,:,k)*grav*(t(:,:,k)-tbot(:,:))/tbot(:,:)&
-                /(u(:,:,k)*u(:,:,k) + v(:,:,k)*v(:,:,k) + small )
-end do
+    do k = 1, nlev
+      rich(:, :, k) = z(:, :, k)*grav*(t(:, :, k) - tbot(:, :))/tbot(:, :) &
+                      /(u(:, :, k)*u(:, :, k) + v(:, :, k)*v(:, :, k) + small)
+    end do
 
-
-do j = 1, nlat
- do i = 1, nlon
+    do j = 1, nlat
+      do i = 1, nlon
 
         !neutral/stable Richardson-number method in all columns
 
-        h1     = z(i,j,ibot(i,j))
-        h(i,j) = h1
-        rich1  = rich(i,j,ibot(i,j))
-        do k = ibot(i,j)-1, 1, -1
-                 rich2 = rich(i,j,k)
-                 h2    = z(i,j,k)
-                 if(rich2.gt.rich_crit_pbl) then
-                       h(i,j) = h2 + (h1 - h2)*(rich2 - rich_crit_pbl)&
-                                              /(rich2 - rich1        )
-                       go to 10
-                 endif
-                 rich1 = rich2
-                 h1    = h2
-        enddo
+        h1 = z(i, j, ibot(i, j))
+        h(i, j) = h1
+        rich1 = rich(i, j, ibot(i, j))
+        do k = ibot(i, j) - 1, 1, -1
+          rich2 = rich(i, j, k)
+          h2 = z(i, j, k)
+          if (rich2 .gt. rich_crit_pbl) then
+            h(i, j) = h2 + (h1 - h2)*(rich2 - rich_crit_pbl) &
+                      /(rich2 - rich1)
+            go to 10
+          end if
+          rich1 = rich2
+          h1 = h2
+        end do
 
-10 continue
-  enddo
-enddo
+10      continue
+      end do
+    end do
 
-return
-end subroutine pbl_depth
+    return
+  end subroutine pbl_depth
 
 !=======================================================================
 
-subroutine diffusivity_pbl(t, u, v, z_half, h, u_star, b_star, &
-                           k_m, k_t, kbot)
+  subroutine diffusivity_pbl(t, u, v, z_half, h, u_star, b_star, &
+                             k_m, k_t, kbot)
 
-real,    intent(in)  ,           dimension(:,:,:) :: t, u, v, z_half
-real,    intent(in)  ,           dimension(:,:)   :: h, u_star, b_star
-real,    intent(inout) ,           dimension(:,:,:) :: k_m, k_t
-integer, intent(in)  , optional, dimension(:,:)   :: kbot
+    real, intent(in), dimension(:, :, :) :: t, u, v, z_half
+    real, intent(in), dimension(:, :)   :: h, u_star, b_star
+    real, intent(inout), dimension(:, :, :) :: k_m, k_t
+    integer, intent(in), optional, dimension(:, :)   :: kbot
 
-real, dimension(size(t,1),size(t,2))              :: h_inner, k_m_ref,&
-                                                     k_t_ref, factor
-real, dimension(size(t,1),size(t,2),size(t,3)+1)  :: zm
-real                                              :: h_inner_max
-integer                                           :: i,j, k, kk, nlev
+    real, dimension(size(t, 1), size(t, 2))              :: h_inner, k_m_ref, &
+                                                            k_t_ref, factor
+    real, dimension(size(t, 1), size(t, 2), size(t, 3) + 1)  :: zm
+    real                                              :: h_inner_max
+    integer                                           :: i, j, k, kk, nlev
 
-
-nlev = size(t,3)
+    nlev = size(t, 3)
 
 !assign z_half to zm, and set to zero any values of zm < 0.
 !the setting to zero is necessary so that when using eta model
 !below ground half levels will have zero k_m and k_t
-zm = z_half
-if (present(kbot)) then
-   where(zm < 0.)
+    zm = z_half
+    if (present(kbot)) then
+      where (zm < 0.)
         zm = 0.
-   end where
-end if
+      end where
+    end if
 
-h_inner    = frac_inner*h
-h_inner_max = maxval(h_inner)
+    h_inner = frac_inner*h
+    h_inner_max = maxval(h_inner)
 
-kk = nlev
-do k = 2, nlev
-  if( minval(zm(:,:,k)) < h_inner_max) then
-      kk = k
-      exit
-  end if
-end do
+    kk = nlev
+    do k = 2, nlev
+      if (minval(zm(:, :, k)) < h_inner_max) then
+        kk = k
+        exit
+      end if
+    end do
 
-k_m = 0.0
-k_t = 0.0
+    k_m = 0.0
+    k_t = 0.0
 
-call mo_diff(h_inner        , u_star, b_star, k_m_ref         , k_t_ref)
-call mo_diff(zm(:,:,kk:nlev), u_star, b_star, k_m(:,:,kk:nlev), k_t(:,:,kk:nlev))
+    call mo_diff(h_inner, u_star, b_star, k_m_ref, k_t_ref)
+    call mo_diff(zm(:, :, kk:nlev), u_star, b_star, k_m(:, :, kk:nlev), k_t(:, :, kk:nlev))
 
-do k = 2, nlev
-  where(zm(:,:,k) >= h_inner .and. zm(:,:,k) < h)
-    factor = (zm(:,:,k)/h_inner)* &
-             (1.0 - (zm(:,:,k) - h_inner)/(h - h_inner))**2
-    k_m(:,:,k) = k_m_ref*factor
-    k_t(:,:,k) = k_t_ref*factor
-  end where
+    do k = 2, nlev
+      where (zm(:, :, k) >= h_inner .and. zm(:, :, k) < h)
+        factor = (zm(:, :, k)/h_inner)* &
+                 (1.0 - (zm(:, :, k) - h_inner)/(h - h_inner))**2
+        k_m(:, :, k) = k_m_ref*factor
+        k_t(:, :, k) = k_t_ref*factor
+      end where
 
 ! POG change: avoid possibility of k_m and k_t set to non-zero values above PBL due to use of maxval(h_inner) above
-  where(zm(:,:,k) >= h)
-    k_m(:,:,k) = 0
-    k_t(:,:,k) = 0
-  end where
+      where (zm(:, :, k) >= h)
+        k_m(:, :, k) = 0
+        k_t(:, :, k) = 0
+      end where
 ! end POG change
 
-end do
+    end do
 
-return
-end subroutine diffusivity_pbl
-
-
+    return
+  end subroutine diffusivity_pbl
 
 !=======================================================================
 
-subroutine molecular_diff ( temp, press, k_m, k_t)
+  subroutine molecular_diff(temp, press, k_m, k_t)
 
-real, intent(in),    dimension (:,:,:)  ::  temp, press
-real, intent(inout), dimension (:,:,:)  ::  k_m, k_t
+    real, intent(in), dimension(:, :, :)  ::  temp, press
+    real, intent(inout), dimension(:, :, :)  ::  k_m, k_t
 
-      real, dimension (size(temp,1), size(temp,2)) :: temp_half, &
-                                                      rho_half, rbop2d
-      integer      :: k
+    real, dimension(size(temp, 1), size(temp, 2)) :: temp_half, &
+                                                     rho_half, rbop2d
+    integer      :: k
 
 !---------------------------------------------------------------------
 
-      do k=2,size(temp,3)
-        temp_half(:,:) = 0.5*(temp(:,:,k) + temp(:,:,k-1))
-        rho_half(:,:) = press(:,:,k)/(rdgas*temp_half(:,:) )
-        rbop2d(:,:)  = beta*temp_half(:,:)*sqrt(temp_half(:,:))/  &
-                       (rho_half(:,:)*(temp_half(:,:)+rbop1))
-        k_m(:,:,k) = rbop2d(:,:)
-        k_t(:,:,k) = rbop2d(:,:)*rbop2
-      end do
+    do k = 2, size(temp, 3)
+      temp_half(:, :) = 0.5*(temp(:, :, k) + temp(:, :, k - 1))
+      rho_half(:, :) = press(:, :, k)/(rdgas*temp_half(:, :))
+      rbop2d(:, :) = beta*temp_half(:, :)*sqrt(temp_half(:, :))/ &
+                     (rho_half(:, :)*(temp_half(:, :) + rbop1))
+      k_m(:, :, k) = rbop2d(:, :)
+      k_t(:, :, k) = rbop2d(:, :)*rbop2
+    end do
 
-      k_m(:,:,1) = 0.0
-      k_t(:,:,1) = 0.0
+    k_m(:, :, 1) = 0.0
+    k_t(:, :, 1) = 0.0
 
-
-
-end subroutine molecular_diff
-
-
-
+  end subroutine molecular_diff
 
 !=======================================================================
 
