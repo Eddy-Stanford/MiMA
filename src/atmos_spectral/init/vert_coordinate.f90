@@ -11,8 +11,8 @@ module vert_coordinate_mod
 !=======================================================================
 
 use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                   write_version_number, stdlog, close_file, &
-                   open_namelist_file, check_nml_error
+                   write_version_number, stdlog, &
+                   input_nml_file, check_nml_error
 
 use constants_mod, only: pi
 
@@ -162,13 +162,8 @@ integer :: namelist_unit, ierr, io
 pk = 0.
 bk = 0.
 
-namelist_unit = open_namelist_file()
-ierr=1
-do while (ierr /= 0)
-  read(namelist_unit, nml=vert_coordinate_nml, iostat=io, end=20)
-  ierr = check_nml_error (io, 'vert_coordinate_nml')
-enddo
-20 call close_file (namelist_unit)
+read (input_nml_file, nml=vert_coordinate_nml, iostat=io)
+ierr = check_nml_error (io, 'vert_coordinate_nml')
 
 if(mpp_pe() == mpp_root_pe()) write (stdlog(), nml=vert_coordinate_nml)
 

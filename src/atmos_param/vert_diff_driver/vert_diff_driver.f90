@@ -16,9 +16,9 @@ use diag_manager_mod, only:  register_diag_field, send_data
 
 use time_manager_mod, only:  time_type
 
-use          fms_mod, only:  file_exist, open_namelist_file, error_mesg,  &
+use          fms_mod, only:  input_nml_file, error_mesg,  &
                              check_nml_error, FATAL, mpp_pe, mpp_root_pe, &
-                             close_file, write_version_number, stdlog
+                             write_version_number, stdlog
 
 use    constants_mod, only:  CP_AIR, GRAV
 
@@ -345,14 +345,8 @@ integer :: ie, je
 !-----------------------------------------------------------------------
 !------ read namelist ------
 
-   if ( file_exist('input.nml')) then
-      unit = open_namelist_file ()
-      ierr=1; do while (ierr /= 0)
-         read  (unit, nml=vert_diff_driver_nml, iostat=io, end=10)
-         ierr = check_nml_error(io,'vert_diff_driver_nml')
-      enddo
- 10   call close_file (unit)
-   endif
+   read (input_nml_file, nml=vert_diff_driver_nml, iostat=io)
+   ierr = check_nml_error(io,'vert_diff_driver_nml')
 
 !--------- write version number and namelist ------------------
 

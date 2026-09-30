@@ -1,9 +1,9 @@
 module cg_drag_mod
 
 use fms_mod,                only:  fms_init, mpp_pe, mpp_root_pe,  &
-                                   file_exist, check_nml_error,  &
+                                   check_nml_error,  &
                                    error_mesg,  FATAL, WARNING, NOTE, &
-                                   close_file, open_namelist_file, &
+                                   input_nml_file, &
                                    stdlog, write_version_number
 use time_manager_mod,       only:  time_manager_init, time_type, get_time, &
                                    operator(-)
@@ -273,14 +273,8 @@ type(time_type),         intent(in)      :: Time
 !---------------------------------------------------------------------
 !    read namelist.
 !---------------------------------------------------------------------
-      if (file_exist('input.nml')) then
-        unit =  open_namelist_file ( )
-        ierr=1; do while (ierr /= 0)
-        read (unit, nml=cg_drag_nml, iostat=io, end=10)
-        ierr = check_nml_error (io, 'cg_drag_nml')
-        enddo
-10      call close_file (unit)
-      endif
+      read (input_nml_file, nml=cg_drag_nml, iostat=io)
+      ierr = check_nml_error (io, 'cg_drag_nml')
 
 !---------------------------------------------------------------------
 !    write version number and namelist to logfile.

@@ -650,12 +650,12 @@ two_dt_v  = two_dt_v  / num_time_steps
 two_dt_t  = two_dt_t  / num_time_steps
 two_dt_tr = two_dt_tr / num_time_steps
 
-if(two_dt_id_ps > 0) used = send_data(two_dt_id_ps, two_dt_ps, Time)
-if(two_dt_id_u  > 0) used = send_data(two_dt_id_u,  two_dt_u,  Time)
-if(two_dt_id_v  > 0) used = send_data(two_dt_id_v,  two_dt_v,  Time)
-if(two_dt_id_t  > 0) used = send_data(two_dt_id_t,  two_dt_t,  Time)
+if(two_dt_id_ps > 0) used = send_data(two_dt_id_ps, two_dt_ps)
+if(two_dt_id_u  > 0) used = send_data(two_dt_id_u,  two_dt_u)
+if(two_dt_id_v  > 0) used = send_data(two_dt_id_v,  two_dt_v)
+if(two_dt_id_t  > 0) used = send_data(two_dt_id_t,  two_dt_t)
 do ntr=1,num_tracers
-  if(two_dt_id_tr(ntr) > 0) used = send_data(two_dt_id_tr(ntr), two_dt_tr(:,:,:,ntr), Time)
+  if(two_dt_id_tr(ntr) > 0) used = send_data(two_dt_id_tr(ntr), two_dt_tr(:,:,:,ntr))
 enddo
 
 deallocate(id_tr, two_dt_id_tr)

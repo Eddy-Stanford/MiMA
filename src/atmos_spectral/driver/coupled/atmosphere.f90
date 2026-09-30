@@ -2,8 +2,10 @@ module atmosphere_mod
 
 use               mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_SYNC
 
-use               fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, WARNING, write_version_number, set_domain, &
-                                 file_exist, field_size, read_data, write_data
+use               fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, WARNING, write_version_number
+
+use      restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, close_restart, &
+                                 read_restart_field, write_restart_field, get_restart_field_size
 
 use     field_manager_mod, only: MODEL_ATMOS
 
@@ -83,8 +85,10 @@ type(surf_diff_type), intent(inout) :: Surf_diff
 
 integer :: j, k, time_level, lon_max, lat_max, ntr, nt
 integer, dimension(4) :: siz
-character(len=64) :: file, tr_name
+real :: level
+character(len=64) :: tr_name
 character(len=4) :: ch1,ch2,ch3,ch4,ch5,ch6
+type(restart_file_type) :: rst
 
 if(module_is_initialized) return
 
@@ -129,11 +133,10 @@ p_half=0.; z_half=0.; p_full=0.; z_full=0.; wg_full=0.
 psg=0.; ug=0.; vg=0.; tg=0.; grid_tracers=0.
 dt_psg=0.; dt_ug=0.; dt_vg=0.; dt_tg=0.; dt_tracers=0.
 
-file = 'INPUT/atmosphere.res.nc'
-if(file_exist(trim(file))) then
+if(open_restart_read(rst, 'INPUT/atmosphere.res.nc', grid_domain)) then
   call get_lon_max(lon_max)
   call get_lat_max(lat_max)
-  call field_size(trim(file), 'ug', siz)
+  call get_restart_field_size(rst, 'ug', siz)
   if(lon_max /= siz(1) .or. lat_max /= siz(2)) then
     write(ch1,'(i4)') siz(1)
     write(ch2,'(i4)') siz(2)
@@ -142,22 +145,22 @@ if(file_exist(trim(file))) then
     call error_mesg('atmosphere_init','Resolution of restart data does not match resolution specified on namelist.'// &
     ' Restart data: lon_max='//ch1//', lat_max='//ch2//'  Namelist: lon_max='//ch3//', lat_max='//ch4, FATAL)
   endif
-  call read_data(trim(file), 'previous', previous, no_domain=.true.)
-  call read_data(trim(file), 'current',  current,  no_domain=.true.)
+  call read_restart_field(rst, 'previous', level)
+  previous = nint(level)
+  call read_restart_field(rst, 'current', level)
+  current = nint(level)
   do nt=1,num_time_levels
-    call read_data(trim(file), 'ug',   ug(:,:,:,nt), grid_domain, timelevel=nt)
-    call read_data(trim(file), 'vg',   vg(:,:,:,nt), grid_domain, timelevel=nt)
-    call read_data(trim(file), 'tg',   tg(:,:,:,nt), grid_domain, timelevel=nt)
-    call read_data(trim(file), 'psg', psg(:,:,  nt), grid_domain, timelevel=nt)
+    call read_restart_field(rst, 'ug',   ug(:,:,:,nt), nt)
+    call read_restart_field(rst, 'vg',   vg(:,:,:,nt), nt)
+    call read_restart_field(rst, 'tg',   tg(:,:,:,nt), nt)
+    call read_restart_field(rst, 'psg', psg(:,:,  nt), nt)
     do ntr = 1,num_tracers
       tr_name = trim(tracer_attributes(ntr)%name)
-      call read_data(trim(file), trim(tr_name), grid_tracers(:,:,:,nt,ntr), grid_domain, timelevel=nt)      
+      call read_restart_field(rst, trim(tr_name), grid_tracers(:,:,:,nt,ntr), nt)
     enddo ! end loop over tracers
   enddo ! end loop over time levels
-  call read_data(trim(file), 'wg_full', wg_full, grid_domain)
-else if(file_exist('INPUT/atmosphere.res')) then
-  call error_mesg('atmosphere_init', &
-                  'Binary restart file, INPUT/atmosphere.res, is not supported by this version of atmosphere.f90',FATAL)
+  call read_restart_field(rst, 'wg_full', wg_full)
+  call close_restart(rst)
 else
   previous = 1; current = 1
   call get_initial_fields(ug(:,:,:,1), vg(:,:,:,1), tg(:,:,:,1), psg(:,:,1), grid_tracers(:,:,:,1,:))
@@ -382,28 +385,29 @@ end subroutine atmosphere_domain
 subroutine atmosphere_end(Time)
 type(time_type), intent(in) :: Time
 integer :: ntr, nt
-character(len=64) :: file, tr_name
+character(len=64) :: tr_name
+type(restart_file_type) :: rst
 
 if(.not.module_is_initialized) return
 
-file='RESTART/atmosphere.res'
-call write_data(trim(file), 'previous', previous, no_domain=.true.)
-call write_data(trim(file), 'current',  current,  no_domain=.true.)
+call open_restart_write(rst, 'RESTART/atmosphere.res.nc', grid_domain)
+call write_restart_field(rst, 'previous', real(previous))
+call write_restart_field(rst, 'current',  real(current))
 do nt=1,num_time_levels
-  call write_data(trim(file), 'ug',   ug(:,:,:,nt), grid_domain)
-  call write_data(trim(file), 'vg',   vg(:,:,:,nt), grid_domain)
-  call write_data(trim(file), 'tg',   tg(:,:,:,nt), grid_domain)
-  call write_data(trim(file), 'psg', psg(:,:,  nt), grid_domain)
+  call write_restart_field(rst, 'ug',   ug(:,:,:,nt), nt)
+  call write_restart_field(rst, 'vg',   vg(:,:,:,nt), nt)
+  call write_restart_field(rst, 'tg',   tg(:,:,:,nt), nt)
+  call write_restart_field(rst, 'psg', psg(:,:,  nt), nt)
   do ntr = 1,num_tracers
     tr_name = trim(tracer_attributes(ntr)%name)
-    call write_data(trim(file), tr_name, grid_tracers(:,:,:,nt,ntr), grid_domain)
+    call write_restart_field(rst, trim(tr_name), grid_tracers(:,:,:,nt,ntr), nt)
   enddo
 enddo
-call write_data(trim(file), 'wg_full', wg_full, grid_domain)
+call write_restart_field(rst, 'wg_full', wg_full)
+call close_restart(rst)
 
 deallocate(dt_psg, dt_ug, dt_vg, dt_tg, dt_tracers)
 
-call set_domain(grid_domain)
 call spectral_physics_end(Time)
 call spectral_dynamics_end(tracer_attributes, Time)
 

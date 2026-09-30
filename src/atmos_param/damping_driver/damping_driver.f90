@@ -20,15 +20,16 @@ module damping_driver_mod
 
  use      mg_drag_mod, only:  mg_drag, mg_drag_init, mg_drag_end
  use      cg_drag_mod, only:  cg_drag_init, cg_drag_calc, cg_drag_end
- use          fms_mod, only:  file_exist, mpp_pe, mpp_root_pe, stdlog, &
+ use          fms_mod, only:  mpp_pe, mpp_root_pe, stdlog, &
                               write_version_number, &
-                              open_namelist_file, error_mesg, &
+                              input_nml_file, error_mesg, &
                               check_nml_error,                   &
-                              FATAL, close_file
+                              FATAL
  use diag_manager_mod, only:  register_diag_field,  &
                               register_static_field, send_data
  use time_manager_mod, only:  time_type,get_time,length_of_year !mj
  use    constants_mod, only:  cp_air, grav, PI
+ use  mpp_domains_mod, only:  domain2d
 
  implicit none
  private
@@ -295,15 +296,17 @@ contains
 
 !#######################################################################
 
- subroutine damping_driver_init ( lonb, latb, pref, axes, Time, sgsmtn)
+ subroutine damping_driver_init ( lonb, latb, domain, pref, axes, Time, sgsmtn)
 
  real,            intent(in) :: lonb(:), latb(:), pref(:)
+ type(domain2d),  intent(in) :: domain
  integer,         intent(in) :: axes(4)
  type(time_type), intent(in) :: Time
  real, dimension(:,:), intent(out) :: sgsmtn
 !-----------------------------------------------------------------------
 !     lonb  = longitude in radians of the grid box edges
 !     latb  = latitude  in radians of the grid box edges
+!     domain = domain decomposition of the model grid
 !     axes  = axis indices, (/x,y,pf,ph/)
 !               (returned from diag axis manager)
 !     Time  = current time (time_type)
@@ -316,14 +319,8 @@ contains
 !-----------------------------------------------------------------------
 !----------------- namelist (read & write) -----------------------------
 
-   if (file_exist('input.nml')) then
-      unit = open_namelist_file ()
-      ierr=1; do while (ierr /= 0)
-         read  (unit, nml=damping_driver_nml, iostat=io, end=10)
-         ierr = check_nml_error (io, 'damping_driver_nml')
-      enddo
- 10   call close_file (unit)
-   endif
+   read (input_nml_file, nml=damping_driver_nml, iostat=io)
+   ierr = check_nml_error (io, 'damping_driver_nml')
 
    call write_version_number(version, tagname)
    if(mpp_pe() == mpp_root_pe() ) then
@@ -355,7 +352,7 @@ contains
 !-----------------------------------------------------------------------
 !----- mountain gravity wave drag -----
 
-   if (do_mg_drag) call mg_drag_init (lonb, latb, sgsmtn)
+   if (do_mg_drag) call mg_drag_init (lonb, latb, domain, sgsmtn)
 
 !--------------------------------------------------------------------
 !----- Alexander-Dunkerton gravity wave drag -----
@@ -396,7 +393,7 @@ if (do_mg_drag) then
    id_sgsmtn = &
    register_static_field ( mod_name, 'sgsmtn', axes(1:2), &
                'sub-grid scale topography for gravity wave drag', 'm')
-   if (id_sgsmtn > 0) used = send_data (id_sgsmtn, sgsmtn, Time)
+   if (id_sgsmtn > 0) used = send_data (id_sgsmtn, sgsmtn)
 
  ! register non-static field
    id_udt_gwd = &

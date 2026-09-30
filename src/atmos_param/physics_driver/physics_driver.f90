@@ -61,13 +61,19 @@ use atmos_tracer_driver_mod, only: atmos_tracer_driver_init,    &
 use fms_mod,                 only: mpp_clock_id, mpp_clock_begin,   &
                                    mpp_clock_end, CLOCK_MODULE_DRIVER, &
                                    MPP_CLOCK_SYNC,  fms_init,  &
-                                   open_namelist_file, stdlog, &
+                                   input_nml_file, stdlog, &
                                    write_version_number, &
-                                   file_exist, error_mesg, FATAL,   &
+                                   error_mesg, FATAL,   &
                                    WARNING, NOTE, check_nml_error, &
-                                   read_data, &
-                                   close_file, mpp_pe, mpp_root_pe, &
-                                   write_data, mpp_error, mpp_chksum
+                                   mpp_pe, mpp_root_pe, &
+                                   mpp_error, mpp_chksum
+use mpp_domains_mod,         only: domain2d
+use restart_file_mod,        only: restart_file_type, open_restart_read, &
+                                   open_restart_write, close_restart, &
+                                   read_restart_field, write_restart_field
+use sat_vapor_pres_mod,      only: sat_vapor_pres_init, lookup_es
+use constants_mod,           only: ES0, HLV, RVGAS, TFREEZE, RADIUS, OMEGA, GRAV, &
+                                   RDGAS, KAPPA, HLF, STEFAN
 
 
 !    component modules:
@@ -125,7 +131,7 @@ public  physics_driver_init, physics_driver_down,   &
 private          &
 
 !  called from physics_driver_init:
-         read_restart_nc,    &
+         read_restart_nc, check_constants, check_sat_vapor_pres, &
 
 !  called from physics_driver_down:
          check_args, &
@@ -245,6 +251,8 @@ integer, dimension(5) :: restart_versions = (/ 1, 2, 3, 4, 5 /)
 !                   physics_driver_down on the next step.
 !----------------------------------------------------------------------
 real,    dimension(:,:,:), allocatable :: diff_t, diff_m
+
+type(domain2d) :: domain  ! grid domain, for the restart file
    
 !---------------------------------------------------------------------
 !    internal timing clock variables:
@@ -286,7 +294,7 @@ integer   :: ntp                      ! total no. of prognostic tracers
 !    physics_driver_init is the constructor for physics_driver_mod.
 !  </DESCRIPTION>
 !  <TEMPLATE>
-!   call physics_driver_init (Time, lonb, latb, axes, pref, &
+!   call physics_driver_init (Time, lonb, latb, domain_in, axes, pref, &
 !                             trs, Surf_diff, phalf, mask, kbot  )
 !  </TEMPLATE>
 !  <IN NAME="Time" TYPE="time_type">
@@ -300,6 +308,9 @@ integer   :: ntp                      ! total no. of prognostic tracers
 !  </IN>
 !  <IN NAME="lonb" TYPE="real">
 !   array of model longitudes at cell boundaries [radians]
+!  </IN>
+!  <IN NAME="domain_in" TYPE="domain2d">
+!   domain decomposition of the model grid
 !  </IN>
 !  <IN NAME="axes" TYPE="integer">
 !   axis indices, (/x,y,pf,ph/)
@@ -326,7 +337,7 @@ integer   :: ntp                      ! total no. of prognostic tracers
 ! </ERROR>
 ! </SUBROUTINE>
 !
-subroutine physics_driver_init (Time, lonb, latb, axes, pref, &
+subroutine physics_driver_init (Time, lonb, latb, domain_in, axes, pref, &
                                 trs, Surf_diff, phalf, mask, kbot, &
                                 diffm, difft  )
 
@@ -336,6 +347,7 @@ subroutine physics_driver_init (Time, lonb, latb, axes, pref, &
 
 type(time_type),         intent(in)              :: Time
 real,dimension(:),       intent(in)              :: lonb, latb
+type(domain2d),          intent(in)              :: domain_in
 integer,dimension(4),    intent(in)              :: axes
 real,dimension(:,:),     intent(in)              :: pref
 real,dimension(:,:,:,:), intent(inout)           :: trs
@@ -351,6 +363,7 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !     Time       current time (time_type)
 !     lonb       longitude of the grid box edges [ radians ]
 !     latb       latitude of the grid box edges [ radians ]
+!     domain_in  domain decomposition of the model grid
 !     axes       axis indices, (/x,y,pf,ph/)
 !                (returned from diag axis manager)
 !     pref       two reference profiles of pressure at nlev+1 levels
@@ -404,19 +417,15 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !--------------------------------------------------------------------
 !    read namelist.
 !--------------------------------------------------------------------
-      if ( file_exist('input.nml')) then
-        unit = open_namelist_file ()
-        ierr=1; do while (ierr /= 0)
-        read  (unit, nml=physics_driver_nml, iostat=io, end=10)
-        ierr = check_nml_error(io, 'physics_driver_nml')
-        enddo
-10      call close_file (unit)
-      endif
+      read (input_nml_file, nml=physics_driver_nml, iostat=io)
+      ierr = check_nml_error(io, 'physics_driver_nml')
 
 
       call time_manager_init
       call tracer_manager_init
       call field_manager_init (ndum)
+      call check_constants
+      call check_sat_vapor_pres
 
 !--------------------------------------------------------------------
 !    write version number and namelist to log file.
@@ -442,7 +451,7 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !    initialize damping_driver_mod.
 !-----------------------------------------------------------------------
       if(do_damping) &
-      call damping_driver_init (lonb, latb, pref(:,1), axes, Time, &
+      call damping_driver_init (lonb, latb, domain_in, pref(:,1), axes, Time, &
                                 sgsmtn)
 
 !-----------------------------------------------------------------------
@@ -505,12 +514,8 @@ real, dimension(:,:,:),  intent(out),  optional  :: diffm, difft
 !    obtain initial values for the module variables from the restart
 !    file, or initialize them if there is none.
 !--------------------------------------------------------------------
-      if(file_exist('INPUT/physics_driver.res.nc')) then
-         call read_restart_nc
-      else
-         diff_t      = 0.0
-         diff_m      = 0.0
-      endif
+      domain = domain_in
+      call read_restart_nc
 
 !---------------------------------------------------------------------
 !    if desired, define variables to return diff_m and diff_t.
@@ -1325,7 +1330,7 @@ type(time_type), intent(in) :: Time
 !---------------------------------------------------------------------
 !   local variable:
 
-     character(len=64)  :: fname='RESTART/physics_driver.res.nc'
+     type(restart_file_type) :: rst
 !---------------------------------------------------------------------
 !    verify that the module is initialized.
 !---------------------------------------------------------------------
@@ -1337,12 +1342,14 @@ type(time_type), intent(in) :: Time
       if (mpp_pe() == mpp_root_pe() ) then
          call error_mesg('physics_driver_mod', 'Writing netCDF formatted restart file: RESTART/physics_driver.res.nc', NOTE)
       endif
-      call write_data(fname, 'vers', real(restart_versions(size(restart_versions(:)))), no_domain =.true. )
+      call open_restart_write(rst, 'RESTART/physics_driver.res.nc', domain)
+      call write_restart_field(rst, 'vers', real(restart_versions(size(restart_versions(:)))))
       !--------------------------------------------------------------------
       !    write out the data fields that are relevant for this experiment.
       !--------------------------------------------------------------------
-      call write_data (fname, 'diff_t', diff_t)
-      call write_data (fname, 'diff_m', diff_m)
+      call write_restart_field(rst, 'diff_t', diff_t)
+      call write_restart_field(rst, 'diff_m', diff_m)
+      call close_restart(rst)
 !--------------------------------------------------------------------
 !    call the destructor routines for those modules who were initial-
 !    ized from this module.
@@ -1399,17 +1406,62 @@ end function surface_is_coupled
      
 
 !#####################################################################
+
+subroutine check_constants
+
+!---------------------------------------------------------------------
+!    check that FMS was built with its GFDL physical constants (the
+!    default, CMake option CONSTANTS=GFDL), which MiMA's configurations
+!    and tuning assume. The GFS and GEOS sets differ, e.g. in RADIUS
+!    and GRAV.
+!---------------------------------------------------------------------
+      real, parameter :: tol = 1.e-12
+      real, dimension(9) :: fms, gfdl
+
+      fms  = (/ RADIUS,   OMEGA,    GRAV, RDGAS,  RVGAS,  KAPPA, HLV,     HLF,    STEFAN    /)
+      gfdl = (/ 6371.0e3, 7.292e-5, 9.80, 287.04, 461.50, 2./7., 2.500e6, 3.34e5, 5.6734e-8 /)
+      if (any(abs(fms - gfdl) > tol*abs(gfdl))) then
+        call error_mesg ('physics_driver_init', &
+             'FMS was not built with the GFDL physical constants MiMA '// &
+             'assumes: rebuild FMS with CONSTANTS=GFDL', FATAL)
+      endif
+
+end subroutine check_constants
+
+!#####################################################################
+
+subroutine check_sat_vapor_pres
+
+!---------------------------------------------------------------------
+!    initialize the FMS saturation vapour pressure table and check that
+!    it is the simple Clausius-Clapeyron form MiMA uses (constant latent
+!    heat of vaporization, no ice), which FMS computes only with
+!    sat_vapor_pres_nml do_simple = .true. The table is interpolated,
+!    so it is compared with the formula to a relative tolerance.
+!---------------------------------------------------------------------
+      real, parameter :: tol = 1.e-5
+      real, dimension(5), parameter :: temp = &
+                               (/ 180., 230., 273.16, 300., 330. /)
+      real, dimension(5) :: es_table, es_simple
+
+      call sat_vapor_pres_init
+      call lookup_es (temp, es_table)
+      es_simple = ES0*610.78*exp(-HLV/RVGAS*(1./temp - 1./TFREEZE))
+      if (any(abs(es_table - es_simple) > tol*es_simple)) then
+        call error_mesg ('physics_driver_init', &
+             'the saturation vapour pressure is not the simple form '// &
+             'MiMA uses: set do_simple = .true. in sat_vapor_pres_nml', FATAL)
+      endif
+
+end subroutine check_sat_vapor_pres
+
+!#####################################################################
 ! <SUBROUTINE NAME="read_restart_nc">
 !  <OVERVIEW>
-!    read_restart_nc will read the physics_driver.res file and process
-!    its contents. if no restart data can be found, the module variables
-!    are initialized to flag values.
+!    read_restart_nc will read the physics_driver.res.nc file and process
+!    its contents. if there is no restart file, the module variables
+!    are initialized to zero.
 !  </OVERVIEW>
-!  <DESCRIPTION>
-!    read_restart_nc will read the physics_driver.res file and process
-!    its contents. if no restart data can be found, the module variables
-!    are initialized to flag values.
-!  </DESCRIPTION>
 !  <TEMPLATE>
 !   call read_restart_nc
 !  </TEMPLATE>
@@ -1417,46 +1469,19 @@ end function surface_is_coupled
 !
 subroutine read_restart_nc
 
-!---------------------------------------------------------------------
-!    read_restart_nc will read the physics_driver.res.nc file and
-!    process its contents.
-!---------------------------------------------------------------------
+      type(restart_file_type) :: rst
 
-!--------------------------------------------------------------------
-!   local variables:
-
-      real  :: vers, vers2
-      character(len=8) :: chvers
-      logical  :: success = .false.
-      character(len=64) :: fname = 'INPUT/physics_driver.res.nc'
-!--------------------------------------------------------------------
-!   local variables:
-!
-!      vers              restart version number if that is contained in 
-!                        file; otherwise the first word of first data 
-!                        record of file
-!      vers2             second word of first data record of file
-!      success           logical indicating that restart data has been
-!                        processed
-!
-!---------------------------------------------------------------------      
-                    
-      if(file_exist(fname)) then
+      if(open_restart_read(rst, 'INPUT/physics_driver.res.nc', domain)) then
          if(mpp_pe() == mpp_root_pe()) call mpp_error ('physics_driver_mod', &
             'Reading NetCDF formatted restart file: INPUT/physics_driver.res.nc', NOTE)
-         call read_data(fname, 'vers', vers, no_domain=.true.)
+         call read_restart_field(rst, 'diff_t', diff_t)
+         call read_restart_field(rst, 'diff_m', diff_m)
+         call close_restart(rst)
+      else
+         diff_t = 0.0
+         diff_m = 0.0
+      endif
 
-!---------------------------------------------------------------------
-!    the temperature and momentum diffusion coefficients are present
-!    beginning with v3. if not prsent, set to 0.0.
-!---------------------------------------------------------------------
-         call read_data (fname, 'diff_t', diff_t)
-         call read_data (fname, 'diff_m', diff_m)
-
-       endif
-!----------------------------------------------------------------------
-     
-     
 end subroutine read_restart_nc
 
 

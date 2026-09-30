@@ -11,10 +11,12 @@ module mg_drag_mod
 
  use  topography_mod, only: get_topog_stdev
 
- use         fms_mod, only: mpp_npes, field_size, file_exist, write_version_number, stdlog, &
-                            mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, read_data, write_data,  &
-                            open_namelist_file, close_file, check_nml_error, open_restart_file, mpp_error
- use      fms_io_mod, only: get_restart_io_mode
+ use         fms_mod, only: mpp_npes, write_version_number, stdlog, &
+                            mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE,  &
+                            input_nml_file, check_nml_error, mpp_error
+ use mpp_domains_mod, only: domain2d
+ use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
+                             close_restart, read_restart_field, write_restart_field
  use   constants_mod, only: Grav, Kappa, RDgas, cp_air
 
 !-----------------------------------------------------------------------
@@ -30,9 +32,11 @@ module mg_drag_mod
 
 !---------------------------------------------------------------------
 !     Ghprime - array of sub-grid scale mountain height variance
+!     domain  - grid domain, for the restart file
 !-----------------------------------------------------------------------
 
   real, allocatable, dimension(:,:) :: Ghprime
+  type(domain2d) :: domain
 !-----------------------------------------------------------------------
 !Contants
 !     grav    value of gravity
@@ -66,12 +70,10 @@ module mg_drag_mod
 
 real  ::  flux_cut_level= 0.0
 
-logical :: do_netcdf_restart = .true.
 logical :: do_conserve_energy = .false.
 character(len=128) :: source_of_sgsmtn = 'input'
 
-    namelist / mg_drag_nml / do_netcdf_restart,  &
-                             xl_mtn, gmax, acoef, rho, low_lev_frac, &
+    namelist / mg_drag_nml / xl_mtn, gmax, acoef, rho, low_lev_frac, &
                              do_conserve_energy,                     &
                              source_of_sgsmtn, flux_cut_level 
 
@@ -815,7 +817,7 @@ end subroutine mgwd_tend
 
 !#######################################################################
 
-  subroutine mg_drag_init( lonb, latb, hprime )
+  subroutine mg_drag_init( lonb, latb, domain_in, hprime )
 
 !=======================================================================
 ! ***** INITIALIZE Mountain Gravity Wave Drag
@@ -825,8 +827,10 @@ end subroutine mgwd_tend
 ! Arguments (Intent in)
 !     lonb  = longitude in radians of the grid box edges
 !     latb  = latitude  in radians of the grid box edges
+!     domain_in = domain decomposition of the model grid
 !---------------------------------------------------------------------
  real, intent(in), dimension(:) :: lonb, latb
+ type(domain2d), intent(in) :: domain_in
  
 !---------------------------------------------------------------------
 ! Arguments (Intent out - optional)
@@ -837,10 +841,10 @@ end subroutine mgwd_tend
 !---------------------------------------------------------------------
 !  (Intent local)
 !---------------------------------------------------------------------
- integer  ::  ix, iy, unit, io, ierr
+ integer  ::  ix, iy, io, ierr
  logical  ::  answer
- integer, dimension(4) :: siz
  integer :: global_num_lon, global_num_lat
+ type(restart_file_type) :: rst
 
 !=====================================================================
 
@@ -849,20 +853,8 @@ if(module_is_initialized) return
 !---------------------------------------------------------------------
 ! --- Read namelist
 !---------------------------------------------------------------------
-  if( file_exist( 'input.nml' ) ) then
-! -------------------------------------
-   unit = open_namelist_file()
-   ierr = 1
-   do while( ierr .ne. 0 )
-   read ( unit,  nml = mg_drag_nml, iostat = io, end = 10 ) 
-   ierr = check_nml_error(io,'mg_drag_nml')
-   end do
-10 continue
-   call close_file ( unit )
-   call get_restart_io_mode(do_netcdf_restart)
-
-! -------------------------------------
-  end if
+  read (input_nml_file, nml=mg_drag_nml, iostat=io)
+  ierr = check_nml_error(io,'mg_drag_nml')
 
 !---------------------------------------------------------------------
 ! --- Output version
@@ -879,6 +871,7 @@ if(module_is_initialized) return
   iy = size(latb(:)) - 1
 
   allocate( Ghprime(ix,iy) ) ; Ghprime = 0.0
+  domain = domain_in
   
 !-------------------------------------------------------------------
   module_is_initialized = .true.
@@ -893,19 +886,14 @@ if(module_is_initialized) return
                       ', but topography data file does not exist', FATAL)
     endif
   else if ( trim(source_of_sgsmtn) == 'input' ) then
-    if ( file_exist( 'INPUT/mg_drag.res.nc' ) ) then
+    if ( open_restart_read(rst, 'INPUT/mg_drag.res.nc', domain) ) then
        if (mpp_pe() == mpp_root_pe()) call mpp_error ('mg_drag_mod', &
             'Reading NetCDF formatted restart file: INPUT/mg_drag.res.nc', NOTE)
-       call read_data ('INPUT/mg_drag.res.nc', 'ghprime', Ghprime)
-    else if ( file_exist( 'INPUT/mg_drag.res' ) ) then
-       if (mpp_pe() == mpp_root_pe()) call mpp_error ('mg_drag_mod', &
-            'Reading native formatted restart file.', NOTE)
-      unit = open_restart_file('INPUT/mg_drag.res','read')
-      call read_data(unit, Ghprime)
-      call close_file(unit)
+       call read_restart_field(rst, 'ghprime', Ghprime)
+       call close_restart(rst)
     else
       call error_mesg ('mg_drag_init','source_of_sgsmtn="'//trim(source_of_sgsmtn)//'"'// &
-                       ', but neither ./INPUT/mg_drag.res.nc  or  ./INPUT/mg_drag.res  exists', FATAL)
+                       ', but ./INPUT/mg_drag.res.nc does not exist', FATAL)
     endif
   else
     call error_mesg ('mg_drag_init','"'//trim(source_of_sgsmtn)//'"'// &
@@ -921,20 +909,14 @@ if(module_is_initialized) return
 !#######################################################################
 
   subroutine mg_drag_end
-  integer :: unit
+  type(restart_file_type) :: rst
 
   if(.not.module_is_initialized) return
-  if(do_netcdf_restart) then
-     if (mpp_pe() == mpp_root_pe()) call mpp_error ('mg_drag_mod', &
-          'Writing NetCDF formatted restart file: RESTART/mg_drag.res.nc', NOTE)
-     call write_data('RESTART/mg_drag.res.nc', 'ghprime', ghprime)
-  else
-     if (mpp_pe() == mpp_root_pe()) call mpp_error ('mg_drag_mod', &
-          'Writing native formatted restart file.', NOTE)
-     unit = open_restart_file('RESTART/mg_drag.res','write')
-     call write_data(unit, Ghprime)
-     call close_file(unit)
-  endif
+  if (mpp_pe() == mpp_root_pe()) call mpp_error ('mg_drag_mod', &
+       'Writing NetCDF formatted restart file: RESTART/mg_drag.res.nc', NOTE)
+  call open_restart_write(rst, 'RESTART/mg_drag.res.nc', domain)
+  call write_restart_field(rst, 'ghprime', Ghprime)
+  call close_restart(rst)
   deallocate(ghprime)
   module_is_initialized = .false.
 

@@ -31,11 +31,12 @@ module atmos_model_mod
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, mpp_error
 use mpp_domains_mod,    only: domain2d
-use fms_mod,            only: file_exist, error_mesg, field_size, FATAL, NOTE
-use fms_mod,            only: close_file,  write_version_number, stdlog
-use fms_mod,            only: read_data, write_data, clock_flag_default
-use fms_mod,            only: open_restart_file, open_namelist_file, check_nml_error
-use fms_io_mod,         only: get_restart_io_mode
+use fms_mod,            only: error_mesg, FATAL, NOTE
+use fms_mod,            only: write_version_number, stdlog
+use fms_mod,            only: clock_flag_default
+use fms_mod,            only: input_nml_file, check_nml_error
+use restart_file_mod,   only: restart_file_type, open_restart_read, open_restart_write
+use restart_file_mod,   only: close_restart, read_restart_field, write_restart_field
 use time_manager_mod,   only: time_type, operator(+), get_time
 use field_manager_mod,  only: MODEL_ATMOS
 use tracer_manager_mod, only: register_tracers
@@ -131,11 +132,8 @@ character(len=128) :: version = '$Id: atmos_model.f90,v 12.0 2005/04/14 15:35:34
 character(len=128) :: tagname = '$Name: lima $'
 
 !-----------------------------------------------------------------------
-character(len=80) :: restart_format = 'atmos_coupled_mod restart format 01'
-!-----------------------------------------------------------------------
-logical           :: do_netcdf_restart = .true.
 logical           :: restart_tbot_qbot = .false.
-namelist /atmos_model_nml/ do_netcdf_restart, restart_tbot_qbot  
+namelist /atmos_model_nml/ restart_tbot_qbot
 
 contains
 
@@ -309,10 +307,10 @@ type (atmos_data_type), intent(inout) :: Atmos
 type (time_type), intent(in) :: Time_init, Time, Time_step
 
   integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
-  integer :: mlon, mlat, nlon, nlat, sec, day, ipts, jpts, dt, dto
-  real    :: r_ipts, r_jpts, r_dto
-  character(len=80) :: control
-  integer :: ierr, io, siz(4)
+  integer :: mlon, mlat, nlon, nlat, sec, day, dt
+  real    :: dto
+  integer :: ierr, io
+  type(restart_file_type) :: rst
 !-----------------------------------------------------------------------
 
 !---- set the atmospheric model time ------
@@ -321,16 +319,8 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    Atmos % Time      = Time
    Atmos % Time_step = Time_step
 
-   if ( file_exist('input.nml')) then
-      unit = open_namelist_file ( )
-      ierr=1
-      do while (ierr /= 0)
-         read  (unit, nml=atmos_model_nml, iostat=io, end=10)
-         ierr = check_nml_error(io,'atmos_model_nml')
-      enddo
- 10     call close_file (unit)
-   endif
-   call get_restart_io_mode(do_netcdf_restart)
+   read (input_nml_file, nml=atmos_model_nml, iostat=io)
+   ierr = check_nml_error(io,'atmos_model_nml')
 
 !-----------------------------------------------------------------------
 ! how many tracers have been registered?
@@ -398,7 +388,6 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
    if( mpp_pe()==0 ) then
       unit = stdlog( )
       write (unit, nml=atmos_model_nml)
-      call close_file (unit)
    endif
 
 !  number of tracers
@@ -410,66 +399,31 @@ type (time_type), intent(in) :: Time_init, Time, Time_step
 
 !------ read initial state for several atmospheric fields ------
 
-   if ( file_exist('INPUT/atmos_coupled.res.nc') ) then
+   if ( open_restart_read(rst, 'INPUT/atmos_coupled.res.nc', Atmos%domain) ) then
        if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
                    'Reading netCDF formatted restart file: INPUT/atmos_coupled.res.nc', NOTE)
-       call read_data('INPUT/atmos_coupled.res.nc', 'glon_bnd', ipts, no_domain=.true.)
-       call read_data('INPUT/atmos_coupled.res.nc', 'glat_bnd', jpts, no_domain=.true.)
-
-       if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
-               ('coupled_atmos_init', 'incorrect resolution on restart file', FATAL)
-
-       call read_data('INPUT/atmos_coupled.res.nc', 'dt', dto, no_domain=.true.)
-       call read_data('INPUT/atmos_coupled.res.nc', 'lprec', Atmos % lprec, Atmos%domain)
-       call read_data('INPUT/atmos_coupled.res.nc', 'fprec', Atmos % fprec, Atmos%domain)
-       call read_data('INPUT/atmos_coupled.res.nc', 'gust', Atmos % gust, Atmos%domain)
+       call read_restart_field(rst, 'dt', dto)
+       call read_restart_field(rst, 'lprec', Atmos % lprec)
+       call read_restart_field(rst, 'fprec', Atmos % fprec)
+       call read_restart_field(rst, 'gust', Atmos % gust)
 
        if (restart_tbot_qbot) then
-          call read_data('INPUT/atmos_coupled.res.nc', 't_bot', Atmos%t_bot, Atmos%domain)
-          call read_data('INPUT/atmos_coupled.res.nc', 'q_bot', Atmos%q_bot, Atmos%domain)
-       endif 
+          call read_restart_field(rst, 't_bot', Atmos%t_bot)
+          call read_restart_field(rst, 'q_bot', Atmos%q_bot)
+       endif
+       call close_restart(rst)
 
+       !---- if the time step has changed then convert ----
+       !        tendency to conserve mass of water
        call get_time (Atmos % Time_step, sec, day)
        dt = sec + 86400*day  ! integer seconds
-       if (dto /= dt) then
-          Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
-          Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
+       if (nint(dto) /= dt) then
+          Atmos % lprec = Atmos % lprec * dto/real(dt)
+          Atmos % fprec = Atmos % fprec * dto/real(dt)
           if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
+ 50       format (/,'The model time step changed .... &
+                   &modifying precipitation tendencies')
        endif
-   else if (file_exist('INPUT/atmos_coupled.res')) then
-          if(mpp_pe() == mpp_root_pe() ) call mpp_error ('atmos_model_mod', &
-                   'Reading native formatted restart file: INPUT/atmos_coupled.res', NOTE)
-          unit = open_restart_file ('INPUT/atmos_coupled.res', 'read')
-          !--- check version number (format) of restart file ---
-          read  (unit) control
-          if (trim(control) /= trim(restart_format)) call error_mesg &
-               ('coupled_atmos_init', 'invalid restart format', FATAL)
-          !--- check resolution and time step ---
-          read  (unit) ipts,jpts,dto
-          if (ipts /= mlon .or. jpts /= mlat) call error_mesg &
-               ('coupled_atmos_init', 'incorrect resolution on restart file', FATAL)
-
-          !--- read data ---
-          call read_data ( unit, Atmos % lprec )
-          call read_data ( unit, Atmos % fprec )
-          call read_data ( unit, Atmos % gust  )
-          if (restart_tbot_qbot) then
-             call read_data ( unit, Atmos % t_bot  )
-             call read_data ( unit, Atmos % q_bot )
-          endif
-          call close_file (unit)
-
-          !---- if the time step has changed then convert ----
-       !        tendency to conserve mass of water
-          call get_time (Atmos % Time_step, sec, day)
-          dt = sec + 86400*day  ! integer seconds
-          if (dto /= dt) then
-             Atmos % lprec = Atmos % lprec * real(dto)/real(dt)
-             Atmos % fprec = Atmos % fprec * real(dto)/real(dt)
-             if (mpp_pe() == mpp_root_pe()) write (stdlog(),50)
- 50         format (/,'The model time step changed .... &
-                      &modifying precipitation tendencies')
-          endif
    else
         Atmos % lprec = 0.0
         Atmos % fprec = 0.0
@@ -510,8 +464,8 @@ end subroutine atmos_model_init
 subroutine atmos_model_end (Atmos)
 
 type (atmos_data_type), intent(inout) :: Atmos
-integer :: unit, sec, day, dt
-character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
+integer :: sec, day, dt
+type(restart_file_type) :: rst
 !-----------------------------------------------------------------------
 !---- termination routine for atmospheric model ----
                                               
@@ -526,37 +480,21 @@ character(len=64) :: fname = 'RESTART/atmos_coupled.res.nc'
   dt = sec + 86400*day
 
 !------ write several atmospheric fields ------
-!        also resolution and time step
+!        and the time step
 
-  if( do_netcdf_restart) then
-     if(mpp_pe() == mpp_root_pe()) then
-        call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
-     endif
-     call write_data(fname, 'glon_bnd', real( size(Atmos%glon_bnd(:))-1), no_domain=.true. )
-     call write_data(fname, 'glat_bnd', real( size(Atmos%glat_bnd(:))-1), no_domain=.true. )
-     call write_data(fname, 'dt', real( dt), no_domain=.true. )
-     call write_data(fname, 'lprec', Atmos%lprec, Atmos%domain)
-     call write_data(fname, 'fprec', Atmos%fprec, Atmos%domain)
-     call write_data(fname, 'gust', Atmos%gust, Atmos%domain)
-     if(restart_tbot_qbot) then
-        call write_data(fname, 't_bot', Atmos%t_bot, Atmos%domain)
-        call write_data(fname, 'q_bot', Atmos%q_bot, Atmos%domain)
-     endif
-  else
-     unit = open_restart_file ('RESTART/atmos_coupled.res', 'write')
-     if (mpp_pe() == mpp_root_pe()) then
-        write (unit) restart_format
-        write (unit) size(Atmos%glon_bnd(:))-1, size(Atmos%glat_bnd(:))-1, dt
-     endif
-     call write_data ( unit, Atmos % lprec )
-     call write_data ( unit, Atmos % fprec )
-     call write_data ( unit, Atmos % gust  )
-     if(restart_tbot_qbot) then
-        call write_data ( unit, Atmos % t_bot  )
-        call write_data ( unit, Atmos % q_bot  )
-     endif
-     call close_file (unit)
+  if(mpp_pe() == mpp_root_pe()) then
+     call mpp_error ('atmos_model_mod', 'Writing netCDF formatted restart file.', NOTE)
   endif
+  call open_restart_write(rst, 'RESTART/atmos_coupled.res.nc', Atmos%domain)
+  call write_restart_field(rst, 'dt', real(dt))
+  call write_restart_field(rst, 'lprec', Atmos%lprec)
+  call write_restart_field(rst, 'fprec', Atmos%fprec)
+  call write_restart_field(rst, 'gust', Atmos%gust)
+  if(restart_tbot_qbot) then
+     call write_restart_field(rst, 't_bot', Atmos%t_bot)
+     call write_restart_field(rst, 'q_bot', Atmos%q_bot)
+  endif
+  call close_restart(rst)
 
 !-------- deallocate space --------
 

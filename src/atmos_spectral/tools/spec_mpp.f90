@@ -3,11 +3,12 @@ module spec_mpp_mod
 !This module holds the data for the domains used by the spectral transform module
 
 !This is the version for the transpose method
-  use fms_mod,         only: mpp_pe, mpp_root_pe, mpp_npes, write_version_number, mpp_error, FATAL
+  use fms_mod,         only: mpp_pe, mpp_root_pe, mpp_npes, write_version_number, mpp_error, FATAL, &
+                             input_nml_file, check_nml_error, stdlog
 
   use mpp_domains_mod, only: mpp_domains_init, domain1D, domain2D, GLOBAL_DATA_DOMAIN, &
                              mpp_define_domains, mpp_get_compute_domain, mpp_get_compute_domains, &
-                             mpp_get_domain_components, mpp_get_pelist
+                             mpp_get_domain_components, mpp_get_pelist, mpp_define_io_domain
 
   implicit none
   private
@@ -18,6 +19,15 @@ module spec_mpp_mod
   logical, private :: module_is_initialized=.FALSE.
   integer, private :: pe, npes
 
+! io_layout is the I/O layout of the grid domain: each I/O domain (group of PEs)
+! writes one file of the restarts and diagnostics. The default (1,1) gives a
+! single file. Each entry must divide the grid layout, which is (1,npes).
+! The spectral domain, which is decomposed along m rather than latitude,
+! uses the transposed layout, (io_layout(2), io_layout(1)).
+  integer, private :: io_layout(2) = (/1,1/)
+
+  namelist /spec_mpp_nml/ io_layout
+
   public :: spec_mpp_init, get_grid_domain, get_spec_domain, spec_mpp_end
 
   contains
@@ -27,7 +37,7 @@ module spec_mpp_mod
     subroutine spec_mpp_init( num_fourier, num_spherical, num_lon, lat_max, grid_layout, spectral_layout )
       integer, intent(in) ::  num_fourier, num_spherical, num_lon, lat_max
       integer, intent(in), optional :: grid_layout(2), spectral_layout(2)
-      integer :: i
+      integer :: i, io, ierr
       integer :: layout(2)
       character(len=4) :: chtmp1, chtmp2
 
@@ -36,7 +46,11 @@ module spec_mpp_mod
       pe = mpp_pe()
       npes = mpp_npes()
 
+      read (input_nml_file, nml=spec_mpp_nml, iostat=io)
+      ierr = check_nml_error(io, 'spec_mpp_nml')
+
       call write_version_number(version, tagname)
+      if(pe == mpp_root_pe()) write (stdlog(), nml=spec_mpp_nml)
 
 !grid domain: by default, 1D decomposition along Y
       layout = (/1,npes/)
@@ -53,11 +67,13 @@ module spec_mpp_mod
         call mpp_error( FATAL, 'SPEC_MPP_INIT:Requires num_lat_rows/num_pes=int;num_pes='&
        &//chtmp1//';num_lat_rows='//chtmp2 )
       endif
+      call mpp_define_io_domain( grid_domain, io_layout )
 
 !spectral domain: by default, 1D decomposition along M
       layout=(/npes,1/)
       if( PRESENT(spectral_layout) ) layout = spectral_layout
       call mpp_define_domains( (/0,num_fourier,0,num_spherical/), layout, spectral_domain )
+      call mpp_define_io_domain( spectral_domain, (/io_layout(2), io_layout(1)/) )
 
 !global spectral domains (may be used for I/O) are the same as spectral domains, with global data boundaries
       call mpp_define_domains( (/0,num_fourier,0,num_spherical/), layout, global_spectral_domain, &

@@ -13,23 +13,14 @@ use mpp_mod,           only : mpp_error, &
                               mpp_npes,  &
                               WARNING,   &
                               NOTE
-use mpp_io_mod,        only : mpp_open,          &
-                              mpp_close,         &
-                              mpp_get_times,     &
-                              mpp_get_atts,      &
-                              mpp_get_info,      &
-                              mpp_read,          &
-                              mpp_get_axes,      &
-                              mpp_get_axis_data, &
-                              mpp_get_fields,    &
-                              fieldtype,         &
-                              atttype,           &
-                              axistype,          &
-                              MPP_RDONLY,        &
-                              MPP_NETCDF,        &
-                              MPP_MULTI,         &
-                              MPP_APPEND,        &
-                              MPP_SINGLE
+use netcdf,            only : nf90_open, nf90_close, nf90_inquire,   &
+                              nf90_inquire_dimension,                &
+                              nf90_inquire_variable, nf90_inq_varid, &
+                              nf90_inq_dimid, nf90_inq_attname,      &
+                              nf90_inquire_attribute, nf90_get_att,  &
+                              nf90_get_var, nf90_strerror,           &
+                              NF90_NOWRITE, NF90_NOERR, NF90_CHAR,   &
+                              NF90_MAX_VAR_DIMS
 use mpp_domains_mod,   only : mpp_domains_init,      &
                               mpp_update_domains,    &
                               mpp_define_domains,    &
@@ -42,11 +33,12 @@ use diag_manager_mod,  only : diag_manager_init, get_base_time, &
                               diag_axis_init
 use fms_mod,           only : lowercase, write_version_number, &
                               fms_init, &
-                              file_exist, mpp_root_pe, stdlog
+                              mpp_root_pe, stdlog
+use fms2_io_mod,       only : file_exists
 use horiz_interp_mod,  only : horiz_interp_type, &
-                              horiz_interp_init, &
+                              horiz_interp_new,  &
                               horiz_interp,      &
-                              horiz_interp_end
+                              horiz_interp_del
 use time_manager_mod,  only : time_type,   &
                               set_time,    &
                               set_date,    &
@@ -73,8 +65,7 @@ public interpolator_init, &
        interpolator,      &
        interpolator_end,  &
        init_clim_diag,    &
-       query_interpolator,&
-       read_data
+       query_interpolator
 
 interface interpolator
    module procedure interpolator_4D
@@ -92,6 +83,27 @@ character(len=128) :: tagname = '$Name: lima $'
 logical            :: module_is_initialized = .false.
 logical            :: clim_diag_initialized = .false.
 
+! Metadata of a file dimension and its coordinate variable.
+type axis_info_type
+character(len=128) :: name
+integer            :: len
+character(len=128) :: units    = 'nounits'
+character(len=128) :: calendar = 'unspecified'
+integer            :: sense    = 0     ! 'positive' attribute: 1 up, -1 down
+real, allocatable  :: data(:)          ! zero for the time axis
+end type axis_info_type
+
+! Metadata of a file variable that is not a coordinate variable.
+type field_info_type
+character(len=128)   :: name  = 'noname'
+character(len=128)   :: units = 'nounits'
+integer              :: varid = -1
+real                 :: scale = 1.0    ! scale_factor
+real                 :: add   = 0.0    ! add_offset
+integer, allocatable :: count(:)       ! read shape, 1 for the time dimension
+integer              :: tdim  = 0      ! position of the time dimension, if any
+end type field_info_type
+
 type, public  :: interpolate_type
 private
 !Redundant data between fields
@@ -104,7 +116,7 @@ real, pointer            :: levs(:) =>NULL()
 real, pointer            :: halflevs(:) =>NULL()
 type(horiz_interp_type)  :: interph
 type(time_type), pointer :: time_slice(:) =>NULL() ! An array of the times within the climatology.
-integer                  :: unit          ! Unit number on which file is being read.
+integer                  :: ncid          ! netCDF id of the open climatology file
 character(len=64)        :: file_name     ! Climatology filename
 integer                  :: TIME_FLAG     ! Linear or seaonal interpolation?
 integer                  :: level_type    ! Pressure or Sigma level
@@ -113,7 +125,7 @@ integer                  :: vertical_indices ! direction of vertical
                                               ! data axis
 
 !Field specific data  for nfields
-type(fieldtype),   pointer :: field_type(:) =>NULL()   ! NetCDF field type
+type(field_info_type), pointer :: field_type(:) =>NULL()   ! NetCDF field info
 character(len=64), pointer :: field_name(:) =>NULL()   ! name of this field
 integer,           pointer :: time_init(:,:) =>NULL()  ! second index is the number of time_slices being kept. 2 or ntime.
 integer,           pointer :: mr(:) =>NULL()           ! Flag for conversion of climatology to mixing ratio. 
@@ -136,12 +148,11 @@ type(time_type), pointer :: clim_times(:,:) => NULL()
 end type interpolate_type
 
 
-integer :: ndim, nvar,natt,ntime
+integer :: ndim, nvar, ntime
 integer :: nlat,nlatb,nlon,nlonb,nlev,nlevh
 integer ::          len, ntime_in, num_fields
-type(axistype), allocatable :: axes(:)
-type(axistype),save          :: time_axis
-type(fieldtype), allocatable :: varfields(:)
+type(axis_info_type),  allocatable :: axes(:)
+type(field_info_type), allocatable :: varfields(:)
 
 ! pletzer real, allocatable :: time_in(:)
 ! sjs real, allocatable :: climdata(:,:,:), climdata2(:,:,:)
@@ -214,13 +225,12 @@ character(len=*), intent(out), optional :: clim_units(:)
 !  clim_units :: A list of the units for the components listed in data_names.
 !
 
-integer                      :: unit, log_unit
+integer                      :: ncid, log_unit
 character(len=64)            :: src_file, cart, namelev
 !++lwh
 integer                      :: num_files
 real                         :: dlat, dlon
 !--lwh
-type(axistype), allocatable  :: axes_field(:)
 type(horiz_interp_type)      :: interph
 type(time_type), allocatable :: time_slice(:)
 type(time_type)              :: base_time
@@ -237,7 +247,7 @@ integer :: model_calendar
 integer :: yr, mo, dy, hr, mn, sc
 integer :: n
 type(time_type) :: Julian_time, Noleap_time
-real, allocatable :: time_in(:)
+real, allocatable :: time_in(:), time_values(:)
 
 if (.not. module_is_initialized) then
   call fms_init
@@ -254,27 +264,22 @@ num_fields = 0
 !--------------------------------------------------------------------
 src_file = 'INPUT/'//trim(file_name)
 
-if(file_exist(trim(src_file))) then
-   call mpp_open( unit, trim(src_file), action=MPP_RDONLY, &
-                  form=MPP_NETCDF, threading=MPP_MULTI, fileset=MPP_SINGLE )
+if(file_exists(trim(src_file))) then
+   call nc_check(nf90_open(trim(src_file), NF90_NOWRITE, ncid), src_file)
 else
 !Climatology file doesn't exist, so exit
    call mpp_error(FATAL,'Interpolator_init : Data file '//trim(src_file)//' does not exist')
 endif
 
-!Find the number of variables (nvar) in this file
-call mpp_get_info(unit, ndim, nvar, natt, ntime)
-clim_type%unit      = unit
+!Read the axes, the fields (nvar of them) and the times in this file
+call get_file_info(ncid, src_file, axes, varfields, time_values, ntime)
+ndim = size(axes)
+nvar = size(varfields)
+clim_type%ncid      = ncid
 clim_type%file_name = trim(file_name)
 
 num_fields = nvar
 if(present(data_names)) num_fields= size(data_names(:))
-
-! -------------------------------------------------------------------
-! Allocate space for the number of axes in the data file.
-! -------------------------------------------------------------------
-allocate(axes(ndim))
-call mpp_get_axes(unit, axes, time_axis)
 
 nlon=0 ! Number of longitudes (center-points) in the climatology.
 nlat=0 ! Number of latitudes (center-points) in the climatology.
@@ -295,8 +300,11 @@ nlevh = 1
         clim_type%vertical_indices = 0  ! initial value
 
 do i = 1, ndim
-  call mpp_get_atts(axes(i), name=name,len=len,units=units,  &
-                    calendar=file_calendar, sense=sense)
+  name = axes(i)%name
+  len = axes(i)%len
+  units = axes(i)%units
+  file_calendar = axes(i)%calendar
+  sense = axes(i)%sense
   !mj if we want to use a previous output file as an input file
   ! (eg to force the model), the calendar might be "360_day" (CF) or
   ! the older "360", both of which mean "thirty_day_months"
@@ -306,7 +314,7 @@ do i = 1, ndim
     case('lat')
       nlat=len
       allocate(clim_type%lat(nlat))
-      call mpp_get_axis_data(axes(i),clim_type%lat)
+      clim_type%lat = axes(i)%data
       select case(units(1:6))
         case('degree')
           clim_type%lat = clim_type%lat*dtr
@@ -317,7 +325,7 @@ do i = 1, ndim
     case('lon')
       nlon=len
       allocate(clim_type%lon(nlon))
-      call mpp_get_axis_data(axes(i),clim_type%lon)
+      clim_type%lon = axes(i)%data
       select case(units(1:6))
         case('degree')
           clim_type%lon = clim_type%lon*dtr
@@ -328,7 +336,7 @@ do i = 1, ndim
     case('latb')
       nlatb=len
       allocate(clim_type%latb(nlatb))
-      call mpp_get_axis_data(axes(i),clim_type%latb)
+      clim_type%latb = axes(i)%data
       select case(units(1:6))
         case('degree')
           clim_type%latb = clim_type%latb*dtr
@@ -339,7 +347,7 @@ do i = 1, ndim
     case('lonb')
       nlonb=len
       allocate(clim_type%lonb(nlonb))
-      call mpp_get_axis_data(axes(i),clim_type%lonb)
+      clim_type%lonb = axes(i)%data
       select case(units(1:6))
         case('degree')
           clim_type%lonb = clim_type%lonb*dtr
@@ -350,7 +358,7 @@ do i = 1, ndim
     case('pfull')
       nlev=len
       allocate(clim_type%levs(nlev))
-      call mpp_get_axis_data(axes(i),clim_type%levs)
+      clim_type%levs = axes(i)%data
       clim_type%level_type = PRESSURE
   ! Convert to Pa
       if( chomp(units) == "mb" .or. chomp(units) == "hPa") then
@@ -376,7 +384,7 @@ do i = 1, ndim
     case('phalf')
       nlevh=len
       allocate(clim_type%halflevs(nlevh))
-      call mpp_get_axis_data(axes(i),clim_type%halflevs)
+      clim_type%halflevs = axes(i)%data
       clim_type%level_type = PRESSURE
   ! Convert to Pa
       if( chomp(units) == "mb" .or. chomp(units) == "hPa") then
@@ -401,12 +409,12 @@ do i = 1, ndim
     case('sigma_full')
       nlev=len
       allocate(clim_type%levs(nlev))
-      call mpp_get_axis_data(axes(i),clim_type%levs)
+      clim_type%levs = axes(i)%data
       clim_type%level_type = SIGMA
     case('sigma_half')
       nlevh=len
       allocate(clim_type%halflevs(nlevh))
-      call mpp_get_axis_data(axes(i),clim_type%halflevs)
+      clim_type%halflevs = axes(i)%data
       clim_type%level_type = SIGMA
   
     case('time')
@@ -500,7 +508,7 @@ do i = 1, ndim
         time_in = 0.0
         clim_type%time_slice = set_time(0,0) + base_time
         clim_type%clim_times = set_time(0,0) + base_time
-        call mpp_get_times(clim_type%unit, time_in)
+        time_in = time_values
         ntime_in = ntime
 ! determine whether the data is a continuous set of monthly values or
 ! a series of annual cycles spread throughout the period of data
@@ -639,7 +647,7 @@ enddo
                                          clim_type%levs(n-1))
         end do
     endif
-deallocate(axes)
+deallocate(axes, time_values)
 
 
 ! In the case where only the midpoints of the longitudes are defined we force the definition
@@ -687,9 +695,9 @@ endif
 
 !Assume that the horizontal interpolation within a file is the same for each variable.
 
- call horiz_interp_init(clim_type%interph, &
-                        clim_type%lonb, clim_type%latb, &
-                        lonb_mod, latb_mod)
+ call horiz_interp_new(clim_type%interph, &
+                       clim_type%lonb, clim_type%latb, &
+                       lonb_mod, latb_mod, interp_method='conservative')
 
 !--------------------------------------------------------------------
 !  allocate the variable clim_type%data . This will be the climatology 
@@ -784,13 +792,6 @@ allocate(clim_type%out_of_bounds(num_fields))
 clim_type%out_of_bounds(:)=0
 allocate(clim_type%vert_interp(num_fields))
 clim_type%vert_interp(:)=0
-!--------------------------------------------------------------------
-!Allocate the space for the fields within the climatology data file.
-allocate(varfields(nvar))
-!--------------------------------------------------------------------
-! Get the variable names out of the file.
-call mpp_get_fields(clim_type%unit, varfields)
-
 if(present(data_names)) then
 
 !++lwh
@@ -805,7 +806,8 @@ if(present(data_names)) then
    do j=1,size(data_names(:))
       NAME_PRESENT = .FALSE.
       do i=1,nvar
-         call mpp_get_atts(varfields(i),name=name,ndim=ndim,units=units)
+         name = varfields(i)%name
+         units = varfields(i)%units
          if( name == data_names(j) ) then
             units=chomp(units)
             if (mpp_pe() == 0 ) write(*,*) 'Initializing src field : ',trim(name)
@@ -847,7 +849,8 @@ else
 
 ! Read all the fields within the climatology data file.
    do i=1,nvar
-      call mpp_get_atts(varfields(i),name=name,ndim=ndim,units=units)
+      name = varfields(i)%name
+      units = varfields(i)%units
          if (mpp_pe() ==0 ) write(*,*) 'Initializing src field : ',trim(name)
          clim_type%field_name(i) = lowercase(trim(name))
          clim_type%field_type(i) = varfields(i)
@@ -893,7 +896,7 @@ if( clim_type%TIME_FLAG .eq. LINEAR  .and. read_all_on_init) then
       enddo
    enddo
 
-   call mpp_close (unit)
+   call nc_check(nf90_close(ncid), src_file)
 endif
 
 module_is_initialized = .true.
@@ -1084,7 +1087,7 @@ end do
    i = 1
 
     if(present(clim_units)) then
-      call mpp_get_atts(clim_type%field_type(i),units=clim_units)
+      clim_units = clim_type%field_type(i)%units
       clim_units = chomp(clim_units)
     endif
     if(size(clim_type%time_slice(:)).le. 12 ) then
@@ -1460,7 +1463,7 @@ do i= 1,size(clim_type%field_name(:))
 !--lwh
     found_field=.true.
     if(present(clim_units)) then
-      call mpp_get_atts(clim_type%field_type(i),units=clim_units)
+      clim_units = clim_type%field_type(i)%units
       clim_units = chomp(clim_units)
     endif
     if(size(clim_type%time_slice(:)).le. 12 ) then
@@ -1814,7 +1817,7 @@ do i= 1,size(clim_type%field_name(:))
     found_field=.true.
 
     if(present(clim_units)) then
-      call mpp_get_atts(clim_type%field_type(i),units=clim_units)
+      clim_units = clim_type%field_type(i)%units
       clim_units = chomp(clim_units)
     endif
     if(size(clim_type%time_slice(:)).le. 12 ) then
@@ -1949,7 +1952,7 @@ deallocate(clim_type%latb)
 deallocate(clim_type%lonb)
 deallocate(clim_type%levs)
 deallocate(clim_type%halflevs) 
-call horiz_interp_end(clim_type%interph)
+call horiz_interp_del(clim_type%interph)
 deallocate(clim_type%time_slice)
 deallocate(clim_type%field_type)
 deallocate(clim_type%field_name)
@@ -1969,7 +1972,7 @@ endif
 if(  .not. (clim_type%TIME_FLAG .eq. LINEAR  .and.    &
 !     read_all_on_init)) .or. clim_type%TIME_FLAG .eq. BILINEAR  ) then
       read_all_on_init)  ) then
- call mpp_close(clim_type%unit)
+ call nc_check(nf90_close(clim_type%ncid), clim_type%file_name)
 endif
 
 
@@ -1994,20 +1997,33 @@ subroutine read_data(clim_type,src_field, hdata, nt,i, Time)
 !                field will still be on the climatology vertical grid.
 !
 type(interpolate_type)   , intent(in)  :: clim_type
-type(fieldtype)          , intent(in)  :: src_field
+type(field_info_type)    , intent(in)  :: src_field
 integer                  , intent(in)  :: nt
 real                     , intent(out) :: hdata(:,:,:)
 integer        , optional, intent(in)  :: i
 type(time_type), optional, intent(in)  :: Time
 
-integer   :: k, km
+integer   :: k, km, n
+integer   :: start(size(src_field%count))
 ! sjs
-real, allocatable :: climdata(:,:,:), climdata2(:,:,:)
+real, allocatable :: climdata(:,:,:), climdata2(:,:,:), buf(:)
 
       allocate(climdata(size(clim_type%lon(:)),size(clim_type%lat(:)), &
                         size(clim_type%levs(:))))
 
-      call mpp_read(clim_type%unit,src_field, climdata,nt)
+!  read time level nt of the field and unpack it, as mpp_read did
+      n = product(src_field%count)
+      if (n > size(climdata)) call mpp_error(FATAL, 'interpolator read_data : '// &
+          trim(src_field%name)//' in '//trim(clim_type%file_name)//' is larger than the climatology grid')
+      allocate(buf(size(climdata)))
+      buf = 0.0
+      start = 1
+      if (src_field%tdim > 0) start(src_field%tdim) = nt
+      call nc_check(nf90_get_var(clim_type%ncid, src_field%varid, buf(1:n), start, src_field%count), &
+                    trim(clim_type%file_name)//' '//src_field%name)
+      buf(1:n) = buf(1:n)*src_field%scale + src_field%add
+      climdata = reshape(buf, shape(climdata))
+      deallocate(buf)
 
 !  if vertical index increases upward, flip the data so that lowest
 !  pressure level data is at index 1, rather than the highest pressure
@@ -2110,6 +2126,176 @@ if (string(len:len) == CHAR(0)) len = len -1
 chomp = string(:len)
 
 end function chomp
+!
+!#######################################################################
+!
+subroutine get_file_info(ncid, file_name, axes, fields, time_values, ntime)
+!
+! Read the metadata of an open netCDF file, as mpp_io's mpp_read_meta did.
+!
+! INTENT OUT
+!  axes        :: Every dimension, with the data and attributes of its coordinate variable.
+!  fields      :: Every variable that is not a coordinate variable, in file order.
+!  time_values :: The values of the unlimited (time) coordinate variable.
+!  ntime       :: The length of the unlimited dimension, or -1 if there is none.
+!
+integer,                            intent(in)  :: ncid
+character(len=*),                   intent(in)  :: file_name
+type(axis_info_type),  allocatable, intent(out) :: axes(:)
+type(field_info_type), allocatable, intent(out) :: fields(:)
+real,                  allocatable, intent(out) :: time_values(:)
+integer,                            intent(out) :: ntime
+
+integer :: ndims, nvars, recdim, nf, i, j, k, nvdims, nvatts, dimid
+integer :: dimids(NF90_MAX_VAR_DIMS)
+character(len=128) :: name, attname, positive
+logical, allocatable :: isdim(:)
+
+call nc_check(nf90_inquire(ncid, ndims, nvars, unlimitedDimId=recdim), file_name)
+allocate(axes(ndims))
+do i = 1, ndims
+   call nc_check(nf90_inquire_dimension(ncid, i, axes(i)%name, axes(i)%len), file_name)
+   allocate(axes(i)%data(axes(i)%len))
+   axes(i)%data = 0.0
+enddo
+ntime = -1
+if (recdim > 0) then
+   ntime = axes(recdim)%len
+   ! mpp_io required a coordinate variable for the unlimited dimension
+   call nc_check(nf90_inq_varid(ncid, trim(axes(recdim)%name), k), trim(file_name)//' '//axes(recdim)%name)
+endif
+allocate(time_values(max(ntime,0)))
+
+! A variable whose name matches a dimension name is a coordinate variable.
+allocate(isdim(nvars))
+do i = 1, nvars
+   call nc_check(nf90_inquire_variable(ncid, i, name=name), file_name)
+   isdim(i) = .false.
+   do j = 1, ndims
+      if (trim(lowercase(name)) == trim(lowercase(axes(j)%name))) isdim(i) = .true.
+   enddo
+enddo
+allocate(fields(count(.not. isdim)))
+
+nf = 0
+do i = 1, nvars
+   call nc_check(nf90_inquire_variable(ncid, i, name, ndims=nvdims, dimids=dimids, nAtts=nvatts), file_name)
+   if (isdim(i)) then
+      call nc_check(nf90_inq_dimid(ncid, trim(name), dimid), trim(file_name)//' '//name)
+      if (dimid == recdim) then
+         call nc_check(nf90_get_var(ncid, i, time_values), trim(file_name)//' '//name)
+      else
+         call nc_check(nf90_get_var(ncid, i, axes(dimid)%data), trim(file_name)//' '//name)
+      endif
+      do k = 1, nvatts
+         call nc_check(nf90_inq_attname(ncid, i, k, attname), file_name)
+         select case (trim(attname))
+         case ('units')
+            call get_text_att(ncid, i, attname, axes(dimid)%units)
+         case ('calendar', 'calendar_type')
+            call get_text_att(ncid, i, attname, axes(dimid)%calendar)
+            j = index(axes(dimid)%calendar, achar(0))
+            if (j > 0) axes(dimid)%calendar(j:j) = ' '
+            axes(dimid)%calendar = lowercase(axes(dimid)%calendar)
+            select case (trim(axes(dimid)%calendar))
+            case ('none')
+               axes(dimid)%calendar = 'no_calendar'
+            case ('no_leap')
+               axes(dimid)%calendar = 'noleap'
+            case ('365_days')
+               axes(dimid)%calendar = '365_day'
+            case ('360_days')
+               axes(dimid)%calendar = '360_day'
+            end select
+         case ('positive')
+            positive = ''
+            call get_text_att(ncid, i, attname, positive)
+            if (positive == 'down') then
+               axes(dimid)%sense = -1
+            else if (positive == 'up') then
+               axes(dimid)%sense = 1
+            endif
+         end select
+      enddo
+   else
+      nf = nf + 1
+      fields(nf)%name  = name
+      fields(nf)%varid = i
+      allocate(fields(nf)%count(nvdims))
+      do j = 1, nvdims
+         if (dimids(j) == recdim) then
+            fields(nf)%count(j) = 1
+            fields(nf)%tdim = j
+         else
+            fields(nf)%count(j) = axes(dimids(j))%len
+         endif
+      enddo
+      do k = 1, nvatts
+         call nc_check(nf90_inq_attname(ncid, i, k, attname), file_name)
+         select case (trim(attname))
+         case ('units')
+            call get_text_att(ncid, i, attname, fields(nf)%units)
+         case ('scale_factor')
+            call get_real_att(ncid, i, attname, fields(nf)%scale)
+         case ('add_offset')
+            call get_real_att(ncid, i, attname, fields(nf)%add)
+         end select
+      enddo
+   endif
+enddo
+deallocate(isdim)
+
+end subroutine get_file_info
+!
+!#######################################################################
+!
+subroutine get_text_att(ncid, varid, attname, value)
+! Set value to a text attribute. Other attribute types leave it unchanged.
+integer,          intent(in)    :: ncid, varid
+character(len=*), intent(in)    :: attname
+character(len=*), intent(inout) :: value
+
+integer :: xtype, attlen
+character(len=:), allocatable :: buf
+
+call nc_check(nf90_inquire_attribute(ncid, varid, trim(attname), xtype, attlen), attname)
+if (xtype /= NF90_CHAR) return
+allocate(character(len=attlen) :: buf)
+call nc_check(nf90_get_att(ncid, varid, trim(attname), buf), attname)
+value = buf
+
+end subroutine get_text_att
+!
+!#######################################################################
+!
+subroutine get_real_att(ncid, varid, attname, value)
+! Set value to the first element of a numeric attribute. Text attributes leave it unchanged.
+integer,          intent(in)    :: ncid, varid
+character(len=*), intent(in)    :: attname
+real,             intent(inout) :: value
+
+integer :: xtype, attlen
+real, allocatable :: buf(:)
+
+call nc_check(nf90_inquire_attribute(ncid, varid, trim(attname), xtype, attlen), attname)
+if (xtype == NF90_CHAR .or. attlen < 1) return
+allocate(buf(attlen))
+call nc_check(nf90_get_att(ncid, varid, trim(attname), buf), attname)
+value = buf(1)
+
+end subroutine get_real_att
+!
+!#######################################################################
+!
+subroutine nc_check(status, context)
+! FATAL error on a netCDF error.
+integer,          intent(in) :: status
+character(len=*), intent(in) :: context
+
+if (status /= NF90_NOERR) call mpp_error(FATAL, 'mima_interpolator_mod: '//trim(context)// &
+                                         ': '//trim(nf90_strerror(status)))
+
+end subroutine nc_check
 !
 !#################################################################
 !
@@ -2270,302 +2456,3 @@ end subroutine interp_linear
 !########################################################################
 !
 end module mima_interpolator_mod
-!
-!#######################################################################
-!
-#ifdef test_interp
-program test
-
-use mpp_mod
-use mpp_io_mod
-use mpp_domains_mod
-use time_manager_mod
-use diag_manager_mod!, only : diag_axis_init, file_exist, MPP_NPES, &
-                    !  MPP_PE, REGISTER_DIAG_FIELD, SEND_DATA, SET_DATE,&
-                    !  SET_TIME
-
-use mima_interpolator_mod
-!use sulfate_mod
-!use ozone_mod
-use constants_mod, only : grav, constants_init, PI
-use time_interp_mod, only : time_interp_init
-
-implicit none
-integer, parameter :: nsteps_per_day = 8, ndays = 430
-real, parameter :: delt = 1.0/nsteps_per_day
-! integer, parameter :: nxd = 144, nyd = 90, ntsteps = 240, two_delt = 2*delt
-integer, parameter :: nxd = 20, nyd = 40, ntsteps = nsteps_per_day*ndays, two_delt = 2*delt
-integer :: delt_days, delt_secs
-integer, parameter :: max_fields = 20 ! maximum number of fields to be interpolated
-
-integer :: i,k,n,level
-integer :: unit, io_status
-integer :: ndivs
-integer :: jscomp, jecomp, iscomp, iecomp, isd,ied,jsd,jed
-integer :: numfields, domain_layout(2)
-integer :: num_nbrs, nbins,axes(3), interp_diagnostic_id
-integer :: column_diagnostic_id1, column_diagnostic_id(max_fields)
-
-real ::  missing_value = -1.e10
-
-character(len=1) :: dest_grid
-character(len=128) :: src_file, file_out, title, units, colaer
-logical :: vector_field=.false., result
-
-type(axistype), allocatable, dimension(:)  :: axes_out, axes_src
-type(axistype) :: time_axis
-type(fieldtype), allocatable, dimension(:) :: fields
-type(fieldtype) :: dest_field(max_fields), src_field(max_fields), field_geolon_t, &
-     field_geolat_t, field_geolon_c, field_geolat_c
-type(atttype), allocatable, dimension(:) :: global_atts
-type(domain2d) :: domain
-type(time_type) :: model_time
-
-type(interpolate_type) :: o3, aerosol
-
-real, dimension(:,:), allocatable :: col_data
-real, dimension(:,:,:), allocatable :: model_data, p_half, p_full
-real, dimension(:), allocatable :: latb_mod(:),lonb_mod(:),lon_mod(:),lat_mod(:)
-real :: dx,dy
-real :: dtr,tpi
-real :: p_bot,p_top,lambda
-character(len=64) :: names(13)
-data names(:) /"so4_anthro","so4_natural","organic_carbon","black_carbon","sea_salt",&
-"anthro_dust_0.2","anthro_dust_0.8","anthro_dust_2.0","anthro_dust_8.0",&
-"natural_dust_0.2","natural_dust_0.8","natural_dust_2.0","natural_dust_8.0"/
-
-integer :: out_of_bounds(1)
-data out_of_bounds / CONSTANT/!, CONSTANT/!, CONSTANT, CONSTANT, CONSTANT, CONSTANT, CONSTANT, CONSTANT, CONSTANT, &
-!ZERO, ZERO, ZERO, ZERO /
-
-namelist /interpolator_nml/ src_file
-
-! initialize communication modules
-
-delt_days = INT(delt)
-delt_secs = INT(delt*86400.0) - delt_days*86400.0
-
-write(*,*) delt, delt_days,delt_secs
-
-call mpp_init
-call mpp_io_init
-call mpp_domains_init
-call set_calendar_type(JULIAN)
-call diag_manager_init
-call constants_init
-call time_interp_init
-
-level = 18
-tpi = 2.0*PI !4.*acos(0.)
-dtr = tpi/360.
-
-src_file = 'src_file'  ! input file containing fields to be interpolated
-
-
-model_time = set_date(1979,12,1,0,0,0)
-
-!if (numfields.ne.2.and.vector_field) call mpp_error(FATAL,'2 components of vector field not specified')
-!if (numfields.gt.1.and..not.vector_field) call mpp_error(FATAL,'only 1 scalar at a time')
-!if (numfields .gt. max_fields) call mpp_error(FATAL,'max num fields exceeded')
-
-!--------------------------------------------------------------------
-! namelist input
-!--------------------------------------------------------------------
-
-call mpp_open(unit, 'input.nml',  action=MPP_RDONLY, form=MPP_ASCII)
-read  (unit, interpolator_nml,iostat=io_status)
-if (io_status .gt. 0) then
-    call mpp_error(FATAL,'=>Error reading interpolator_nml')
-endif
-call mpp_close(unit)
-
-
-! decompose model grid points
-! mapping can get expensive so we distribute the task at this level
-
-ndivs = mpp_npes()
-
-call mpp_define_layout ((/1,nxd,1,nyd/), ndivs, domain_layout)
-call mpp_define_domains((/1,nxd,1,nyd/),domain_layout, domain,xhalo=0,yhalo=0)  
-call mpp_get_data_domain(domain,isd,ied,jsd,jed)
-call mpp_get_compute_domain (domain, iscomp, iecomp, jscomp, jecomp)
-
-allocate(lonb_mod(nxd+1),lon_mod(nxd))
-allocate(latb_mod(nyd+1),lat_mod(nyd))
-allocate(col_data(isd:ied,jsd:jed)) ; col_data = 0.0
-allocate(p_half(isd:ied,jsd:jed,level+1),p_full(isd:ied,jsd:jed,level))
-p_top = 1.0
-p_bot = 101325.0 !Model level in Pa
-lambda = -1.0*log(p_top/p_bot)/(level+1)
-
-p_half(:,:,level+1) = p_bot
-do i=level,1,-1
-  p_half(:,:,i)=p_half(:,:,i+1)*exp(-1.0*lambda)
-enddo
-do i=1,level
-  p_full(:,:,i)=(p_half(:,:,i+1)+p_half(:,:,i))/2.0
-enddo
-
-allocate(model_data(isd:ied,jsd:jed,level))
-
-dx = 360./nxd
-dy = 180./nyd
-do i = 1,nxd+1
-  lonb_mod(i) = (i-1)*dx 
-enddo
-do i = 1,nyd+1
-  latb_mod(i) = -90. + (i-1)*dy 
-enddo
-do i=1,nxd
-  lon_mod(i)=(lonb_mod(i+1)+lonb_mod(i))/2.0
-enddo
-do i=1,nyd
-  lat_mod(i)=(latb_mod(i+1)+latb_mod(i))/2.0
-enddo
-
-lonb_mod = lonb_mod * dtr
-latb_mod = latb_mod * dtr
-
-   axes(1) = diag_axis_init('x',lon_mod,units='degrees',cart_name='x',domain2=domain)
-   axes(2) = diag_axis_init('y',lat_mod,units='degrees',cart_name='y',domain2=domain)
-   axes(3) = diag_axis_init('z',p_full(isd,jsd,:),units='mb',cart_name='z')
-
-interp_diagnostic_id =  register_diag_field('interp','ozone',axes(1:3),model_time,&
-                                'interpolated_ozone_clim', 'kg/kg', missing_value)      
-column_diagnostic_id1 =  register_diag_field('interp','colozone',axes(1:2),model_time,&
-                                'column_ozone_clim', 'kg/m2', missing_value)      
-
-do i=1,size(names(:))
-colaer = 'col'//trim(names(i))
-column_diagnostic_id(i) =  register_diag_field('interp',colaer,axes(1:2),model_time,&
-                                'column_aerosol_clim', 'kg/m2', missing_value)      
-enddo
-
-
-call ozone_init(o3,lonb_mod(isd:ied+1), latb_mod(jsd:jed+1), axes, model_time, data_out_of_bounds=out_of_bounds)
-call init_clim_diag(o3, axes, model_time)
-call sulfate_init(aerosol,lonb_mod(isd:ied+1), latb_mod(jsd:jed+1), names, data_out_of_bounds=(/CONSTANT/) )
-call init_clim_diag(aerosol, axes, model_time)
-
-do n=1,ntsteps
-  if( mpp_pe() == mpp_root_pe() ) write(*,*) n
-
-  call get_ozone(o3,model_time,p_half,model_data)
-
-  if(interp_diagnostic_id>0) &
-       result = send_data(interp_diagnostic_id,&
-            model_data(iscomp:iecomp,jscomp:jecomp,:),model_time)
-
-  if(column_diagnostic_id1>0) then
-
-    col_data(iscomp:iecomp,jscomp:jecomp)=0.0
-    do k=1,level
-       col_data(iscomp:iecomp,jscomp:jecomp)= col_data(iscomp:iecomp,jscomp:jecomp)+ &
-          model_data(iscomp:iecomp,jscomp:jecomp,k)* &
-          (p_half(iscomp:iecomp,jscomp:jecomp,k+1)-p_half(iscomp:iecomp,jscomp:jecomp,k))/grav
-    enddo
-       result = send_data(column_diagnostic_id1,col_data(:,:),model_time)
-  endif
-
-
-
-  do i=1,size(names(:))
-
-call get_anthro_sulfate(aerosol,model_time,p_half,names(i),model_data,clim_units=units)
-
-    if(column_diagnostic_id(i)>0) then
-
-      col_data(iscomp:iecomp,jscomp:jecomp)=0.0
-      do k=1,level
-        if (trim(units) .eq. 'kg/m^2') then
-           col_data(iscomp:iecomp,jscomp:jecomp)= col_data(iscomp:iecomp,jscomp:jecomp)+ &
-              model_data(iscomp:iecomp,jscomp:jecomp,k)
-        else
-           col_data(iscomp:iecomp,jscomp:jecomp)= col_data(iscomp:iecomp,jscomp:jecomp)+ &
-              model_data(iscomp:iecomp,jscomp:jecomp,k)* &
-              (p_half(iscomp:iecomp,jscomp:jecomp,k+1)-p_half(iscomp:iecomp,jscomp:jecomp,k))/grav
-        endif
-      enddo
-      result = send_data(column_diagnostic_id(i),&
-      col_data(iscomp:iecomp,jscomp:jecomp),model_time)
-    endif
-
-  enddo
-
-   model_time = model_time + set_time(delt_secs,delt_days)      
-
-   if (n.eq. ntsteps) call diag_manager_end(model_time)
-
-enddo
-
-call interpolator_end(aerosol)
-call interpolator_end(o3)
-
-deallocate(lonb_mod, lon_mod, latb_mod,lat_mod, col_data, p_half, p_full, model_data)
-
-call mpp_exit
-
-contains
-!
-!#######################################################################
-!
-subroutine sulfate_init(aerosol,lonb, latb, names, data_out_of_bounds, vert_interp, units)
-type(interpolate_type), intent(inout)         :: aerosol
-real,                   intent(in)            :: lonb(:),latb(:)
-character(len=64),      intent(in)            :: names(:)
-integer,                intent(in)            :: data_out_of_bounds(:) 
-integer,                intent(in), optional  :: vert_interp(:)
-character(len=*),       intent(out),optional  :: units(:)
-
-call interpolator_init( aerosol, "aerosol.climatology.nc", lonb, latb, &
-                        data_names=names, data_out_of_bounds=data_out_of_bounds, &
-                        vert_interp=vert_interp, clim_units=units )
-
-end subroutine sulfate_init
-!
-!#######################################################################
-!
-subroutine get_anthro_sulfate( sulfate, model_time, p_half, name, model_data, is, js, clim_units )
-type(interpolate_type), intent(inout) :: sulfate
-type(time_type), intent(in) :: model_time
-real, intent(in)           :: p_half(:,:,:)
-character(len=*), intent(in) :: name
-character(len=*), intent(out), optional :: clim_units
-real, intent(out) :: model_data(:,:,:)
-integer, intent(in), optional :: is,js
-
-call interpolator( sulfate, model_time, p_half, model_data, name, is, js, clim_units)
-
-end subroutine get_anthro_sulfate
-!
-!#######################################################################
-!
-subroutine ozone_init( o3, lonb, latb, axes, model_time, data_out_of_bounds, vert_interp )
-real,                  intent(in)           :: lonb(:),latb(:)
-integer,               intent(in)           :: axes(:)
-type(time_type),       intent(in)           :: model_time
-type(interpolate_type),intent(inout)        :: o3
-integer,               intent(in)           :: data_out_of_bounds(:)
-integer,               intent(in), optional :: vert_interp(:)
-
-call interpolator_init( o3, "o3.climatology.nc", lonb, latb, &
-                        data_out_of_bounds=data_out_of_bounds, vert_interp=vert_interp )
-
-end subroutine ozone_init
-!
-!#######################################################################
-!
-subroutine get_ozone( o3, model_time, p_half, model_data, is, js )
-type(interpolate_type),intent(inout) :: o3
-type(time_type), intent(in) :: model_time
-real, intent(in)           :: p_half(:,:,:)
-real, intent(out) :: model_data(:,:,:)
-integer, intent(in), optional :: is,js
-
-call interpolator( o3, model_time, p_half, model_data, "ozone", is, js)
-
-end subroutine get_ozone
-
-end program test
-
-#endif

@@ -24,7 +24,7 @@ module atmos_radon_mod
 
 !-----------------------------------------------------------------------
 
-use              fms_mod, only : file_exist, &
+use              fms_mod, only : &
                                  write_version_number, &
                                  mpp_pe, &
                                  mpp_root_pe, &

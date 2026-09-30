@@ -2,7 +2,8 @@ module spectral_initialize_fields_mod
 
 ! epg: we added "error_mesg, FATAL, and file_exist" here so that we can report an error if 
 !      the initial_conditions.nc file is missing.
-use              fms_mod, only: mpp_pe, mpp_root_pe, write_version_number, file_exist, FATAL, error_mesg
+use              fms_mod, only: mpp_pe, mpp_root_pe, write_version_number, FATAL, error_mesg
+use fms2_io_mod, only: file_exists
 
 use        constants_mod, only: rdgas
 
@@ -119,7 +120,7 @@ endif
 !      from a netcdf file, which must be called "initial_conditions.nc" and must be placed in the
 !      INPUT directory from where the code is being run.
 If (choice_of_init == 3) then !initialize with prescribed input
-   if (.not.file_exist('INPUT/initial_conditions.nc')) then
+   if (.not.file_exists('INPUT/initial_conditions.nc')) then
       call error_mesg('spectral_initialize_fields','Could not find INPUT/initial_conditions.nc!',FATAL)
    end if
 

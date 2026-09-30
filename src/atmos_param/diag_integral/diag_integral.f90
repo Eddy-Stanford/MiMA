@@ -25,12 +25,12 @@ use time_manager_mod, only:  time_type, get_time, set_time,  &
                              operator(+),  operator(-),      &
                              operator(==), operator(>=),     &
                              operator(/=)
-use fms_mod,          only:  open_file, file_exist, error_mesg, &
-                             open_namelist_file, check_nml_error, &
+use fms_mod,          only:  error_mesg, &
+                             input_nml_file, check_nml_error, &
                              fms_init, &
                              mpp_pe, mpp_root_pe,&
                              FATAL, write_version_number, &
-                             stdlog, close_file
+                             stdlog
 use constants_mod,    only:  radius, constants_init
 use mpp_mod,          only:  mpp_sum, mpp_init
 
@@ -295,14 +295,8 @@ real,dimension(:), intent(in), optional :: blon, blat
 !-----------------------------------------------------------------------
 !    read namelist.
 !-----------------------------------------------------------------------
-      if ( file_exist('input.nml')) then
-        unit =  open_namelist_file ( )
-        ierr=1; do while (ierr /= 0)
-        read  (unit, nml=diag_integral_nml, iostat=io, end=10)
-        ierr = check_nml_error(io,'diag_integral_nml')
-        end do
-10      call close_file (unit)
-      endif
+      read (input_nml_file, nml=diag_integral_nml, iostat=io)
+      ierr = check_nml_error(io,'diag_integral_nml')
  
 !---------------------------------------------------------------------
 !    write version number and namelist to logfile.
@@ -354,7 +348,9 @@ real,dimension(:), intent(in), optional :: blon, blat
 !--------------------------------------------------------------------
       if (file_name(1:1) /= ' ' ) then
         nc = len_trim(file_name)
-        diag_unit = open_file (file_name(1:nc), action='write')
+        if (mpp_pe() == mpp_root_pe()) &
+          open (newunit=diag_unit, file=file_name(1:nc), form='formatted', &
+                action='write', status='replace')
       endif
 
 !---------------------------------------------------------------------

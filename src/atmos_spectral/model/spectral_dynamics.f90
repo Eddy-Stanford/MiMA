@@ -1,9 +1,11 @@
 module spectral_dynamics_mod
 
    use                fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE, FATAL, write_version_number, stdlog, &
-      close_file, open_namelist_file, open_restart_file, file_exist, set_domain,  &
-      read_data, write_data, check_nml_error, lowercase, uppercase, mpp_npes,     &
-      field_size
+      input_nml_file, check_nml_error, lowercase, uppercase, mpp_npes
+   use fms2_io_mod, only: file_exists
+
+   use        restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, close_restart, &
+      read_restart_field, write_restart_field, get_restart_field_size
 
    use          constants_mod, only: rdgas, rvgas, grav, cp_air, omega, radius, pi
 
@@ -221,13 +223,8 @@ contains
 
       if(module_is_initialized) return
 
-      unit = open_namelist_file()
-      ierr=1
-      do while (ierr /= 0)
-         read(unit, nml=spectral_dynamics_nml, iostat=io, end=20)
-         ierr = check_nml_error (io, 'spectral_dynamics_nml')
-      enddo
-20    call close_file (unit)
+      read (input_nml_file, nml=spectral_dynamics_nml, iostat=io)
+      ierr = check_nml_error (io, 'spectral_dynamics_nml')
 
       call write_version_number(version, tagname)
       if(mpp_pe() == mpp_root_pe()) write (stdlog(), nml=spectral_dynamics_nml)
@@ -459,7 +456,6 @@ contains
          deallocate(eigen, wavenumber, ref_temperature_implicit)
       endif
 
-      call set_domain(grid_domain)
 
       call get_time(Time_step, seconds, days)
       dt_real = 86400*days + seconds
@@ -471,17 +467,16 @@ contains
 !===============================================================================================
    subroutine read_restart_or_do_coldstart(tracer_attributes, ocean_mask)
 
-! For backward compatability, this routine has the capability
-! to read native data restart files written by inchon code.
-
       type(tracer_type), intent(inout), dimension(:) :: tracer_attributes
       logical, optional, intent(in), dimension(:,:) :: ocean_mask
 
       integer :: m, n, k, nt, ntr, unit
       integer, dimension(4) :: siz
+      real :: level
       real, dimension(ms:me, ns:ne, num_levels) :: real_part, imag_part
-      character(len=64) :: file, tr_name
+      character(len=64) :: tr_name
       character(len=4) :: ch1,ch2,ch3,ch4,ch5,ch6
+      type(restart_file_type) :: rst
 
 ! epg+ray: for loading the initial tracer distribution (after Lorenzo Polvani's code for doing this)
       real, allocatable,dimension(:,:,:) :: lmptmp
@@ -489,9 +484,8 @@ contains
       integer :: ncid,vid,err,counts(3)
 ! ------
 
-      file = 'INPUT/spectral_dynamics.res.nc'
-      if(file_exist(trim(file))) then
-         call field_size(trim(file), 'vors_real', siz)
+      if(open_restart_read(rst, 'INPUT/spectral_dynamics.res.nc', grid_domain)) then
+         call get_restart_field_size(rst, 'vors_real', siz)
          if(num_fourier /= siz(1)-1 .or. num_spherical /= siz(2)-1 .or. num_levels /= siz(3)) then
             write(ch1,'(i4)') siz(1)-1
             write(ch2,'(i4)') siz(2)-1
@@ -503,7 +497,7 @@ contains
                ' Restart data: num_fourier='//ch1//', num_spherical='//ch2//', num_levels='//ch3// &
                '  Namelist: num_fourier='//ch4//', num_spherical='//ch5//', num_levels='//ch6, FATAL)
          endif
-         call field_size(trim(file), 'ug', siz)
+         call get_restart_field_size(rst, 'ug', siz)
          if(lon_max /= siz(1) .or. lat_max /= siz(2)) then
             write(ch1,'(i4)') siz(1)
             write(ch2,'(i4)') siz(2)
@@ -512,53 +506,53 @@ contains
             call error_mesg('spectral_dynamics_init','Resolution of restart data does not match resolution specified on namelist.'// &
                ' Restart data: lon_max='//ch1//', lat_max='//ch2//'  Namelist: lon_max='//ch3//', lat_max='//ch4, FATAL)
          endif
-         call read_data(trim(file), 'previous', previous, no_domain=.true.)
-         call read_data(trim(file), 'current',  current,  no_domain=.true.)
-         call read_data(trim(file), 'pk', pk, no_domain=.true.)
-         call read_data(trim(file), 'bk', bk, no_domain=.true.)
+         call read_restart_field(rst, 'previous', level)
+         previous = nint(level)
+         call read_restart_field(rst, 'current', level)
+         current = nint(level)
+         call read_restart_field(rst, 'pk', pk)
+         call read_restart_field(rst, 'bk', bk)
          do nt=1,num_time_levels
-            call read_data(trim(file), 'vors_real',  real_part, spectral_domain, timelevel=nt)
-            call read_data(trim(file), 'vors_imag',  imag_part, spectral_domain, timelevel=nt)
+            call read_restart_field(rst, 'vors_real',  real_part, nt, spectral_domain)
+            call read_restart_field(rst, 'vors_imag',  imag_part, nt, spectral_domain)
             do k=1,num_levels; do n=ns,ne; do m=ms,me
                      vors(m,n,k,nt) = cmplx(real_part(m,n,k),imag_part(m,n,k))
                   enddo; enddo; enddo
-            call read_data(trim(file), 'divs_real',  real_part, spectral_domain, timelevel=nt)
-            call read_data(trim(file), 'divs_imag',  imag_part, spectral_domain, timelevel=nt)
+            call read_restart_field(rst, 'divs_real',  real_part, nt, spectral_domain)
+            call read_restart_field(rst, 'divs_imag',  imag_part, nt, spectral_domain)
             do k=1,num_levels; do n=ns,ne; do m=ms,me
                      divs(m,n,k,nt) = cmplx(real_part(m,n,k),imag_part(m,n,k))
                   enddo; enddo; enddo
-            call read_data(trim(file), 'ts_real',  real_part, spectral_domain, timelevel=nt)
-            call read_data(trim(file), 'ts_imag',  imag_part, spectral_domain, timelevel=nt)
+            call read_restart_field(rst, 'ts_real',  real_part, nt, spectral_domain)
+            call read_restart_field(rst, 'ts_imag',  imag_part, nt, spectral_domain)
             do k=1,num_levels; do n=ns,ne; do m=ms,me
                      ts(m,n,k,nt) = cmplx(real_part(m,n,k),imag_part(m,n,k))
                   enddo; enddo; enddo
-            call read_data(trim(file), 'ln_ps_real', real_part(:,:,1), spectral_domain, timelevel=nt)
-            call read_data(trim(file), 'ln_ps_imag', imag_part(:,:,1), spectral_domain, timelevel=nt)
+            call read_restart_field(rst, 'ln_ps_real', real_part(:,:,1), nt, spectral_domain)
+            call read_restart_field(rst, 'ln_ps_imag', imag_part(:,:,1), nt, spectral_domain)
             do n=ns,ne; do m=ms,me
                   ln_ps(m,n,nt) = cmplx(real_part(m,n,1),imag_part(m,n,1))
                enddo; enddo
-            call read_data(trim(file), 'ug',   ug(:,:,:,nt), grid_domain, timelevel=nt)
-            call read_data(trim(file), 'vg',   vg(:,:,:,nt), grid_domain, timelevel=nt)
-            call read_data(trim(file), 'tg',   tg(:,:,:,nt), grid_domain, timelevel=nt)
-            call read_data(trim(file), 'psg', psg(:,:,  nt), grid_domain, timelevel=nt)
+            call read_restart_field(rst, 'ug',   ug(:,:,:,nt), nt)
+            call read_restart_field(rst, 'vg',   vg(:,:,:,nt), nt)
+            call read_restart_field(rst, 'tg',   tg(:,:,:,nt), nt)
+            call read_restart_field(rst, 'psg', psg(:,:,  nt), nt)
             do ntr = 1,num_tracers
                tr_name = trim(tracer_attributes(ntr)%name)
-               call read_data(trim(file), trim(tr_name), grid_tracers(:,:,:,nt,ntr), grid_domain, timelevel=nt)
+               call read_restart_field(rst, trim(tr_name), grid_tracers(:,:,:,nt,ntr), nt)
                if(uppercase(trim(tracer_attributes(ntr)%numerical_representation)) == 'SPECTRAL') then
-                  call read_data(trim(file), trim(tr_name)//'_real', real_part, spectral_domain, timelevel=nt)
-                  call read_data(trim(file), trim(tr_name)//'_imag', imag_part, spectral_domain, timelevel=nt)
+                  call read_restart_field(rst, trim(tr_name)//'_real', real_part, nt, spectral_domain)
+                  call read_restart_field(rst, trim(tr_name)//'_imag', imag_part, nt, spectral_domain)
                   do k=1,num_levels; do n=ns,ne; do m=ms,me
                            spec_tracers(m,n,k,nt,ntr) = cmplx(real_part(m,n,k),imag_part(m,n,k))
                         enddo; enddo; enddo
                endif
             enddo ! loop over tracers
          enddo ! loop over time levels
-         call read_data(trim(file), 'vorg', vorg, grid_domain)
-         call read_data(trim(file), 'divg', divg, grid_domain)
-         call read_data(trim(file), 'surf_geopotential', surf_geopotential, grid_domain)
-      else if(file_exist('INPUT/spectral_dynamics.res')) then
-         call error_mesg('spectral_dynamics_init', &
-            'Binary restart file, INPUT/spectral_dynamics.res, is not supported by this version of spectral_dynamics.f90',FATAL)
+         call read_restart_field(rst, 'vorg', vorg)
+         call read_restart_field(rst, 'divg', divg)
+         call read_restart_field(rst, 'surf_geopotential', surf_geopotential)
+         call close_restart(rst)
       else
          previous = 1
          current  = 1
@@ -580,7 +574,7 @@ contains
             if(trim(tracer_attributes(ntr)%name) == 'sphum') then
                if(specify_initial_conditions) then
 !epg+ray: This loads in sphum from the file initial_conditions.nc
-                  if (.not.file_exist('INPUT/initial_conditions.nc')) then
+                  if (.not.file_exists('INPUT/initial_conditions.nc')) then
                      call error_mesg('spectral_initialize_fields','Could not find INPUT/initial_conditions.nc!',FATAL)
                   endif
 
@@ -1372,40 +1366,42 @@ contains
       type(tracer_type), intent(in), dimension(:) :: tracer_attributes
       type(time_type), intent(in), optional :: Time
       integer :: ntr, nt
-      character(len=64) :: file, tr_name
+      character(len=64) :: tr_name
+      type(restart_file_type) :: rst
 
       if(.not.module_is_initialized) return
 
-      file='RESTART/spectral_dynamics.res'
-      call write_data(trim(file), 'previous', previous, no_domain=.true.)
-      call write_data(trim(file), 'current',  current,  no_domain=.true.)
-      call write_data(trim(file), 'pk', pk, no_domain=.true.)
-      call write_data(trim(file), 'bk', bk, no_domain=.true.)
+      call open_restart_write(rst, 'RESTART/spectral_dynamics.res.nc', grid_domain)
+      call write_restart_field(rst, 'previous', real(previous))
+      call write_restart_field(rst, 'current',  real(current))
+      call write_restart_field(rst, 'pk', pk)
+      call write_restart_field(rst, 'bk', bk)
       do nt=1,num_time_levels
-         call write_data(trim(file), 'vors_real',   real(vors (:,:,:,nt)), spectral_domain)
-         call write_data(trim(file), 'vors_imag',  aimag(vors (:,:,:,nt)), spectral_domain)
-         call write_data(trim(file), 'divs_real',   real(divs (:,:,:,nt)), spectral_domain)
-         call write_data(trim(file), 'divs_imag',  aimag(divs (:,:,:,nt)), spectral_domain)
-         call write_data(trim(file), 'ts_real',     real(ts   (:,:,:,nt)), spectral_domain)
-         call write_data(trim(file), 'ts_imag',    aimag(ts   (:,:,:,nt)), spectral_domain)
-         call write_data(trim(file), 'ln_ps_real',  real(ln_ps(:,:,  nt)), spectral_domain)
-         call write_data(trim(file), 'ln_ps_imag', aimag(ln_ps(:,:,  nt)), spectral_domain)
-         call write_data(trim(file), 'ug',   ug(:,:,:,nt), grid_domain)
-         call write_data(trim(file), 'vg',   vg(:,:,:,nt), grid_domain)
-         call write_data(trim(file), 'tg',   tg(:,:,:,nt), grid_domain)
-         call write_data(trim(file), 'psg', psg(:,:,  nt), grid_domain)
+         call write_restart_field(rst, 'vors_real',   real(vors (:,:,:,nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'vors_imag',  aimag(vors (:,:,:,nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'divs_real',   real(divs (:,:,:,nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'divs_imag',  aimag(divs (:,:,:,nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'ts_real',     real(ts   (:,:,:,nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'ts_imag',    aimag(ts   (:,:,:,nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'ln_ps_real',  real(ln_ps(:,:,  nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'ln_ps_imag', aimag(ln_ps(:,:,  nt)), nt, spectral_domain)
+         call write_restart_field(rst, 'ug',   ug(:,:,:,nt), nt)
+         call write_restart_field(rst, 'vg',   vg(:,:,:,nt), nt)
+         call write_restart_field(rst, 'tg',   tg(:,:,:,nt), nt)
+         call write_restart_field(rst, 'psg', psg(:,:,  nt), nt)
          do ntr = 1,num_tracers
             tr_name = trim(tracer_attributes(ntr)%name)
-            call write_data(trim(file), trim(tr_name), grid_tracers(:,:,:,nt,ntr), grid_domain)
+            call write_restart_field(rst, trim(tr_name), grid_tracers(:,:,:,nt,ntr), nt)
             if(uppercase(trim(tracer_attributes(ntr)%numerical_representation)) == 'SPECTRAL') then
-               call write_data(trim(file), trim(tr_name)//'_real',  real(spec_tracers(:,:,:,nt,ntr)), spectral_domain)
-               call write_data(trim(file), trim(tr_name)//'_imag', aimag(spec_tracers(:,:,:,nt,ntr)), spectral_domain)
+               call write_restart_field(rst, trim(tr_name)//'_real',  real(spec_tracers(:,:,:,nt,ntr)), nt, spectral_domain)
+               call write_restart_field(rst, trim(tr_name)//'_imag', aimag(spec_tracers(:,:,:,nt,ntr)), nt, spectral_domain)
             endif
          enddo
       enddo
-      call write_data(trim(file), 'vorg', vorg, grid_domain)
-      call write_data(trim(file), 'divg', divg, grid_domain)
-      call write_data(trim(file), 'surf_geopotential', surf_geopotential, grid_domain)
+      call write_restart_field(rst, 'vorg', vorg)
+      call write_restart_field(rst, 'divg', divg)
+      call write_restart_field(rst, 'surf_geopotential', surf_geopotential)
+      call close_restart(rst)
 
       deallocate(ug, vg, tg, psg)
       deallocate(sin_lat, coriolis)
@@ -1422,7 +1418,6 @@ contains
       call spectral_diagnostics_end
       call press_and_geopot_end
       call transforms_end
-      call set_domain(grid_domain)
       module_is_initialized = .false.
 
       return
@@ -1475,9 +1470,9 @@ contains
       id_bk = register_static_field(mod_name, 'bk', (/id_phalf/), 'vertical coordinate sigma values', 'none')
       id_zsurf = register_static_field(mod_name, 'zsurf', (/id_lon,id_lat/), 'geopotential height at the surface', 'm')
 
-      if(id_pk    > 0) used = send_data(id_pk, pk, Time)
-      if(id_bk    > 0) used = send_data(id_bk, bk, Time)
-      if(id_zsurf > 0) used = send_data(id_zsurf, surf_geopotential/grav, Time)
+      if(id_pk    > 0) used = send_data(id_pk, pk)
+      if(id_bk    > 0) used = send_data(id_bk, bk)
+      if(id_zsurf > 0) used = send_data(id_zsurf, surf_geopotential/grav)
 
       id_ps  = register_diag_field(mod_name, &
          'ps', (/id_lon,id_lat/),       Time, 'surface pressure',             'pascals')

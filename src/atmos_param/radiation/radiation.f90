@@ -12,8 +12,8 @@ module radiation_mod
 !
 !-----------------------------------------------------------------------
 
-use fms_mod,            only: open_namelist_file, check_nml_error, close_file, &
-                              file_exist, mpp_pe, mpp_root_pe, stdlog,       &
+use fms_mod,            only: input_nml_file, check_nml_error, &
+                              mpp_pe, mpp_root_pe, stdlog,       &
                               error_mesg, FATAL, write_version_number
 use time_manager_mod,   only: time_type
 use constants_mod,      only: cp_air
@@ -54,15 +54,8 @@ integer :: unit, ierr, io
 
 if (module_is_initialized) return
 
-if (file_exist('input.nml')) then
-   unit = open_namelist_file()
-   ierr = 1
-   do while (ierr /= 0)
-      read (unit, nml=radiation_nml, iostat=io, end=10)
-      ierr = check_nml_error(io, 'radiation_nml')
-   enddo
-10 call close_file(unit)
-endif
+read (input_nml_file, nml=radiation_nml, iostat=io)
+ierr = check_nml_error(io, 'radiation_nml')
 
 call write_version_number(version, tagname)
 if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=radiation_nml)

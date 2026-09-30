@@ -13,9 +13,9 @@ module diffusivity_mod
 
 use     constants_mod, only : grav, vonkarm, cp_air, rdgas, rvgas
 
-use           fms_mod, only : error_mesg, FATAL, file_exist,   &
-                              check_nml_error, open_namelist_file,      &
-                              mpp_pe, mpp_root_pe, close_file, &
+use           fms_mod, only : error_mesg, FATAL, &
+                              check_nml_error, input_nml_file,      &
+                              mpp_pe, mpp_root_pe, &
                               write_version_number, stdlog
 
 use mima_monin_obukhov_mod, only : mo_diff
@@ -136,29 +136,22 @@ integer :: unit, ierr, io
 
 !------------------- read namelist input -------------------------------
 
-      if (file_exist('input.nml')) then
-         unit = open_namelist_file ()
-         ierr=1; do while (ierr /= 0)
-            read  (unit, nml=diffusivity_nml, iostat=io, end=10)
-            ierr = check_nml_error(io,'diffusivity_nml')
-         enddo
-  10     call close_file (unit)
+      read (input_nml_file, nml=diffusivity_nml, iostat=io)
+      ierr = check_nml_error(io,'diffusivity_nml')
 
 !------------------- dummy checks --------------------------------------
-         if (frac_inner .le. 0. .or. frac_inner .ge. 1.) &
-            call error_mesg ('diffusivity_init',  &
-            'frac_inner must be between 0 and 1', FATAL)
-         if (rich_crit_pbl .lt. 0.) &
-            call error_mesg ('diffusivity_init',  &
-           'rich_crit_pbl must be greater than or equal to zero', FATAL)
-         if (background_m .lt. 0.) &
-            call error_mesg ('diffusivity_init',  &
-            'background_m must be greater than or equal to zero', FATAL)
-         if (background_t .lt. 0.) &
-            call error_mesg ('diffusivity_init',  &
-            'background_t must be greater than or equal to zero', FATAL)
-
-      endif  !end of reading input.nml
+      if (frac_inner .le. 0. .or. frac_inner .ge. 1.) &
+         call error_mesg ('diffusivity_init',  &
+         'frac_inner must be between 0 and 1', FATAL)
+      if (rich_crit_pbl .lt. 0.) &
+         call error_mesg ('diffusivity_init',  &
+        'rich_crit_pbl must be greater than or equal to zero', FATAL)
+      if (background_m .lt. 0.) &
+         call error_mesg ('diffusivity_init',  &
+         'background_m must be greater than or equal to zero', FATAL)
+      if (background_t .lt. 0.) &
+         call error_mesg ('diffusivity_init',  &
+         'background_t must be greater than or equal to zero', FATAL)
 
 !---------- output namelist to log-------------------------------------
 

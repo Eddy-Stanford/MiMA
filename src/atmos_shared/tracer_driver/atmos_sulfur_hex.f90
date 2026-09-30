@@ -40,12 +40,11 @@ module atmos_sulfur_hex_mod
 ! </REFERENCE>
 !</INFO>
 
-use              fms_mod, only : file_exist,           &
+use              fms_mod, only : &
 !                                 open_file,            &
                                  mpp_pe,               &
                                  mpp_root_pe,          &
                                  stdlog,               &
-                                 close_file,           &
                                  write_version_number
 use     time_manager_mod, only : time_type,            &
                                  set_date,             &
@@ -359,7 +358,7 @@ enddo
         read(unit,'(5e16.8)') (GEIA(I,J), I=361,720)
         read(unit,'(5e16.8)') (GEIA(I,J), I=  1,360)
       end do
-      call close_file(unit) 
+      close (unit) 
 
       gxdeg=360./size(GEIA,1)*dtr
       gydeg=180./size(GEIA,2)*dtr
@@ -406,10 +405,10 @@ enddo
 ! now convert to time_type format and store:
         sf6_rate(j)%Time=set_date(y, m, d)
       end do
-      call close_file(unit) 
+      close (unit) 
 
          if (id_emiss > 0 ) &
-         used = send_data ( id_emiss, sf6_grid, Time )
+         used = send_data ( id_emiss, sf6_grid )
          
       end subroutine sf6_init
 

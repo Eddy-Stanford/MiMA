@@ -1,6 +1,6 @@
 module spectral_physics_mod
 
-use fms_mod,               only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, set_domain, fms_init
+use fms_mod,               only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, fms_init
 
 use constants_mod,         only: grav, pi
 
@@ -125,12 +125,11 @@ diag_tracers = 0.
 
 call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
 
-call set_domain(grid_domain)
 
 allocate(grid_tracers(is:ie, js:je, num_levels, num_tracers))
 grid_tracers = 0.
 
-call physics_driver_init(Time, lon_boundaries, lat_boundaries, axes, radiation_ref_press, grid_tracers, Surf_diff, p_half)
+call physics_driver_init(Time, lon_boundaries, lat_boundaries, grid_domain, axes, radiation_ref_press, grid_tracers, Surf_diff, p_half)
 
 if(sum(grid_tracers) /= 0.) then
   call error_mesg('spectral_physics_init','This version of the spectral atmospheric model not coded to handle'// &

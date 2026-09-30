@@ -142,15 +142,14 @@ program coupler_main
                               operator (>), operator ( /= ), operator ( / ), &
                               operator (*), THIRTY_DAY_MONTHS, JULIAN, &
                               NOLEAP, NO_CALENDAR
-  use fms_mod, only: open_namelist_file, file_exist, check_nml_error, &
+  use fms_mod, only: input_nml_file, check_nml_error, &
                      uppercase, error_mesg, write_version_number, &
                      fms_init, fms_end
-  use fms_io_mod, only: fms_io_exit
+  use fms2_io_mod, only: file_exists
 
   use  field_manager_mod, only : field_manager_init
   use  diag_manager_mod, only: diag_manager_init, diag_manager_end, &
                                DIAG_OTHER, DIAG_ALL, get_base_date
-  use  data_override_mod, only: data_override_init
 !
 ! model interfaces used to couple the component models:
 !               atmosphere, land, ice, and ocean
@@ -199,8 +198,6 @@ program coupler_main
   use mpp_mod, only: mpp_init, mpp_pe, mpp_npes, mpp_root_pe, &
                      stderr, stdlog, mpp_error, NOTE, FATAL, WARNING, &
                      mpp_set_current_pelist, mpp_declare_pelist
-  use mpp_io_mod, only: mpp_open, mpp_close, &
-                        MPP_NATIVE, MPP_RDONLY, MPP_DELETE
   use mpp_domains_mod, only: mpp_broadcast_domain
 
   use memutils_mod, only: print_memuse_stats
@@ -565,12 +562,8 @@ contains
 !-----------------------------------------------------------------------
 !----- read namelist -------
 
-    unit = open_namelist_file()
-    ierr=1; do while (ierr /= 0)
-       read  (unit, nml=coupler_nml, iostat=io, end=10)
-       ierr = check_nml_error (io, 'coupler_nml')
-    enddo
-10  call mpp_close(unit)
+    read (input_nml_file, nml=coupler_nml, iostat=io)
+    ierr = check_nml_error (io, 'coupler_nml')
 
 !----- write namelist to logfile -----
     call write_version_number (version, tag)
@@ -578,19 +571,19 @@ contains
 
 !----- read date and calendar type from restart file -----
 
-    if( file_exist('INPUT/coupler.res') )then
+    if( file_exists('INPUT/coupler.res') )then
 !Balaji: currently written in binary, needs form=MPP_NATIVE
-        call mpp_open( unit, 'INPUT/coupler.res', action=MPP_RDONLY )
+        open( newunit=unit, file='INPUT/coupler.res', form='formatted', action='read', status='old' )
         read( unit,*,err=999 )calendar_type
         read( unit,* )date_init
         read( unit,* )date
         goto 998 !back to fortran-4
 !read old-style coupler.res
-999     call mpp_close(unit)
-        call mpp_open( unit, 'INPUT/coupler.res', action=MPP_RDONLY, form=MPP_NATIVE )
+999     close(unit)
+        open( newunit=unit, file='INPUT/coupler.res', form='unformatted', action='read', status='old' )
         read(unit)calendar_type
         read(unit)date
-998     call mpp_close(unit)
+998     close(unit)
     else
         force_date_from_namelist = .true.
     endif
@@ -776,7 +769,8 @@ contains
 !-----------------------------------------------------------------------
 !----- write time stamps (for start time and end time) ------
 
-    call mpp_open( unit, 'time_stamp.out', nohdrs=.TRUE. )
+    if ( mpp_pe().EQ.mpp_root_pe() ) &
+         open( newunit=unit, file='time_stamp.out', form='formatted', action='write', status='replace' )
 
     month = month_name(date(2))
     if ( mpp_pe().EQ.mpp_root_pe() ) write (unit,20) date, month(1:3)
@@ -786,7 +780,7 @@ contains
     month = month_name(date(2))
     if ( mpp_pe().EQ.mpp_root_pe() ) write (unit,20) date, month(1:3)
 
-    call mpp_close(unit)
+    if ( mpp_pe().EQ.mpp_root_pe() ) close(unit)
 
 20  format (6i4,2x,a3)
 
@@ -913,7 +907,7 @@ contains
 !      if (force_date_from_namelist .or. .NOT.concurrent) then
 !        call init_default_ice_ocean_boundary(ice_ocean_boundary)
 !      else
-!        if( file_exist('INPUT/coupler_fluxes.res.nc') )then !Balaji
+!        if( file_exists('INPUT/coupler_fluxes.res.nc') )then !Balaji
 !            call read_ice_ocean_boundary('INPUT/coupler_fluxes.res.nc', &
 !                                     ice_ocean_boundary,Ocean)
 !        else
@@ -927,8 +921,12 @@ contains
 !-----------------------------------------------------------------------
 !---- open and close dummy file in restart dir to check if dir exists --
 
-    call mpp_open( unit, 'RESTART/file' )
-    call mpp_close(unit, MPP_DELETE)
+    if ( mpp_pe().EQ.mpp_root_pe() ) then
+        open( newunit=unit, file='RESTART/file', action='write', status='replace', iostat=io )
+        if ( io /= 0 ) call error_mesg ('program coupler', &
+             'cannot write to the RESTART directory; does it exist?', FATAL)
+        close(unit, status='delete')
+    endif
 
 !-----------------------------------------------------------------------
     call print_memuse_stats('coupler_init')
@@ -954,9 +952,6 @@ contains
          'final time does not match expected ending time', WARNING)
 
 !-----------------------------------------------------------------------
-!the call to fms_io_exit has been moved here
-!this will work for serial code or concurrent (disjoint pelists)
-!but will fail on overlapping but unequal pelists
 !   if( Ocean%pe )then
 !       call mpp_set_current_pelist(Ocean%pelist)
 !        call write_ice_ocean_boundary('RESTART/coupler_fluxes.res.nc', &
@@ -975,13 +970,12 @@ contains
 !       call  land_model_end (Atmos_land_boundary, Land)
 !       call   ice_model_end (Ice)
     end if
-    call fms_io_exit
     call mpp_set_current_pelist()
 
 !----- write restart file ------
 
-    call mpp_open( unit, 'RESTART/coupler.res', nohdrs=.TRUE. )
     if ( mpp_pe().EQ.mpp_root_pe() )then
+        open( newunit=unit, file='RESTART/coupler.res', form='formatted', action='write', status='replace' )
         write( unit, '(i6,8x,a)' )calendar_type, &
              '(Calendar: no_calendar=0, thirty_day_months=1, julian=2, gregorian=3, noleap=4)'
 
@@ -989,8 +983,8 @@ contains
              'Model start time:   year, month, day, hour, minute, second'
         write( unit, '(6i6,8x,a)' )date, &
              'Current model time: year, month, day, hour, minute, second'
+        close(unit)
     end if
-    call mpp_close(unit)
 
 !-----------------------------------------------------------------------
 

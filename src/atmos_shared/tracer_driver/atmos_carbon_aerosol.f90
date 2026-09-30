@@ -54,10 +54,9 @@ module atmos_carbon_aerosol_mod
 !J. Geophys. Res., 107, accepted, 2002
 ! </REFERENCE>
 ! </INFO>
-use              fms_mod, only : file_exist,           &
+use              fms_mod, only : &
                                  mpp_pe   ,            &
                                  mpp_root_pe,          &
-                                 close_file,           &
                                  stdlog,               &
                                  write_version_number
 use     time_manager_mod, only : time_type
@@ -567,7 +566,7 @@ enddo
            read  (unit, FMT=1968, end=11) i,j,emiss
            bcsource1(i,j)=emiss
         enddo
-  11    call close_file (unit)
+  11    close (unit)
 1968  FORMAT(2I3,e11.4)
 1969  FORMAT(2I3,f11.3)
 ! Interpolate the R30 emission field to the resolution of the model.
@@ -588,7 +587,7 @@ enddo
             read  (unit, FMT=1968, end=13) i,j,emiss
             bcsource1(i,j)=emiss
          enddo
-  13     call close_file (unit)
+  13     close (unit)
 
 ! Interpolate the R30 emission field to the resolution of the model.
          call interp_emiss ( bcsource1, 0.0, deg_90, deg3p6, deg3, &
@@ -596,9 +595,9 @@ enddo
           
 ! Send the emission data to the diag_manager for output.
          if (id_emissbc > 0 ) &
-           used = send_data ( id_emissbc, bcsource, Time )
+           used = send_data ( id_emissbc, bcsource )
          if (id_emissoc > 0 ) &
-           used = send_data ( id_emissoc, ocsource, Time )
+           used = send_data ( id_emissoc, ocsource )
 
 end subroutine tracer_input
 

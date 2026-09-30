@@ -21,8 +21,8 @@ use    time_manager_mod, only: time_type
 
 use    diag_manager_mod, only: register_diag_field, send_data
 
-use             fms_mod, only: file_exist, check_nml_error,    &
-                               open_namelist_file, close_file, &
+use             fms_mod, only: check_nml_error,    &
+                               input_nml_file, &
                                write_version_number,           &
                                mpp_pe, mpp_root_pe, stdlog,    &
                                error_mesg, FATAL, NOTE
@@ -815,14 +815,8 @@ character(len=80)  :: scheme
 
        if ( module_is_initialized ) return
 
-       if ( file_exist('input.nml')) then
-
-         unit = open_namelist_file ( )
-         ierr=1; do while (ierr /= 0)
-            read  (unit, nml=moist_processes_nml, iostat=io, end=10)
-            ierr = check_nml_error(io,'moist_processes_nml')
-         enddo
-  10     call close_file (unit)
+       read (input_nml_file, nml=moist_processes_nml, iostat=io)
+       ierr = check_nml_error(io,'moist_processes_nml')
 
 !--------- write version and namelist to standard log ------------
 
@@ -836,8 +830,6 @@ character(len=80)  :: scheme
                    ('moist_processes_init',  &
                     'both do_mca and do_bm cannot be specified', FATAL)
 
-
-      endif
 
 !------------ initialize various schemes ----------
       if (do_bm) call betts_miller_init ()

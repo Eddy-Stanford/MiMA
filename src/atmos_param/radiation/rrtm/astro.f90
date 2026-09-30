@@ -11,8 +11,8 @@ module rrtm_astro
 !
 ! Modules
         use parkind, only : im => kind_im, rb => kind_rb
-        use fms_mod, only : file_exist, open_namelist_file, check_nml_error, &
-                            error_mesg, FATAL, close_file
+        use fms_mod, only : input_nml_file, check_nml_error, &
+                            error_mesg, FATAL
 ! Variables
         implicit none
         logical          :: astro_initialized = .false.
@@ -40,15 +40,8 @@ module rrtm_astro
             implicit none
             integer :: unit, ierr, io
 
-            if ( file_exist('input.nml') )then
-               unit = open_namelist_file()
-               ierr=1; 
-               do while (ierr /= 0)
-                  read( unit, nml=astro_nml, iostat=io, end=10 )
-                  ierr = check_nml_error(io,'astro_nml')
-               enddo
-10             call close_file(unit)
-            endif
+            read (input_nml_file, nml=astro_nml, iostat=io)
+            ierr = check_nml_error(io,'astro_nml')
     
             astro_initialized = .true.
             

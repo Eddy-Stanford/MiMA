@@ -11,10 +11,13 @@ use surface_flux_mod, only: surface_flux
 use mima_diag_integral_mod, only: diag_integral_field_init, &
                              sum_diag_integral_field
 
-use           fms_mod, only: file_exist, open_namelist_file, check_nml_error, &
+use           fms_mod, only: input_nml_file, check_nml_error, &
                              error_mesg, FATAL, mpp_pe, mpp_root_pe, &
-                             open_file, close_file, read_data, write_data, &
-                             write_version_number, stdlog, set_domain
+                             write_version_number, stdlog
+use fms2_io_mod, only: FmsNetcdfFile_t, open_file, close_file, read_data
+use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
+                            close_restart, read_restart_field, write_restart_field, &
+                            check_field_size
 
 use  diag_manager_mod, only: register_diag_field,  &
                              register_static_field, send_data
@@ -35,7 +38,7 @@ use qflux_mod, only: qflux_init,qflux,warmpool
 use physics_driver_mod, only: do_local_heating
 use local_heating_mod, only: horizontal_heating,ngauss,hamp,pcenter
 
-use     mpp_domains_mod, only: mpp_global_field
+use     mpp_domains_mod, only: mpp_global_field, mpp_get_compute_domain, mpp_get_global_domain
 
 implicit none
 private
@@ -570,7 +573,7 @@ real, dimension(size(Atm%t_bot,1), size(Atm%t_bot,2)) :: &
  type       (time_type), intent(in)  :: Time
  type (atmos_data_type), intent(in)  :: Atm
 
- integer :: unit, ierr, io
+ integer :: ierr, io
 
  integer :: i, j, k
  real :: xx, xx2, lat, lon, pi, y0
@@ -579,20 +582,18 @@ real, dimension(size(Atm%t_bot,1), size(Atm%t_bot,2)) :: &
  ! mj shallower ocean in tropics, land-sea contrast
  real :: loc_cap
  logical :: ocean_mask_worked
+ type(FmsNetcdfFile_t) :: mask_file
+ real, allocatable, dimension(:,:) :: global_mask
+ type(restart_file_type) :: rst
+ integer :: is, ie, js, je, nlon, nlat
 
  pi = 4.0*atan(1.)
  	
  !-----------------------------------------------------------------------
 !------ read namelist ------
 
-   if ( file_exist('input.nml')) then
-      unit = open_namelist_file ( )
-      ierr=1; do while (ierr /= 0)
-         read  (unit, nml=simple_surface_nml, iostat=io, end=10)
-         ierr = check_nml_error(io,'simple_surface_nml')
-      enddo
- 10   call close_file (unit)
-   endif
+   read (input_nml_file, nml=simple_surface_nml, iostat=io)
+   ierr = check_nml_error(io,'simple_surface_nml')
   
 !mj make choices compatible
    !if(do_read_sst .or. do_sc_sst) call error_mesg ('simple_surface',  &
@@ -653,7 +654,17 @@ if (surface_choice .eq. 1 .and. .not. do_sc_sst)then
      if( trim(land_option) .eq. 'input' ) then
         allocate(land_sea_mask(size(Atm%t_bot,1),size(Atm%t_bot,2)))
         if(mpp_pe() .eq. mpp_root_pe()) write(*,'(a)') 'Reading land-sea mask from file INPUT/'//trim(land_sea_mask_file)//'.nc'
-        call read_data('INPUT/'//trim(land_sea_mask_file),trim(land_sea_mask_file),land_sea_mask,domain=Atm%domain)
+        if (.not. open_file(mask_file, 'INPUT/'//trim(land_sea_mask_file)//'.nc', 'read')) &
+             call error_mesg('simple_surface_init', &
+                  'cannot open INPUT/'//trim(land_sea_mask_file)//'.nc', FATAL)
+        call mpp_get_compute_domain(Atm%domain, is, ie, js, je)
+        call mpp_get_global_domain(Atm%domain, xsize=nlon, ysize=nlat)
+        call check_field_size(mask_file, trim(land_sea_mask_file), (/nlon, nlat/))
+        allocate(global_mask(nlon, nlat))
+        call read_data(mask_file, trim(land_sea_mask_file), global_mask)
+        call close_file(mask_file)
+        land_sea_mask = global_mask(is:ie, js:je)
+        deallocate(global_mask)
         where(land_sea_mask .gt. 0) land_sea_heat_capacity = land_capacity
 ! mj use navy land-sea mask
      else if (trim(land_option) .eq. 'interpolated')then
@@ -716,20 +727,11 @@ endif
 
 
 
-if(file_exist('INPUT/simple_surface.res.nc')) then
-  call read_data('INPUT/simple_surface.res.nc', 'sst',    sst,    domain=Atm%domain)
-  call read_data('INPUT/simple_surface.res.nc', 'flux_u', flux_u, domain=Atm%domain)
-  call read_data('INPUT/simple_surface.res.nc', 'flux_v', flux_v, domain=Atm%domain)
-else if(file_exist('INPUT/simple_surface.res')) then
-  unit = open_file(file='INPUT/simple_surface.res',form='unformatted',&
-                   action='read')
-  call set_domain(Atm%domain)
-
-  call read_data(unit, sst)
-  call read_data(unit, flux_u)
-  call read_data(unit, flux_v)
-
-  call close_file(unit)
+if(open_restart_read(rst, 'INPUT/simple_surface.res.nc', Atm%domain)) then
+  call read_restart_field(rst, 'sst',    sst)
+  call read_restart_field(rst, 'flux_u', flux_u)
+  call read_restart_field(rst, 'flux_v', flux_v)
+  call close_restart(rst)
 !mj read fixed SSTs
 else if( do_read_sst ) then
    call interpolator( sst_interp, Time, sst, trim(sst_file) )
@@ -1101,21 +1103,13 @@ end subroutine diag_field_init
 subroutine simple_surface_end (Atm)
 
 type (atmos_data_type), intent(in)  :: Atm
-integer :: unit
+type(restart_file_type) :: rst
 
-call write_data('RESTART/simple_surface.res.nc', 'sst',    sst,    domain=Atm%domain)
-call write_data('RESTART/simple_surface.res.nc', 'flux_u', flux_u, domain=Atm%domain)
-call write_data('RESTART/simple_surface.res.nc', 'flux_v', flux_v, domain=Atm%domain)
-
-!unit = open_file(file='RESTART/simple_surface.res',form='unformatted', &
-!                       action='write')
-!call set_domain(Atm%domain)
-
-!call write_data(unit, sst)
-!call write_data(unit, flux_u)
-!call write_data(unit, flux_v)
-
-!call close_file(unit)
+call open_restart_write(rst, 'RESTART/simple_surface.res.nc', Atm%domain)
+call write_restart_field(rst, 'sst',    sst)
+call write_restart_field(rst, 'flux_u', flux_u)
+call write_restart_field(rst, 'flux_v', flux_v)
+call close_restart(rst)
 
 end subroutine simple_surface_end
 

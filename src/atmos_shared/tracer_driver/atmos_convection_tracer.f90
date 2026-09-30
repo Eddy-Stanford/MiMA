@@ -24,11 +24,12 @@ module atmos_convection_tracer_mod
 
 !-----------------------------------------------------------------------
 
-use              fms_mod,       only : file_exist, &
+use              fms_mod,       only : &
                                        write_version_number, &
                                        error_mesg, &
                                        FATAL,WARNING,NOTE, &
                                        mpp_pe, mpp_root_pe, stdlog
+use fms2_io_mod, only: file_exists
 use     time_manager_mod,       only : time_type
 use     diag_manager_mod,       only : send_data,            &
                                        register_static_field
@@ -276,7 +277,7 @@ integer :: nn
       do nn = 1, ncopies_cnvct_trcr 
         if (nconvect(nn) > 0) then
           filename = 'INPUT/tracer_' //trim(search_name(nn)) // '.res'
-          if (file_exist (filename)) then
+          if (file_exists (filename)) then
 
 !--------------------------------------------------------------------
 !    if a .res file does not exist, initialize the convection_tracer.

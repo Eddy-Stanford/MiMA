@@ -2,9 +2,9 @@
 module lscale_cond_mod
 
 !-----------------------------------------------------------------------
-use            fms_mod, only:  file_exist, error_mesg, open_namelist_file,  &
+use            fms_mod, only:  error_mesg, input_nml_file,  &
                                check_nml_error, mpp_pe, mpp_root_pe, FATAL,  &
-                               close_file, write_version_number, stdlog
+                               write_version_number, stdlog
 use sat_vapor_pres_mod, only:  escomp, descomp
 use      constants_mod, only:  HLv,HLs,Cp_Air,Grav,rdgas,rvgas
 
@@ -247,14 +247,8 @@ subroutine precip_evap (pmass, tin, qin, qsat, dqsat, hlcp, &
 
 !----------- read namelist ---------------------------------------------
 
-      if (file_exist('input.nml')) then
-         unit = open_namelist_file ()
-         ierr=1; do while (ierr /= 0)
-            read  (unit, nml=lscale_cond_nml, iostat=io, end=10)
-            ierr = check_nml_error (io,'lscale_cond_nml')
-         enddo
-  10     call close_file (unit)
-      endif
+      read (input_nml_file, nml=lscale_cond_nml, iostat=io)
+      ierr = check_nml_error (io,'lscale_cond_nml')
 
 !---------- output namelist --------------------------------------------
 

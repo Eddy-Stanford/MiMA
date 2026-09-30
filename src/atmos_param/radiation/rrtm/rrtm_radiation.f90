@@ -190,8 +190,8 @@
           use diag_manager_mod, only: register_diag_field, send_data
           use mima_interpolator_mod, only: interpolate_type, interpolator_init, &
                                       &CONSTANT, ZERO,INTERP_WEIGHTED_P
-          use fms_mod, only:          open_namelist_file, check_nml_error,  &
-                                      &mpp_pe, mpp_root_pe, close_file, &
+          use fms_mod, only:          input_nml_file, check_nml_error,  &
+                                      &mpp_pe, mpp_root_pe, &
                                       &write_version_number, stdlog, &
                                       &error_mesg, NOTE, WARNING
           use time_manager_mod, only: time_type
@@ -209,19 +209,13 @@
 
 
 ! read namelist and copy to logfile
-          unit = open_namelist_file ( )
-          ierr=1
-          do while (ierr /= 0)
-             read  (unit, nml=rrtm_radiation_nml, iostat=io, end=10)
-             ierr = check_nml_error (io, 'rrtm_radiation_nml')
-          enddo
-10        call close_file (unit)
+          read (input_nml_file, nml=rrtm_radiation_nml, iostat=io)
+          ierr = check_nml_error (io, 'rrtm_radiation_nml')
 
           !call write_version_number ( version, tagname )
           if ( mpp_pe() == mpp_root_pe() ) then
              write (stdlog(), nml=rrtm_radiation_nml)
           endif
-          call close_file (unit)
 !----
 !------------ initialize diagnostic fields ---------------
 

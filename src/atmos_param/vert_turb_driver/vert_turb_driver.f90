@@ -20,8 +20,8 @@ use   diag_manager_mod, only: register_diag_field, send_data
 use   time_manager_mod, only: time_type
 
 use       fms_mod,      only: mpp_pe, mpp_root_pe, stdlog, &
-                              error_mesg, open_namelist_file, file_exist, &
-                              check_nml_error, close_file, FATAL, &
+                              error_mesg, input_nml_file, &
+                              check_nml_error, FATAL, &
                               write_version_number
 
 implicit none
@@ -261,14 +261,8 @@ subroutine vert_turb_driver_init (axes, Time)
 !-----------------------------------------------------------------------
 !--------------- read namelist ------------------
 
-      if (file_exist('input.nml')) then
-         unit = open_namelist_file (file='input.nml')
-         ierr=1; do while (ierr /= 0)
-            read  (unit, nml=vert_turb_driver_nml, iostat=io, end=10)
-            ierr = check_nml_error (io, 'vert_turb_driver_nml')
-         enddo
-  10     call close_file (unit)
-      endif
+      read (input_nml_file, nml=vert_turb_driver_nml, iostat=io)
+      ierr = check_nml_error (io, 'vert_turb_driver_nml')
 
 !---------- output namelist --------------------------------------------
 

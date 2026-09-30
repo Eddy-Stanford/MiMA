@@ -5,9 +5,9 @@ module betts_miller_mod
 !                               check_nml_error, get_my_pe, FATAL,  &
 !                               close_file
 
-use            fms_mod, only:  file_exist, error_mesg, open_namelist_file, &
+use            fms_mod, only:  error_mesg, input_nml_file, &
                                check_nml_error, mpp_pe, mpp_root_pe, &
-                               FATAL, close_file, write_version_number, stdlog
+                               FATAL, write_version_number, stdlog
 
 use sat_vapor_pres_mod, only:  escomp, descomp
 use      constants_mod, only:  HLv,HLs,Cp_air,Grav,rdgas,rvgas, &
@@ -766,14 +766,8 @@ integer  i, j, k, ix, jx, kx, klzb, ktop, klzb2
 
 !----------- read namelist ---------------------------------------------
 
-      if (file_exist('input.nml')) then
-         unit = open_namelist_file ( )
-         ierr=1; do while (ierr /= 0)
-            read  (unit, nml=betts_miller_nml, iostat=io, end=10)
-            ierr = check_nml_error (io,'betts_miller_nml')
-         enddo
-  10     call close_file (unit)
-      endif
+      read (input_nml_file, nml=betts_miller_nml, iostat=io)
+      ierr = check_nml_error (io,'betts_miller_nml')
 
 !---------- output namelist --------------------------------------------
 

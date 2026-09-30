@@ -10,8 +10,8 @@ module gray_radiation_mod
 !                                   check_system_clock, NOTE, &
 !                                   get_domain_decomp, check_system_clock
 
-   use             fms_mod,   only: open_namelist_file, check_nml_error,  &
-                                    mpp_pe, mpp_root_pe, close_file, &
+   use             fms_mod,   only: input_nml_file, check_nml_error,  &
+                                    mpp_pe, mpp_root_pe, &
                                     write_version_number, stdlog
 
    use       constants_mod,   only: stefan, cp_air, grav
@@ -118,19 +118,13 @@ integer :: ierr, io, unit
 !-----------------------------------------------------------------------------------------
 ! read namelist and copy to logfile
 
-unit = open_namelist_file ( )
-ierr=1
-do while (ierr /= 0)
-   read  (unit, nml=gray_radiation_nml, iostat=io, end=10)
-   ierr = check_nml_error (io, 'gray_radiation_nml')
-enddo
-10 call close_file (unit)
+read (input_nml_file, nml=gray_radiation_nml, iostat=io)
+ierr = check_nml_error (io, 'gray_radiation_nml')
 
 call write_version_number ( version, tagname )
 if ( mpp_pe() == mpp_root_pe() ) then
   write (stdlog(), nml=gray_radiation_nml)
 endif
-call close_file (unit)
 
 pi    = 4.0*atan(1.)
 deg_to_rad = 2.*pi/360.

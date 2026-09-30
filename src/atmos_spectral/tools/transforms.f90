@@ -1,7 +1,7 @@
 module transforms_mod
 
-use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, stdlog, close_file, &
-                   open_namelist_file, check_nml_error
+use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, stdlog, &
+                   input_nml_file, check_nml_error
 
 use mpp_mod, only: mpp_error, mpp_npes, mpp_sum, mpp_sync, mpp_sync_self, mpp_transmit
 
@@ -217,13 +217,8 @@ integer :: i, j
 
 if(module_is_initialized) return
 
-namelist_unit = open_namelist_file()
-ierr=1
-do while (ierr /= 0)
-  read(namelist_unit, nml=transforms_nml, iostat=io, end=20)
-  ierr = check_nml_error (io, 'transforms_nml')
-enddo
-20 call close_file (namelist_unit)
+read (input_nml_file, nml=transforms_nml, iostat=io)
+ierr = check_nml_error (io, 'transforms_nml')
 
 call write_version_number(version, tagname)
 if(mpp_pe() == mpp_root_pe()) write (stdlog(), nml=transforms_nml)

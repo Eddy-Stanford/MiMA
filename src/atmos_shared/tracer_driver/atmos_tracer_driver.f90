@@ -81,7 +81,7 @@ module atmos_tracer_driver_mod
 
 !-----------------------------------------------------------------------
 
-use              fms_mod, only : file_exist, &
+use              fms_mod, only : &
                                  write_version_number, &
                                  error_mesg, &
                                  FATAL, &

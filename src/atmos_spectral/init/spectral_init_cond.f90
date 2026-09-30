@@ -1,7 +1,9 @@
 module spectral_init_cond_mod
 
-use               fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, field_size, stdlog, file_exist, &
-                                 write_version_number, close_file, check_nml_error, read_data, open_namelist_file
+use               fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, stdlog, &
+                                 write_version_number, check_nml_error, input_nml_file
+use           fms2_io_mod, only: file_exists, FmsNetcdfFile_t, open_file, close_file, read_data, &
+                                 get_variable_num_dimensions, get_variable_size
 
 
 use       mpp_domains_mod, only: mpp_get_global_domain
@@ -72,13 +74,8 @@ if(specify_initial_conditions) then
   choice_of_init=3
 endif
 
-unit = open_namelist_file()
-ierr=1
-do while (ierr /= 0)
-  read(unit, nml=spectral_init_cond_nml, iostat=io, end=20)
-  ierr = check_nml_error (io, 'spectral_init_cond_nml')
-enddo
-20 call close_file (unit)
+read (input_nml_file, nml=spectral_init_cond_nml, iostat=io)
+ierr = check_nml_error (io, 'spectral_init_cond_nml')
 call write_version_number(version, tagname)
 if(mpp_pe() == mpp_root_pe()) write (stdlog(), nml=spectral_init_cond_nml)
 
@@ -134,18 +131,30 @@ real :: fraction_smoothed, lambda
 integer :: is, ie, js, je, ms, me, ns, ne, global_num_lon, global_num_lat
 real, allocatable, dimension(:) :: blon, blat
 logical :: topo_file_exists, water_file_exists
-integer, dimension(4) :: siz
+integer, dimension(2) :: siz
+type(FmsNetcdfFile_t) :: topog_file
+real, allocatable, dimension(:,:) :: global_height
 character(len=12) :: ctmp1='     by     ', ctmp2='     by     '
 
 if(trim(topography_option) == 'flat') then
    surf_geopotential = 0.
 
 else if(trim(topography_option) == 'input') then
-   if(file_exist('INPUT/topography.data.nc')) then
+   if(file_exists('INPUT/topography.data.nc')) then
      call mpp_get_global_domain(grid_domain, xsize=global_num_lon, ysize=global_num_lat) 
-     call field_size('INPUT/topography.data.nc', 'zsurf', siz)
+     if (.not. open_file(topog_file, 'INPUT/topography.data.nc', 'read')) &
+       call error_mesg ('get_topography','cannot open INPUT/topography.data.nc', FATAL)
+     if (get_variable_num_dimensions(topog_file, 'zsurf') /= 2) &
+       call error_mesg ('get_topography','zsurf in INPUT/topography.data.nc must be 2-D (lon, lat)', FATAL)
+     call get_variable_size(topog_file, 'zsurf', siz)
      if ( siz(1) == global_num_lon .and. siz(2) == global_num_lat ) then
-       call read_data('INPUT/topography.data.nc', 'zsurf', surf_height, grid_domain)
+!      Read the global field and keep this PE's part of it
+       allocate(global_height(global_num_lon, global_num_lat))
+       call read_data(topog_file, 'zsurf', global_height)
+       call get_grid_domain(is, ie, js, je)
+       surf_height = global_height(is:ie, js:je)
+       deallocate(global_height)
+       call close_file(topog_file)
      else
        write(ctmp1(1: 4),'(i4)') siz(1)
        write(ctmp1(9:12),'(i4)') siz(2)

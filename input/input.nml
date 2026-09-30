@@ -186,9 +186,8 @@
 &fms_nml
     domains_stack_size = 600000 /
 
- &fms_io_nml
-    threading_write = 'single',
-    fileset_write = 'single' /
+ &sat_vapor_pres_nml
+    do_simple = .true. /
 
 
 

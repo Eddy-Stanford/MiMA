@@ -14,9 +14,9 @@ module mima_monin_obukhov_mod
 
 use constants_mod, only : grav, vonkarm
 
-use       fms_mod, only : file_exist, check_nml_error,              &
-                          open_namelist_file, write_version_number, &
-                          mpp_pe, mpp_root_pe, stdlog, close_file,  &
+use       fms_mod, only : check_nml_error,              &
+                          input_nml_file, write_version_number, &
+                          mpp_pe, mpp_root_pe, stdlog, &
                           error_mesg, FATAL
 
 implicit none
@@ -299,14 +299,8 @@ integer :: unit, ierr, io
 
 !------------------- read namelist input -------------------------------
 
-      if (file_exist('input.nml')) then
-         unit = open_namelist_file ( )
-         ierr=1; do while (ierr /= 0)
-            read  (unit, nml=monin_obukhov_nml, iostat=io, end=10)
-            ierr = check_nml_error(io,'monin_obukhov_nml')
-         enddo
-  10     call close_file (unit)
-      endif
+      read (input_nml_file, nml=monin_obukhov_nml, iostat=io)
+      ierr = check_nml_error(io,'monin_obukhov_nml')
 
 !---------- output namelist to log-------------------------------------
 
