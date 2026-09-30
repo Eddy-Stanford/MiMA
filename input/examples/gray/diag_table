@@ -2,7 +2,7 @@
 0001 1 1 0 0 0
 # Output for the gray-radiation example (input/examples/gray/input.nml).
 # All fields and their units are listed in docs/Diagnostics.md. Check this file
-# with:  python3 tools/diag_inventory.py --validate-diag-table diag_table --nml input.nml
+# with:  python3 tools/mimadoc validate diag_table --nml input.nml
 #
 # file name,       output frequency, units, format, time units, time axis name
 "atmos_daily",     1, "days", 1, "days", "time",

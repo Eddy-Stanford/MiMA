@@ -22,7 +22,7 @@ A clean break from v1: results are not bit-for-bit identical to v1, and `input.n
   * Answer-changing fixes: `cg_drag` recomputed at the intended interval and conserving the momentum deposited above the model top (this changes the winds above about 1 hPa), implicit zonal surface stress, consistent bottom-level time levels, evaporation derivatives, Betts-Miller shallow-convection energy, Earth radius 6371 km and the FMS saturation vapour pressure table.
   * `cg_drag` and RRTM state are saved in new restart files, so runs in segments reproduce continuous runs. v1 restart files can still be read.
   * Output and restarts are single files by default (`spec_mpp_nml io_layout`), so `mppnccombine` is no longer needed. Axes are written in double precision, time bounds are named `time_bnds`, fields have a `_FillValue`, and units follow UDUNITS.
-  * New [diagnostics reference](Diagnostics.md), generated from the source by `tools/diag_inventory.py`, which can also check a `diag_table`. The surface stress and reference-height diagnostics of `simple_surface` are now written.
+  * New [diagnostics reference](Diagnostics.md), generated from the source by `tools/mimadoc`, which can also check a `diag_table`. The surface stress and reference-height diagnostics of `simple_surface` are now written.
 
 ## v1.2.X
 

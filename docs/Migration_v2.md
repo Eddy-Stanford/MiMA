@@ -40,7 +40,7 @@ To move a v1 run directory to v2.0:
    * delete every variable that no longer exists (an unknown variable stops the model);
    * check the [changed defaults](#changed-defaults) for every variable you did not set.
 3. Make sure `field_table` has a `sphum` tracer ([field_table changes](#field_table-changes)).
-4. Update module and field names in `diag_table` (mainly the radiation diagnostics), and check it with `tools/diag_inventory.py` ([diag_table changes](#diag_table-changes)).
+4. Update module and field names in `diag_table` (mainly the radiation diagnostics), and check it with `tools/mimadoc validate` ([diag_table changes](#diag_table-changes)).
 5. Expect single netCDF output files, no need for `mppnccombine`, and a few format changes ([Output files](#output-files)).
 6. v1 restart files can be read, but a new baseline is needed because the answers change ([Restart files](#restart-files)).
 
@@ -257,7 +257,7 @@ The `diag_table` format is unchanged. What changed are some module and field nam
 A field that is requested but not registered is not an error: FMS prints a warning (`module/field_name (...) NOT registered`) and leaves the field out. So an old `diag_table` runs, but silently loses fields. Check it before you run:
 
 ```bash
-python3 /path/to/MiMA/tools/diag_inventory.py --validate-diag-table diag_table --nml input.nml
+python3 /path/to/MiMA/tools/mimadoc validate diag_table --nml input.nml
 ```
 
 It reports fields that do not exist (with a hint when the field exists under another module, e.g. `rrtm_radiation/olr`), fields that are not available with your namelist settings, and format errors. [Diagnostics](Diagnostics.md) lists every field MiMA can write, with units, long names and the namelist settings it needs.
@@ -443,7 +443,7 @@ These do not change the answers of the shipped configurations.
 * **Radiation scheme selection** with `&radiation_nml radiation_scheme = 'rrtm' | 'gray' | 'none'`, one module (`radiation`) and one set of names for the radiation diagnostics.
 * **Held-Suarez (1994) forcing** (`do_held_suarez`, `&held_suarez_nml`), with new switches `do_boundary_layer` and `do_moist_physics`. It works at any resolution and with any vertical levels, and can be combined with the Rayleigh sponge, `cg_drag`, topography, and MiMA's moist physics and surface (moist variants). Example: `input/examples/held_suarez/` (dry HS94, T42 L20). See [Held-Suarez forcing](Configurations.md#held-suarez-forcing).
 * **Gray radiation example** `input/examples/gray/`: the default test case with gray radiation, and a `diag_table` with the gray fluxes.
-* **Diagnostics reference** [Diagnostics](Diagnostics.md), generated from the source by `tools/diag_inventory.py`, which can also **validate a diag_table** against the source and an `input.nml`.
+* **Diagnostics reference** [Diagnostics](Diagnostics.md), generated from the source by `tools/mimadoc`, which can also **validate a diag_table** against the source and an `input.nml`.
 * **Surface stress and reference-height diagnostics** in `simple_surface`: `tau_x`, `tau_y`, `t_ref`, `rh_ref`, `u_ref`, `v_ref`, `del_h`, `del_m`, `del_q`.
 * **More shared radiation fields**: RRTM `swdn_toa`, `lwup_sfc`; gray `swnet_toa`, `albedo_rad`.
 * **Single-file output and restarts** by default, with `&spec_mpp_nml io_layout` for split files.
