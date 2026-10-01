@@ -153,7 +153,7 @@ mpirun -n 4 ./mima
 * `-n 4` sets the number of MPI processes. The number of processes must divide the number of latitudes (64 at T42) evenly. Use `mpiexec`, `srun`, etc., as appropriate on your system.
 * MiMA reads `input.nml` automatically, so don't pass it on the command line (i.e. don't do `./mima < input.nml`).
 
-As a rough guide, the test case runs at about 10 s per model day on 4 cores of a laptop, so the full year takes around an hour. To try things out more quickly, reduce `days` in `coupler_nml` (e.g. `days = 5`). The run length should be a whole multiple of the time step `dt_atmos` (500 s in the test case).
+As a rough guide, the test case runs at about 10 s per model day on 4 cores of a laptop, so the full year takes around an hour. To try things out more quickly, reduce `days` in [`coupler_nml`](Parameters.md#coupler_nml) (e.g. `days = 5`). The run length should be a whole multiple of the time step `dt_atmos` (500 s in the test case).
 
 ### The test case
 
@@ -163,22 +163,22 @@ The test case is defined entirely by the files in [`input/`](https://github.com/
 * `diag_table`: A list of the diagnostics you would like in your output files. It doesn't change the simulation you are running. It only decides which variables are written, how frequently, and whether the output is averaged or instantaneous. [Diagnostics](Diagnostics.md) explains the format and lists every field the model can output.
 * `field_table`: A list of passive tracers you'd like to advect during the simulation. There are two types: grid or spectral tracers. To get the temporal evolution of a tracer (or its time average), add its name as a diagnostic output in `diag_table`.
 
-The test run is one 360-day year (12 months of 30 days) with the following setup:
+The test run is one 360-day year (12 months of 30 days) with the following setup (the links go to the code of each part in the [Fortran API reference](FortranAPI.md)):
 
-* T42 horizontal resolution (128 × 64 grid) with 40 vertical levels
-* realistic topography and land-sea mask, interpolated from `INPUT/navy_topography.data.nc` and `INPUT/navy_pctwater.data.nc`
-* RRTM radiation scheme, with 390 ppm CO<sub>2</sub>, ozone from `INPUT/ozone_1990.nc`, and a solar constant of 1370 W/m<sup>2</sup>
-* seasonal cycle with a circular Earth-Sun orbit
-* mixed-layer ocean with a meridional Q flux, plus zonally asymmetric Q fluxes (tropical warm pool, Gulf Stream, Kuroshio, …) to generate realistic stationary waves as in [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1)
-* surface albedo of 0.23, increasing to 0.8 in polar regions, with brighter Sahara, Gobi and Australian deserts
-* Betts-Miller convection and large-scale condensation
-* parameterized non-orographic gravity-wave drag (`cg_drag`)
+* T42 horizontal resolution (128 × 64 grid) with 40 vertical levels ([`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/))
+* realistic topography and land-sea mask, interpolated from `INPUT/navy_topography.data.nc` and `INPUT/navy_pctwater.data.nc` ([`spectral_init_cond_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_init_cond_mod/))
+* RRTM radiation scheme, with 390 ppm CO<sub>2</sub>, ozone from `INPUT/ozone_1990.nc`, and a solar constant of 1370 W/m<sup>2</sup> ([`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/))
+* seasonal cycle with a circular Earth-Sun orbit ([`rrtm_astro`](https://eddy-stanford.github.io/MiMA/api/rrtm_astro/))
+* mixed-layer ocean with a meridional Q flux, plus zonally asymmetric Q fluxes (tropical warm pool, Gulf Stream, Kuroshio, …) to generate realistic stationary waves as in [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1) ([`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/), [`qflux_mod`](https://eddy-stanford.github.io/MiMA/api/qflux_mod/))
+* surface albedo of 0.23, increasing to 0.8 in polar regions, with brighter Sahara, Gobi and Australian deserts ([`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/))
+* Betts-Miller convection and large-scale condensation ([`betts_miller_mod`](https://eddy-stanford.github.io/MiMA/api/betts_miller_mod/), [`lscale_cond_mod`](https://eddy-stanford.github.io/MiMA/api/lscale_cond_mod/), called from [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/))
+* parameterized non-orographic gravity-wave drag ([`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/))
 
 ## Output
 
 MiMA writes each file listed in `diag_table` as a single netCDF file, e.g. `atmos_daily.nc`, and likewise the restart files in `RESTART/`.
 
-For very large runs, writing can be split over groups of processors with `io_layout` in `spec_mpp_nml`: `io_layout = 1,4`, for example, writes four files per output file, each holding a band of latitudes (`atmos_daily.nc.0000`, …, `atmos_daily.nc.0003`). The default `1,1` writes single files. Combine split files with `mppnccombine` (see [Installing FRE-NCtools](#installing-fre-nctools)):
+For very large runs, writing can be split over groups of processors with `io_layout` in [`spec_mpp_nml`](Parameters.md#spec_mpp_nml): `io_layout = 1,4`, for example, writes four files per output file, each holding a band of latitudes (`atmos_daily.nc.0000`, …, `atmos_daily.nc.0003`). The default `1,1` writes single files. Combine split files with `mppnccombine` (see [Installing FRE-NCtools](#installing-fre-nctools)):
 
 ```bash
 for f in atmos_daily atmos_avg atmos_davg atmos_dext; do
@@ -214,12 +214,13 @@ mv RESTART/* INPUT/
 mpirun -n 4 ./mima
 ```
 
-The model detects the restart files in `INPUT/` and continues from the date stored in `INPUT/coupler.res`. Move the output files from the previous segment first, because the new run overwrites them. Long simulations are usually run as a sequence of such segments, e.g. one year at a time.
+The model detects the restart files in `INPUT/` and continues from the date stored in `INPUT/coupler.res`. Each part of the model with a state of its own writes its own restart file, for example [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) (`spectral_dynamics.res.nc`), [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) (`cg_drag.res.nc`) and [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) (`rrtm_radiation.res.nc`); [`coupler_main`](https://eddy-stanford.github.io/MiMA/api/coupler_main/) writes `coupler.res`. Move the output files from the previous segment first, because the new run overwrites them. Long simulations are usually run as a sequence of such segments, e.g. one year at a time.
 
 ## Adding files to the build
 
 * If you work on your own version of MiMA, put each extension in a new file where possible, so as not to disturb the main branch and any other fork that might exist.
 * When adding a source file, add it to the `CMakeLists.txt` in the same directory, so that it is compiled the next time you build.
+* Give new modules, public procedures and namelist variables doc comments ([Writing doc comments](FortranAPI.md#writing-doc-comments)), so that they appear in the [Fortran API reference](FortranAPI.md) and the [namelist reference](Parameters.md).
 
 ## Code style
 

@@ -9,30 +9,32 @@ A few rules:
 * A variable that is not in a namelist group is a fatal error at start-up ("Unknown namelist, or mistyped namelist variable"). A namelist group that MiMA does not read is ignored.
 * A group that is missing from `input.nml` takes all its defaults.
 * Every namelist is written, with the values actually used, to `logfile.000000.out`.
-* Array variables (e.g. `slandlon`, the `local_heating_nml` variables) are given as comma-separated lists.
+* Array variables (e.g. `slandlon`, the [`local_heating_nml`](#local_heating_nml) variables) are given as comma-separated lists.
 
 Contents:
 
-* [General](#general): `coupler_nml`, `atmos_model_nml`, `spec_mpp_nml`, `diag_integral_nml`
-* [Dynamics](#dynamics): `spectral_dynamics_nml`, `vert_coordinate_nml`, `spectral_init_cond_nml`, `transforms_nml`
-* [Physics driver](#physics-driver): `physics_driver_nml`
-* [Radiation](#radiation): `radiation_nml`, `rrtm_radiation_nml`, `astro_nml`, `gray_radiation_nml`
-* [Surface](#surface): `simple_surface_nml`, `qflux_nml`, `surface_flux_nml`, `monin_obukhov_nml`
-* [Boundary layer](#boundary-layer): `vert_turb_driver_nml`, `diffusivity_nml`, `vert_diff_driver_nml`
-* [Moisture](#moisture): `moist_processes_nml`, `betts_miller_nml`, `lscale_cond_nml`, `moist_conv_nml`
-* [Damping and gravity-wave drag](#damping-and-gravity-wave-drag): `damping_driver_nml`, `cg_drag_nml`, `mg_drag_nml`
-* [Held-Suarez forcing](#held-suarez-forcing): `held_suarez_nml`
+* [General](#general): [`coupler_nml`](#coupler_nml), [`atmos_model_nml`](#atmos_model_nml), [`spec_mpp_nml`](#spec_mpp_nml), [`diag_integral_nml`](#diag_integral_nml)
+* [Dynamics](#dynamics): [`spectral_dynamics_nml`](#spectral_dynamics_nml), [`vert_coordinate_nml`](#vert_coordinate_nml), [`spectral_init_cond_nml`](#spectral_init_cond_nml), [`transforms_nml`](#transforms_nml)
+* [Physics driver](#physics-driver): [`physics_driver_nml`](#physics_driver_nml)
+* [Radiation](#radiation): [`radiation_nml`](#radiation_nml), [`rrtm_radiation_nml`](#rrtm_radiation_nml), [`astro_nml`](#astro_nml), [`gray_radiation_nml`](#gray_radiation_nml)
+* [Surface](#surface): [`simple_surface_nml`](#simple_surface_nml), [`qflux_nml`](#qflux_nml), [`surface_flux_nml`](#surface_flux_nml), [`monin_obukhov_nml`](#monin_obukhov_nml)
+* [Boundary layer](#boundary-layer): [`vert_turb_driver_nml`](#vert_turb_driver_nml), [`diffusivity_nml`](#diffusivity_nml), [`vert_diff_driver_nml`](#vert_diff_driver_nml)
+* [Moisture](#moisture): [`moist_processes_nml`](#moist_processes_nml), [`betts_miller_nml`](#betts_miller_nml), [`lscale_cond_nml`](#lscale_cond_nml), [`moist_conv_nml`](#moist_conv_nml)
+* [Damping and gravity-wave drag](#damping-and-gravity-wave-drag): [`damping_driver_nml`](#damping_driver_nml), [`cg_drag_nml`](#cg_drag_nml), [`mg_drag_nml`](#mg_drag_nml)
+* [Held-Suarez forcing](#held-suarez-forcing): [`held_suarez_nml`](#held_suarez_nml)
 * [Local heating](#local-heating): `local_heating_nml`
-* [Tracers and input data](#tracers-and-input-data): `atmos_radon_nml`, `atmos_convection_tracer_nml`, `interpolator_nml`
+* [Tracers and input data](#tracers-and-input-data): [`atmos_radon_nml`](#atmos_radon_nml), [`atmos_convection_tracer_nml`](#atmos_convection_tracer_nml), [`interpolator_nml`](#interpolator_nml)
 * [FMS namelists](#fms-namelists): `sat_vapor_pres_nml`, `topography_nml`, `gaussian_topog_nml`, `fms_nml`, `diag_manager_nml`
 
 ## General
 
 ### `coupler_nml`
 
-Run length, time step and calendar (`coupler/coupler_main.f90`).
+Run length, time step and calendar.
 
 <!-- mimadoc:namelist coupler_nml -->
+
+Declared in [`coupler_main`](https://eddy-stanford.github.io/MiMA/api/coupler_main/) (`src/coupler/coupler_main.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -50,6 +52,8 @@ Run length, time step and calendar (`coupler/coupler_main.f90`).
 
 <!-- mimadoc:namelist atmos_model_nml -->
 
+Declared in [`atmos_model_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_model_mod/) (`src/atmos_coupled/atmos_model.f90`).
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `restart_tbot_qbot` | logical | `.false.` | also store the lowest-level temperature and humidity (`t_bot`, `q_bot`) in `atmos_coupled.res.nc` |
@@ -60,6 +64,8 @@ Run length, time step and calendar (`coupler/coupler_main.f90`).
 
 <!-- mimadoc:namelist spec_mpp_nml -->
 
+Declared in [`spec_mpp_mod`](https://eddy-stanford.github.io/MiMA/api/spec_mpp_mod/) (`src/atmos_spectral/tools/spec_mpp.f90`).
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `io_layout` | integer, dimension(2) | `(/1, 1/)` | I/O layout of the grid domain: each I/O domain (group of processes) writes one file of the diagnostics and restarts. `1,1` gives single files. Each entry must divide the processor layout, which is `1, npes`; with more than one I/O domain the files are split (`atmos_daily.nc.0000`, ...) and must be joined with `mppnccombine`. Split restart files can only be read with the same `io_layout`. |
@@ -68,9 +74,11 @@ Run length, time step and calendar (`coupler/coupler_main.f90`).
 
 ### `diag_integral_nml`
 
-Global integrals printed during the run (`atmos_param/diag_integral/diag_integral.f90`).
+Global integrals printed during the run.
 
 <!-- mimadoc:namelist diag_integral_nml -->
+
+Declared in [`mima_diag_integral_mod`](https://eddy-stanford.github.io/MiMA/api/mima_diag_integral_mod/) (`src/atmos_param/diag_integral/diag_integral.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -86,9 +94,11 @@ Global integrals printed during the run (`atmos_param/diag_integral/diag_integra
 
 ### `spectral_dynamics_nml`
 
-The spectral dynamical core (`atmos_spectral/model/spectral_dynamics.f90`).
+The spectral dynamical core.
 
 <!-- mimadoc:namelist spectral_dynamics_nml -->
+
+Declared in [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) (`src/atmos_spectral/model/spectral_dynamics.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -144,9 +154,11 @@ The spectral dynamical core (`atmos_spectral/model/spectral_dynamics.f90`).
 
 ### `vert_coordinate_nml`
 
-Used only with `vert_coord_option = 'input'` (`atmos_spectral/init/vert_coordinate.f90`).
+Used only with `vert_coord_option = 'input'`.
 
 <!-- mimadoc:namelist vert_coordinate_nml -->
+
+Declared in [`vert_coordinate_mod`](https://eddy-stanford.github.io/MiMA/api/vert_coordinate_mod/) (`src/atmos_spectral/init/vert_coordinate.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -158,6 +170,8 @@ Used only with `vert_coord_option = 'input'` (`atmos_spectral/init/vert_coordina
 
 <!-- mimadoc:namelist spectral_init_cond_nml -->
 
+Declared in [`spectral_init_cond_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_init_cond_mod/) (`src/atmos_spectral/init/spectral_init_cond.f90`).
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `initial_temperature` | real | `264.` | [K] temperature of the isothermal atmosphere on a cold start |
@@ -167,6 +181,8 @@ Used only with `vert_coord_option = 'input'` (`atmos_spectral/init/vert_coordina
 ### `transforms_nml`
 
 <!-- mimadoc:namelist transforms_nml -->
+
+Declared in [`transforms_mod`](https://eddy-stanford.github.io/MiMA/api/transforms_mod/) (`src/atmos_spectral/tools/transforms.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -178,9 +194,11 @@ Used only with `vert_coord_option = 'input'` (`atmos_spectral/init/vert_coordina
 
 ### `physics_driver_nml`
 
-Which physics components are used (`atmos_param/physics_driver/physics_driver.f90`). The radiation scheme is chosen in [`radiation_nml`](#radiation_nml).
+Which physics components are used. The radiation scheme is chosen in [`radiation_nml`](#radiation_nml).
 
 <!-- mimadoc:namelist physics_driver_nml -->
+
+Declared in [`physics_driver_mod`](https://eddy-stanford.github.io/MiMA/api/physics_driver_mod/) (`src/atmos_param/physics_driver/physics_driver.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -201,6 +219,8 @@ Which physics components are used (`atmos_param/physics_driver/physics_driver.f9
 
 <!-- mimadoc:namelist radiation_nml -->
 
+Declared in [`radiation_mod`](https://eddy-stanford.github.io/MiMA/api/radiation_mod/) (`src/atmos_param/radiation/radiation.f90`).
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `radiation_scheme` | character(len=16) | `'rrtm'` | `'rrtm'`: RRTMG clear-sky radiation (`rrtm_radiation_nml`, `astro_nml`); `'gray'`: gray radiation (`gray_radiation_nml`); `'none'`: no radiative heating and no radiative surface fluxes. See [radiation options](Configurations.md#radiation-options). |
@@ -209,9 +229,11 @@ Which physics components are used (`atmos_param/physics_driver/physics_driver.f9
 
 ### `rrtm_radiation_nml`
 
-The RRTM wrapper (`atmos_param/radiation/rrtm/rrtm_radiation.f90`). File names are given without `.nc` and are read from `INPUT/`; the field in the file must have the same name as the file.
+The RRTM wrapper. File names are given without `.nc` and are read from `INPUT/`; the field in the file must have the same name as the file.
 
 <!-- mimadoc:namelist rrtm_radiation_nml -->
+
+Declared in [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) (`src/atmos_param/radiation/rrtm/rrtm_radiation.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -255,18 +277,20 @@ The other RRTMG inputs are not namelist variables. MiMA calls RRTMG without clou
  `o3vmr` | from `ozone_file`, or `o3_val`
  `co2vmr` | `co2ppmv`
  `ch4vmr`, `n2ovmr`, `o2vmr`, `cfc11vmr`, `cfc12vmr`, `cfc22vmr`, `ccl4vmr` | the `*_val` values if `include_secondary_gases`, else 0
- `asdir`, `asdif`, `aldir`, `aldif` | the surface albedo from `simple_surface` (modified by `do_precip_albedo`), the same in all four
+ `asdir`, `asdif`, `aldir`, `aldif` | the surface albedo from [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) (modified by `do_precip_albedo`), the same in all four
  `emis` | 1 (black-body surface)
- `coszen` | computed from `astro_nml`, every radiation step
+ `coszen` | computed from [`astro_nml`](#astro_nml), every radiation step
  `adjes` | `solrad`
  `dyofyr` | day of the year if `use_dyofyr`, else 0
  `scon` | `solr_cnst`
 
 ### `astro_nml`
 
-The orbit and solar constant for RRTM (`atmos_param/radiation/rrtm/astro.f90`).
+The orbit and solar constant for RRTM.
 
 <!-- mimadoc:namelist astro_nml -->
+
+Declared in [`rrtm_astro`](https://eddy-stanford.github.io/MiMA/api/rrtm_astro/) (`src/atmos_param/radiation/rrtm/astro.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -281,9 +305,11 @@ The orbit and solar constant for RRTM (`atmos_param/radiation/rrtm/astro.f90`).
 
 ### `gray_radiation_nml`
 
-The gray radiation of [Frierson, Held and Zurita-Gotor (2006)](https://doi.org/10.1175/JAS3753.1) (`atmos_param/radiation/gray_radiation.f90`). The insolation is annual-mean and zonally symmetric, `solar_constant/4 * (1 + del_sol*P2(lat) + del_sw*sin(lat))`.
+The gray radiation of [Frierson, Held and Zurita-Gotor (2006)](https://doi.org/10.1175/JAS3753.1). The insolation is annual-mean and zonally symmetric, `solar_constant/4 * (1 + del_sol*P2(lat) + del_sw*sin(lat))`.
 
 <!-- mimadoc:namelist gray_radiation_nml -->
+
+Declared in [`gray_radiation_mod`](https://eddy-stanford.github.io/MiMA/api/gray_radiation_mod/) (`src/atmos_param/radiation/gray_radiation.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -310,9 +336,11 @@ The gray radiation of [Frierson, Held and Zurita-Gotor (2006)](https://doi.org/1
 
 ### `simple_surface_nml`
 
-The mixed-layer ocean and surface properties (`coupler/simple_surface.f90`).
+The mixed-layer ocean and surface properties.
 
 <!-- mimadoc:namelist simple_surface_nml -->
+
+Declared in [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) (`src/coupler/simple_surface.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -353,9 +381,11 @@ The mixed-layer ocean and surface properties (`coupler/simple_surface.f90`).
 
 ### `qflux_nml`
 
-Prescribed ocean heat fluxes (Q-fluxes) (`atmos_param/qflux/qflux.f90`), used with `do_qflux` and `do_warmpool` in `simple_surface_nml`. The zonally asymmetric fluxes are those of [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1).
+Prescribed ocean heat fluxes (Q-fluxes), used with `do_qflux` and `do_warmpool` in [`simple_surface_nml`](#simple_surface_nml). The zonally asymmetric fluxes are those of [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1).
 
 <!-- mimadoc:namelist qflux_nml -->
+
+Declared in [`qflux_mod`](https://eddy-stanford.github.io/MiMA/api/qflux_mod/) (`src/atmos_param/qflux/qflux.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -383,9 +413,11 @@ Prescribed ocean heat fluxes (Q-fluxes) (`atmos_param/qflux/qflux.f90`), used wi
 
 ### `surface_flux_nml`
 
-Surface fluxes (`coupler/surface_flux.f90`).
+Surface fluxes.
 
 <!-- mimadoc:namelist surface_flux_nml -->
+
+Declared in [`surface_flux_mod`](https://eddy-stanford.github.io/MiMA/api/surface_flux_mod/) (`src/coupler/surface_flux.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -405,9 +437,11 @@ Surface fluxes (`coupler/surface_flux.f90`).
 
 ### `monin_obukhov_nml`
 
-Monin-Obukhov similarity for the surface layer (`atmos_param/monin_obukhov/monin_obukhov.f90`).
+Monin-Obukhov similarity for the surface layer.
 
 <!-- mimadoc:namelist monin_obukhov_nml -->
+
+Declared in [`mima_monin_obukhov_mod`](https://eddy-stanford.github.io/MiMA/api/mima_monin_obukhov_mod/) (`src/atmos_param/monin_obukhov/monin_obukhov.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -423,9 +457,11 @@ Monin-Obukhov similarity for the surface layer (`atmos_param/monin_obukhov/monin
 
 ### `vert_turb_driver_nml`
 
-Boundary-layer turbulence (`atmos_param/vert_turb_driver/vert_turb_driver.f90`). The only scheme is the non-local K-profile scheme of `diffusivity_nml`.
+Boundary-layer turbulence. The only scheme is the non-local K-profile scheme of [`diffusivity_nml`](#diffusivity_nml).
 
 <!-- mimadoc:namelist vert_turb_driver_nml -->
+
+Declared in [`vert_turb_driver_mod`](https://eddy-stanford.github.io/MiMA/api/vert_turb_driver_mod/) (`src/atmos_param/vert_turb_driver/vert_turb_driver.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -440,9 +476,11 @@ Boundary-layer turbulence (`atmos_param/vert_turb_driver/vert_turb_driver.f90`).
 
 ### `diffusivity_nml`
 
-The non-local K scheme (`atmos_param/diffusivity/diffusivity.f90`).
+The non-local K scheme.
 
 <!-- mimadoc:namelist diffusivity_nml -->
+
+Declared in [`diffusivity_mod`](https://eddy-stanford.github.io/MiMA/api/diffusivity_mod/) (`src/atmos_param/diffusivity/diffusivity.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -459,6 +497,8 @@ The non-local K scheme (`atmos_param/diffusivity/diffusivity.f90`).
 
 <!-- mimadoc:namelist vert_diff_driver_nml -->
 
+Declared in [`vert_diff_driver_mod`](https://eddy-stanford.github.io/MiMA/api/vert_diff_driver_mod/) (`src/atmos_param/vert_diff_driver/vert_diff_driver.f90`).
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `do_conserve_energy` | logical | `.true.` | heat the air by the dissipation of kinetic energy in the vertical diffusion |
@@ -473,6 +513,8 @@ Following [Frierson (2007)](https://doi.org/10.1175/JAS3935.1), MiMA uses large-
 ### `moist_processes_nml`
 
 <!-- mimadoc:namelist moist_processes_nml -->
+
+Declared in [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/) (`src/atmos_param/moist_processes/moist_processes.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -489,6 +531,8 @@ Following [Frierson (2007)](https://doi.org/10.1175/JAS3935.1), MiMA uses large-
 ### `betts_miller_nml`
 
 <!-- mimadoc:namelist betts_miller_nml -->
+
+Declared in [`betts_miller_mod`](https://eddy-stanford.github.io/MiMA/api/betts_miller_mod/) (`src/atmos_param/betts_miller/betts_miller.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -509,6 +553,8 @@ Following [Frierson (2007)](https://doi.org/10.1175/JAS3935.1), MiMA uses large-
 
 <!-- mimadoc:namelist lscale_cond_nml -->
 
+Declared in [`lscale_cond_mod`](https://eddy-stanford.github.io/MiMA/api/lscale_cond_mod/) (`src/atmos_param/lscale_cond/lscale_cond.f90`).
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `hc` | real | `1.00` | relative humidity at which condensation occurs (0 <= `hc` <= 1) |
@@ -522,6 +568,8 @@ Moist convective adjustment (used with `do_mca = .true.`).
 
 <!-- mimadoc:namelist moist_conv_nml -->
 
+Declared in [`moist_conv_mod`](https://eddy-stanford.github.io/MiMA/api/moist_conv_mod/) (`src/atmos_param/moist_conv/moist_conv.f90`).
+
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `HC` | real | `1.00` | relative humidity at which the adjustment occurs |
@@ -534,9 +582,11 @@ Moist convective adjustment (used with `do_mca = .true.`).
 
 ### `damping_driver_nml`
 
-Upper boundary and gravity-wave drag (`atmos_param/damping_driver/damping_driver.f90`), used with `do_damping = .true.` in `physics_driver_nml`.
+Upper boundary and gravity-wave drag, used with `do_damping = .true.` in [`physics_driver_nml`](#physics_driver_nml).
 
 <!-- mimadoc:namelist damping_driver_nml -->
+
+Declared in [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) (`src/atmos_param/damping_driver/damping_driver.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -554,9 +604,11 @@ Upper boundary and gravity-wave drag (`atmos_param/damping_driver/damping_driver
 
 ### `cg_drag_nml`
 
-The Alexander and Dunkerton (1999) non-orographic gravity-wave scheme, with the changes of [Cohen et al. (2013)](https://doi.org/10.1175/JAS-D-12-0240.1) and [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1) (`atmos_param/cg_drag/cg_drag.f90`).
+The Alexander and Dunkerton (1999) non-orographic gravity-wave scheme, with the changes of [Cohen et al. (2013)](https://doi.org/10.1175/JAS-D-12-0240.1) and [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1).
 
 <!-- mimadoc:namelist cg_drag_nml -->
+
+Declared in [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) (`src/atmos_param/cg_drag/cg_drag.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -584,9 +636,11 @@ The Alexander and Dunkerton (1999) non-orographic gravity-wave scheme, with the 
 
 ### `mg_drag_nml`
 
-Orographic gravity-wave drag (`atmos_param/mg_drag/mg_drag.f90`), used with `do_mg_drag = .true.`.
+Orographic gravity-wave drag, used with `do_mg_drag = .true.`.
 
 <!-- mimadoc:namelist mg_drag_nml -->
+
+Declared in [`mg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/mg_drag_mod/) (`src/atmos_param/mg_drag/mg_drag.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -603,9 +657,11 @@ Orographic gravity-wave drag (`atmos_param/mg_drag/mg_drag.f90`), used with `do_
 
 ### `held_suarez_nml`
 
-The [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994)075<1825:APFTIO>2.0.CO;2) forcing (`atmos_param/held_suarez/held_suarez.f90`), used with `do_held_suarez = .true.`; the defaults are the HS94 values. See [Held-Suarez forcing](Configurations.md#held-suarez-forcing).
+The [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994)075<1825:APFTIO>2.0.CO;2) forcing, used with `do_held_suarez = .true.`; the defaults are the HS94 values. See [Held-Suarez forcing](Configurations.md#held-suarez-forcing).
 
 <!-- mimadoc:namelist held_suarez_nml -->
+
+Declared in [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/) (`src/atmos_param/held_suarez/held_suarez.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -627,9 +683,11 @@ The [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994)075<1825:APF
 
 ### `local_heating_nml`
 
-Prescribed Gaussian heating (`atmos_param/local_heating/local_heating.f90`), used with `do_local_heating = .true.`. Every variable is an array of up to 10 entries, one per heat source.
+Prescribed Gaussian heating, used with `do_local_heating = .true.`. Every variable is an array of up to 10 entries, one per heat source.
 
 <!-- mimadoc:namelist local_heating_nml -->
+
+Declared in [`local_heating_mod`](https://eddy-stanford.github.io/MiMA/api/local_heating_mod/) (`src/atmos_param/local_heating/local_heating.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -654,9 +712,11 @@ Prescribed Gaussian heating (`atmos_param/local_heating/local_heating.f90`), use
 
 ### `atmos_radon_nml`
 
-Passive tracers of the tracer driver, used only if they are in the `field_table`: the radon tracer (`atmos_shared/tracer_driver/atmos_radon.f90`).
+Passive tracers of the tracer driver, used only if they are in the `field_table`: the radon tracer.
 
 <!-- mimadoc:namelist atmos_radon_nml -->
+
+Declared in [`atmos_radon_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_radon_mod/) (`src/atmos_shared/tracer_driver/atmos_radon.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -666,9 +726,11 @@ Passive tracers of the tracer driver, used only if they are in the `field_table`
 
 ### `atmos_convection_tracer_nml`
 
-The convection tracer (`atmos_shared/tracer_driver/atmos_convection_tracer.f90`), used only if it is in the `field_table`.
+The convection tracer, used only if it is in the `field_table`.
 
 <!-- mimadoc:namelist atmos_convection_tracer_nml -->
+
+Declared in [`atmos_convection_tracer_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_convection_tracer_mod/) (`src/atmos_shared/tracer_driver/atmos_convection_tracer.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -678,9 +740,11 @@ The convection tracer (`atmos_shared/tracer_driver/atmos_convection_tracer.f90`)
 
 ### `interpolator_nml`
 
-MiMA's interpolator of climatology files, e.g. ozone and SST (`atmos_shared/interpolator/interpolator.F90`).
+MiMA's interpolator of climatology files, e.g. ozone and SST.
 
 <!-- mimadoc:namelist interpolator_nml -->
+
+Declared in [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/) (`src/atmos_shared/interpolator/interpolator.F90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|

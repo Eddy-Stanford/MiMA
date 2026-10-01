@@ -8,22 +8,23 @@ This page describes some common ways of changing the model setup beyond the defa
 
 ## Radiation options
 
-The radiation scheme is chosen with `radiation_scheme` in `radiation_nml`:
+The radiation scheme is chosen with `radiation_scheme` in [`radiation_nml`](Parameters.md#radiation_nml):
 
 ```fortran
 &radiation_nml
     radiation_scheme = 'rrtm' /
 ```
 
-* `'rrtm'` (default): RRTMG clear-sky radiation, configured with `rrtm_radiation_nml` and `astro_nml`.
-* `'gray'`: the gray radiation scheme of Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)), configured with `gray_radiation_nml`.
+* `'rrtm'` (default): RRTMG clear-sky radiation, configured with [`rrtm_radiation_nml`](Parameters.md#rrtm_radiation_nml) and [`astro_nml`](Parameters.md#astro_nml).
+* `'gray'`: the gray radiation scheme of Dargan Frierson ([Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)), configured with [`gray_radiation_nml`](Parameters.md#gray_radiation_nml).
 * `'none'`: no radiative heating and no radiative surface fluxes.
 
+In the code, [`radiation_mod`](https://eddy-stanford.github.io/MiMA/api/radiation_mod/) reads `radiation_nml` and passes the physics driver's calls on to the chosen scheme: [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) (which calls RRTMG, with the solar zenith angle from [`rrtm_astro`](https://eddy-stanford.github.io/MiMA/api/rrtm_astro/)) or [`gray_radiation_mod`](https://eddy-stanford.github.io/MiMA/api/gray_radiation_mod/).
 The two schemes provide different diagnostics (the shared ones, such as `olr` and `tdt_rad`, have the same names); see the `radiation` module in [Diagnostics](Diagnostics.md#module-radiation). A complete gray-radiation setup is in `input/examples/gray/`: its `input.nml` is the default test case with `radiation_scheme = 'gray'` and `gray_radiation_nml` in place of `rrtm_radiation_nml` and `astro_nml`, and its `diag_table` writes daily and 30-day means including the gray radiative fluxes. It uses the same `INPUT/` files as the test case.
 
 ## Held-Suarez forcing
 
-MiMA can run the [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994)075<1825:APFTIO>2.0.CO;2) idealized forcing: Newtonian relaxation of temperature towards a zonally symmetric equilibrium profile, and Rayleigh friction of the winds in the boundary layer. It is switched on in `physics_driver_nml`, and its parameters are set in `held_suarez_nml` (the defaults are the HS94 values):
+MiMA can run the [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994)075<1825:APFTIO>2.0.CO;2) idealized forcing: Newtonian relaxation of temperature towards a zonally symmetric equilibrium profile, and Rayleigh friction of the winds in the boundary layer. It is switched on in [`physics_driver_nml`](Parameters.md#physics_driver_nml), and its parameters are set in [`held_suarez_nml`](Parameters.md#held_suarez_nml) (the defaults are the HS94 values). The forcing is computed by [`held_suarez_forcing`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/#held_suarez_forcing) in [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/), which the physics driver calls when `do_held_suarez = .true.`:
 
  Variable | Default | Meaning
  :--- | :---: | :---
@@ -49,28 +50,28 @@ For the standard **dry** benchmark, switch off radiation, moist physics and the 
     do_damping        = .false. /
 ```
 
-The model always carries a humidity tracer (`sphum` in the field table); in the dry setup it stays zero. Also set `use_virtual_temperature = .false.` and `do_water_correction = .false.` in `spectral_dynamics_nml`.
+The model always carries a humidity tracer (`sphum` in the field table); in the dry setup it stays zero. Also set `use_virtual_temperature = .false.` and `do_water_correction = .false.` in [`spectral_dynamics_nml`](Parameters.md#spectral_dynamics_nml).
 
 The HS forcing can be combined with other parts of the model:
 
-* `do_damping = .true.` with `damping_driver_nml` enables the Rayleigh sponge (`do_rayleigh`) and/or the convective gravity-wave drag (`do_cg_drag`). Note that `do_cg_drag` defaults to `.true.`, so set `do_cg_drag = .false.` if you want only the sponge.
+* `do_damping = .true.` with [`damping_driver_nml`](Parameters.md#damping_driver_nml) enables the Rayleigh sponge (`do_rayleigh`) and/or the convective gravity-wave drag (`do_cg_drag`, [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/)); see [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/). Note that `do_cg_drag` defaults to `.true.`, so set `do_cg_drag = .false.` if you want only the sponge.
 * Non-flat topography through `topography_option` in `spectral_dynamics_nml`.
 * **Moist variants:** with `do_moist_physics = .true.` and `do_boundary_layer = .true.` (and `do_rayleigh_friction = .false.`), the HS temperature relaxation replaces radiation while MiMA's moist physics, boundary layer and surface fluxes stay active. This is similar in spirit to the moist Held-Suarez test of [Thatcher and Jablonowski (2016)](https://doi.org/10.5194/gmd-9-1263-2016), but uses MiMA's own boundary-layer and surface schemes.
-  With `radiation_scheme = 'none'` the surface receives no radiation, so hold the SST fixed with `surface_choice = 2` in `simple_surface_nml` (its initial profile is set by `Tm` and `deltaT`); a slab ocean would otherwise cool without limit. The HS equilibrium temperature near the equatorial surface (315 K) is warmer than typical SSTs, so the lowest layers are stably stratified over the ocean and the hydrological cycle is weak: with the default SST profile (about 298 K at the equator) precipitation takes about three weeks to start and settles near 0.5 mm/day in the global mean.
+  With `radiation_scheme = 'none'` the surface receives no radiation, so hold the SST fixed with `surface_choice = 2` in [`simple_surface_nml`](Parameters.md#simple_surface_nml) ([`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/)) (its initial profile is set by `Tm` and `deltaT`); a slab ocean would otherwise cool without limit. The HS equilibrium temperature near the equatorial surface (315 K) is warmer than typical SSTs, so the lowest layers are stably stratified over the ocean and the hydrological cycle is weak: with the default SST profile (about 298 K at the equator) precipitation takes about three weeks to start and settles near 0.5 mm/day in the global mean.
 
 ## Specified initial conditions
 
-Without restart files, MiMA starts from an isothermal atmosphere at rest with a small vorticity perturbation. To start from your own initial state instead, set this flag in `spectral_dynamics_nml`:
+Without restart files, MiMA starts from an isothermal atmosphere at rest with a small vorticity perturbation. To start from your own initial state instead, set this flag in [`spectral_dynamics_nml`](Parameters.md#spectral_dynamics_nml):
 
 ```fortran
 specify_initial_conditions = .true.
 ```
 
-Then provide a netCDF file named `initial_conditions.nc` in the `INPUT/` directory where the model runs. It must contain zonal wind, meridional wind, temperature, specific humidity and surface pressure (`ucomp`, `vcomp`, `temp`, `sphum` and `ps`) at the model resolution. The file is only read on a cold start: if restart files are present in `INPUT/`, the model restarts from them instead. A zonally symmetric initial state stays zonally symmetric unless it is perturbed, e.g. with [noise](#adding-noise-to-the-initial-conditions).
+Then provide a netCDF file named `initial_conditions.nc` in the `INPUT/` directory where the model runs. It must contain zonal wind, meridional wind, temperature, specific humidity and surface pressure (`ucomp`, `vcomp`, `temp`, `sphum` and `ps`) at the model resolution. The file is only read on a cold start: if restart files are present in `INPUT/`, the model restarts from them instead. A zonally symmetric initial state stays zonally symmetric unless it is perturbed, e.g. with [noise](#adding-noise-to-the-initial-conditions). The cold-start fields are set up by [`spectral_init_cond`](https://eddy-stanford.github.io/MiMA/api/spectral_init_cond_mod/#spectral_init_cond), which calls [`spectral_initialize_fields`](https://eddy-stanford.github.io/MiMA/api/spectral_initialize_fields_mod/#spectral_initialize_fields) (`choice_of_init = 3` reads the file).
 
 ## Adding noise to the initial conditions
 
-MiMA can add random noise to the temperature field when the model state is loaded. This is useful for breaking symmetry in idealized experiments, or for generating ensembles of runs from the same starting point. It is controlled from `spectral_dynamics_nml`:
+MiMA can add random noise to the temperature field when the model state is loaded. This is useful for breaking symmetry in idealized experiments, or for generating ensembles of runs from the same starting point. It is controlled from [`spectral_dynamics_nml`](Parameters.md#spectral_dynamics_nml), and applied in [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) when the initial state has been read or set up:
 
 ```fortran
 add_noise                     = 0.1,
