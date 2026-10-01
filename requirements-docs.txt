@@ -1,6 +1,6 @@
 # Python packages for building the documentation site; see
-# docs/GettingStarted.md#building-the-documentation. FORD also needs Graphviz
-# (the `dot` program) for its call graphs.
+# docs/GettingStarted.md#building-the-documentation. FORD is used to parse the
+# Fortran sources for the API reference pages (tools/fortran_api.py).
 #
 # Material for MkDocs 9.7 is its last feature release and needs MkDocs 1.x. Its
 # successor, Zensical (https://zensical.org), reads the same mkdocs.yml.

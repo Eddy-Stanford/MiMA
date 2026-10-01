@@ -1,8 +1,9 @@
 # MkDocs configuration for the MiMA documentation site.
 # Build locally (see docs/GettingStarted.md#building-the-documentation):
 #   pip install -r requirements-docs.txt
-#   ford ford.md        # Fortran API reference -> docs/api/
 #   mkdocs serve        # or: mkdocs build --strict (-> site/)
+# The Fortran API reference pages are generated from the sources at build time
+# by the hook tools/fortran_api.py (which parses them with FORD, see ford.md).
 site_name: MiMA
 site_description: Model of an idealized Moist Atmosphere
 site_url: https://eddy-stanford.github.io/MiMA/
@@ -57,6 +58,15 @@ markdown_extensions:
   - pymdownx.details
   - pymdownx.highlight
   - pymdownx.superfences
+
+hooks:
+  - tools/fortran_api.py
+
+# rebuild on changes to the Fortran doc comments (mkdocs serve)
+watch:
+  - src
+  - ford.md
+  - tools/fortran_api.py
 
 validation:
   omitted_files: warn

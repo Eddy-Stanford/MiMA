@@ -1,5 +1,6 @@
-# Builds the documentation site (MkDocs + the FORD Fortran API reference) and
-# publishes it to GitHub Pages on pushes to main. Pull requests only build it.
+# Builds the documentation site (MkDocs, with the Fortran API reference pages
+# generated from the sources by tools/fortran_api.py) and publishes it to GitHub
+# Pages on pushes to main. Pull requests only build it.
 # Repository setting needed once: Settings > Pages > Source: GitHub Actions.
 name: Documentation
 
@@ -28,11 +29,8 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-docs.txt
 
-      - name: Install Graphviz and the Python packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y graphviz
-          pip install -r requirements-docs.txt
+      - name: Install the Python packages
+        run: pip install -r requirements-docs.txt
 
       - name: Check that the generated reference pages are up to date
         run: python3 tools/mimadoc check
@@ -43,9 +41,6 @@ jobs:
           for d in input/examples/*/; do
             python3 tools/mimadoc validate "$d/diag_table" --nml "$d/input.nml"
           done
-
-      - name: Build the Fortran API reference
-        run: ford ford.md
 
       - name: Build the site
         run: mkdocs build --strict
