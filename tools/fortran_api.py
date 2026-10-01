@@ -13,11 +13,24 @@ import pathlib
 import re
 import textwrap
 
+import posixpath
+import sys
+
 import ford
 from mkdocs.structure.files import File
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from mimadoc.cli import Model  # noqa: E402
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE_URL = "https://github.com/Eddy-Stanford/MiMA/blob/main/"
+SITE_URL = "https://eddy-stanford.github.io/MiMA/"
+# Links to the published site, as written in docs/*.md and in doc comments
+# (so that they also work on GitHub and in the source):
+#   https://eddy-stanford.github.io/MiMA/              -> README.md
+#   https://eddy-stanford.github.io/MiMA/Page/#anchor  -> Page.md#anchor
+#   https://eddy-stanford.github.io/MiMA/api/mod/#x    -> api/mod.md#x
+SITE_LINK_RE = re.compile(re.escape(SITE_URL) + r"((?:api/)?\w+/)?(#[\w-]+)?(?=[)\s>\]]|$)")
 NAV_TITLE = "Fortran API reference"
 OVERVIEW = "FortranAPI.md"
 
@@ -33,6 +46,12 @@ GROUPS = [
 _units = []      # [(name, kind, entity, relpath)] of the last parse
 _pages = {}      # api/<name>.md -> Markdown
 _type_pages = {} # derived type name -> module page that defines it
+_diag_rows = []  # mimadoc registrations (for the links to docs/Diagnostics.md)
+
+
+def _diag_anchor(module):
+    from mimadoc.render import anchor
+    return anchor(module)
 
 
 # --------------------------------------------------------------------------
@@ -68,16 +87,10 @@ def _group(relpath):
 # Markdown
 # --------------------------------------------------------------------------
 
-SITE_LINK_RE = re.compile(r"https://eddy-stanford\.github\.io/MiMA/(\w+)/(#[\w-]+)?")
-
-
 def _doc(ent):
-    """The doc comment of an entity as Markdown.  Links to pages of the site
-    (https://eddy-stanford.github.io/MiMA/Page/#anchor, so that they also work
-    from the source) become relative links, which MkDocs checks."""
+    """The doc comment of an entity as Markdown."""
     lines = list(getattr(ent, "doc_list", None) or [])
-    text = textwrap.dedent("\n".join(lines)).strip()
-    return SITE_LINK_RE.sub(lambda m: "../%s.md%s" % (m.group(1), m.group(2) or ""), text)
+    return textwrap.dedent("\n".join(lines)).strip()
 
 
 def _summary(ent):
@@ -206,10 +219,18 @@ def _render(name, kind, ent, rel, names, extra_mods):
     if _doc(ent):
         out += [_doc(ent), ""]
     facts = ["**%s** in [%s](%s%s)" % (kind.capitalize(), rel, SOURCE_URL, rel)]
+    groups = [n.name.lower() for n in ent.namelists or []]
+    if groups:
+        facts.append("**Namelist:** " + ", ".join(
+            "[`%s`](../Parameters.md#%s)" % (g, g) for g in groups))
+    diag = sorted({r.module for r in _diag_rows if r.fortran_module == name.lower()})
+    if diag:
+        facts.append("**Diagnostics:** " + ", ".join(
+            "[`%s`](../Diagnostics.md#%s)" % (d, _diag_anchor(d)) for d in diag))
     uses = sorted({getattr(u, "name", u) for u in ent.uses or []})
     if uses:
         facts.append("**Uses:** " + ", ".join(_module_link(u, names, extra_mods) for u in uses))
-    out += [" · ".join(facts[:1]) + "  ", facts[1] if len(facts) > 1 else "", ""]
+    out += ["  \n".join(facts), ""]
 
     types = public(ent.types or [])
     ifaces = [i for i in public(ent.interfaces or []) if i.generic or i.modprocs]
@@ -265,6 +286,8 @@ def _index():
 def on_config(config):
     global _units, _pages
     units, extra_mods = _parse()
+    model = Model(str(ROOT))
+    _diag_rows[:] = [r for r in model.rows if r.built]
     order = {title: k for k, (title, _) in enumerate(GROUPS)}
     _units = sorted(units, key=lambda u: (order.get(_group(u[3]), 99), u[0]))
     names = {u[0] for u in _units}
@@ -296,7 +319,18 @@ def on_files(files, config):
     return files
 
 
+def _relative_links(markdown, page):
+    """Links to the published site become relative links to the pages."""
+    here = posixpath.dirname(page.file.src_uri) or "."
+
+    def sub(m):
+        path = (m.group(1) or "").rstrip("/")
+        target = (path + ".md") if path else "README.md"
+        return posixpath.relpath(target, here) + (m.group(2) or "")
+    return SITE_LINK_RE.sub(sub, markdown)
+
+
 def on_page_markdown(markdown, page, config, files):
     if page.file.src_uri == OVERVIEW:
-        return markdown.rstrip("\n") + "\n" + _index()
-    return markdown
+        markdown = markdown.rstrip("\n") + "\n" + _index()
+    return _relative_links(markdown, page)

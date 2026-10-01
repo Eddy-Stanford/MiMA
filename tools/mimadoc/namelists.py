@@ -19,6 +19,7 @@ class NamelistVar:
     doc: str           # the '!!' documentation
     file: str
     line: int
+    module: str = ""   # module (or program) whose namelist statement it is
 
 
 def fortran_value(text):
@@ -83,15 +84,17 @@ def namelist_reference(parsed, evaluator):
             rows = out.setdefault(nl.group, [])
             for v, spelling in zip(nl.vars, nl.spellings):
                 sym, sscope = _declaration(v, nl.scope, evaluator.modtab)
+                owner = nl.scope.module_scope()
+                owner = owner.name if owner is not None and owner.kind != "file" else ""
                 if sym is None:
                     rows.append(NamelistVar(nl.group, v, spelling, "", "", None, "", pf.relpath,
-                                            nl.line))
+                                            nl.line, owner))
                     continue
                 default = _default_text(sym, sscope, evaluator)
                 rows.append(NamelistVar(
                     nl.group, v, spelling, _type_label(sym), default,
                     fortran_value(default) if not sym.dims else None,
-                    doc_comment(pf.lines, sym.line), pf.relpath.replace("\\", "/"), sym.line))
+                    doc_comment(pf.lines, sym.line), pf.relpath.replace("\\", "/"), sym.line, owner))
     return out
 
 

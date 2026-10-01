@@ -11,6 +11,9 @@ from .conditions import alt_label, md_code
 from .diagnostics import merge_fields
 
 SOURCE_URL = "https://github.com/Eddy-Stanford/MiMA/blob/main/"
+# Pages of the Fortran API reference on the site (the site build turns these
+# links into relative ones; on GitHub they go to the published site).
+API_URL = "https://eddy-stanford.github.io/MiMA/api/%s/"
 
 
 def md_escape(s):
@@ -20,6 +23,15 @@ def md_escape(s):
 
 def source_link(path):
     return "[%s](%s%s)" % (os.path.basename(path), SOURCE_URL, path)
+
+
+def api_link(module):
+    return "[`%s`](%s)" % (module, API_URL % module)
+
+
+def row_source(r):
+    """Where a field is registered: the API page of its Fortran module."""
+    return api_link(r.fortran_module) if r.fortran_module else source_link(r.file)
 
 
 def anchor(module):
@@ -102,9 +114,9 @@ def render_diagnostics(rows):
             when = (when + " and " if when else "") + "%s (%s): %s" % (
                 md_code(sel[0]), ", ".join(re.sub(r"_nml$", "", g) for v, g in sel[1]),
                 ", ".join(vals))
-        srcs = sorted({r.file for r in rs}, key=os.path.basename)
+        srcs = sorted({row_source(r) for r in rs})
         w("| [`%s`](#%s) | %d | %s | %s |" % (
-            m, anchor(m), len(merge_fields(rs)), when, ", ".join(source_link(s) for s in srcs)))
+            m, anchor(m), len(merge_fields(rs)), when, ", ".join(srcs)))
     w("")
 
     differs = []
@@ -140,7 +152,7 @@ def render_diagnostics(rows):
             def label(r):
                 if sel is not None:
                     return ", ".join(selector_values(cells[id(r)]))
-                return os.path.basename(r.file)
+                return r.fortran_module or os.path.basename(r.file)
 
             cols, diff_cols = [], []
             for name, get in (("dims", lambda r: r.dims + ("; static" if r.kind == "static" else "")),
@@ -160,7 +172,7 @@ def render_diagnostics(rows):
                 differs.append((m, frs[0].field, diff_cols, frs))
             locs = []
             for r in frs:
-                loc = source_link(r.file)
+                loc = row_source(r)
                 if r.send_status == "never-sent":
                     loc += " *(never sent)*"
                 if loc not in locs:
@@ -181,7 +193,7 @@ def render_diagnostics(rows):
         w("|---|---|---|---|")
         for m, f, dcols, frs in differs:
             w("| `%s` | %s | %s | %s |" % (m, md_code(f), ", ".join(dcols), ", ".join(
-                sorted({source_link(r.file) for r in frs}))))
+                sorted({row_source(r) for r in frs}))))
         w("")
     return "\n".join(out).rstrip("\n")
 
@@ -197,7 +209,13 @@ def render_namelist(variables):
     for v in variables:
         key = (v.file, v.line, v.doc) if v.doc else id(v)
         rows.setdefault(key, []).append(v)
-    out = ["| Variable | Type | Default | Description |", "|---|---|---|---|"]
+    owners = []
+    for v in variables:
+        if (v.module, v.file) not in owners:
+            owners.append((v.module, v.file))
+    out = ["Declared in %s." % " and ".join("%s (`%s`)" % (api_link(m), f) if m else "`%s`" % f
+                                           for m, f in owners), "",
+           "| Variable | Type | Default | Description |", "|---|---|---|---|"]
     for vs in rows.values():
         types = []
         for v in vs:
