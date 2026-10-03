@@ -20,7 +20,7 @@ This page is for users who have a working MiMA v1 setup (v1.2.x or older) and wa
 MiMA v2.0 is a deliberate clean break from v1. It:
 
 * **is trimmed to the idealized configurations MiMA is used for**: RRTM radiation with the simple mixed-layer surface (the default test case), gray radiation, and the Held-Suarez (1994) benchmark. Physics packages that no configuration used (the AM2 radiation, Donner, RAS, stratiform clouds, Mellor-Yamada and others; see [Removed components](#removed-components)) are gone, together with their namelist variables and diagnostics.
-* **builds against the external [FMS](https://github.com/NOAA-GFDL/FMS) library**, release 2026.02 or later, instead of the copy of FMS from about 2005 that was bundled with v1.
+* **builds against the external [FMS](https://github.com/NOAA-GFDL/FMS) library**, release 2026.01.01 or later, instead of the copy of FMS from about 2005 that was bundled with v1.
 * **changes the answers.** Several bugs that affected the shipped configurations were fixed, the Earth radius and the saturation vapour pressure table now follow FMS, and restarted runs now reproduce continuous runs. v2.0 results are not bit-for-bit identical to v1. The measured impact is listed in [Changes to the answers](#changes-to-the-answers).
 * **makes the code defaults equal to the shipped `input/input.nml`**, so an `input.nml` that sets only the run length and the FMS settings (`&topography_nml`, `&fms_nml`, `&sat_vapor_pres_nml`) gives the standard MiMA setup. If your `input.nml` relied on the old defaults, you get different values now; see [Changed defaults](#changed-defaults).
 
@@ -48,10 +48,10 @@ See [Getting started](GettingStarted.md#dependencies) for the full instructions.
 
 | | v1 | v2.0 |
 |---|---|---|
-| FMS | bundled copy in `src/shared` (about 2005) | external [FMS](https://github.com/NOAA-GFDL/FMS) 2026.02 or later, with 8-byte reals (CMake target `FMS::fms_r8`) |
+| FMS | bundled copy in `src/shared` (about 2005) | external [FMS](https://github.com/NOAA-GFDL/FMS) 2026.01.01 or later (not 2026.01), with 8-byte reals (CMake target `FMS::fms` or `FMS::fms_r8`) |
 | How FMS is provided | built with MiMA | an installed FMS is used if CMake finds it (`CMAKE_PREFIX_PATH` or `FMS_ROOT`); otherwise FMS 2026.02 is downloaded (pinned by SHA256) and built with MiMA; offline: `-DFETCHCONTENT_SOURCE_DIR_FMS=/path/to/FMS-2026.02` |
 | CMake | 3.16 or later | 3.22 or later |
-| MPI | any MPI library | must provide the Fortran `mpi_f08` module (FMS 2026.02 uses it) |
+| MPI | any MPI library | must provide the Fortran `mpi_f08` module for FMS 2026.02 and later, including the downloaded copy |
 | New CMake option | | `MIMA_OPENMP` (default `OFF` on macOS, `ON` elsewhere). MiMA has no OpenMP code; this only affects a downloaded FMS. |
 | `mppnccombine` | needed to join per-processor output | not needed by default ([Output files](#output-files)) |
 
@@ -448,5 +448,5 @@ These do not change the answers of the shipped configurations.
 * **Exact restarts**: `cg_drag` and RRTM state are saved, so a run in segments equals a continuous run.
 * **Consistent defaults**: the code defaults are the standard test case, so an `input.nml` needs only the settings that differ from it (plus the FMS settings `&topography_nml`, `&fms_nml` and `&sat_vapor_pres_nml`).
 * **Start-up checks** that FMS uses the GFDL physical constants and the simple saturation vapour pressure table.
-* **Modern FMS** (2026.02) and build: CMake 3.22, `find_package(FMS)` with a pinned download as fallback, optional OpenMP.
+* **Modern FMS** (2026.01.01 or later; 2026.02 if downloaded) and build: CMake 3.22, `find_package(FMS)` with a pinned download as fallback, optional OpenMP.
 * **CF/UDUNITS-style units** for all diagnostics.

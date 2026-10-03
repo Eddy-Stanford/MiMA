@@ -1,24 +1,38 @@
 # Provide the FMS library (https://github.com/NOAA-GFDL/FMS) with 8-byte reals,
 # and set MIMA_FMS_TARGET to its CMake target.
 #
-# 1. An installed FMS 2026.02 or newer, built with 64-bit reals (-D64BIT=ON), is
-#    used if CMake finds it: set CMAKE_PREFIX_PATH or FMS_ROOT to its prefix.
+# 1. An installed FMS 2026.01.01 or newer with 8-byte reals is used if CMake
+#    finds it: set CMAKE_PREFIX_PATH or FMS_ROOT to its prefix. Both the 64BIT
+#    build (FMS::fms_r8) and the default build (FMS::fms; Spack's
+#    precision=mixed) have 8-byte reals. FMS 2026.01 is not supported: it
+#    crashes when writing restarts on more than one PE.
 # 2. Otherwise FMS 2026.02 is downloaded and built with MiMA. For an offline
-#    build, set FETCHCONTENT_SOURCE_DIR_FMS to an unpacked FMS 2026.02 source tree.
+#    build, set FETCHCONTENT_SOURCE_DIR_FMS to an unpacked FMS 2026.02 source tree
+#    (older FMS releases cannot be built this way).
 #
 # FMS keeps its own compiler flags, but any -ffp-contract flag given for
 # MiMA's build (CMAKE_<LANG>_FLAGS or CMAKE_<LANG>_FLAGS_<CONFIG>) is passed
 # on to it, so that fused multiply-add contraction is the same in both.
 
+set(MIMA_FMS_MIN_VERSION 2026.01.01)
 set(MIMA_FMS_VERSION 2026.02)
 set(MIMA_FMS_SHA256 65db44c961089c5e004dd8774cc4cfee75373c4684590d1146c8ff971f8480b7)
 
-find_package(FMS ${MIMA_FMS_VERSION} CONFIG QUIET COMPONENTS R8)
+find_package(FMS ${MIMA_FMS_MIN_VERSION} CONFIG QUIET)
 
-if(FMS_FOUND AND TARGET FMS::fms_r8)
-  message(STATUS "Using installed FMS ${FMS_VERSION}: ${FMS_DIR}")
-  set(MIMA_FMS_TARGET FMS::fms_r8)
-  return()
+if(FMS_FOUND)
+  foreach(_target FMS::fms_r8 FMS::fms)
+    if(TARGET ${_target})
+      message(STATUS "Using installed FMS ${FMS_VERSION} (${_target}): ${FMS_DIR}")
+      set(MIMA_FMS_TARGET ${_target})
+      return()
+    endif()
+  endforeach()
+  message(WARNING "The FMS at ${FMS_DIR} has no 8-byte real library (it was "
+                  "built with 32BIT only); downloading FMS ${MIMA_FMS_VERSION} instead.")
+elseif(FMS_CONSIDERED_VERSIONS)
+  message(WARNING "Ignoring FMS ${FMS_CONSIDERED_VERSIONS} (${FMS_CONSIDERED_CONFIGS}): "
+                  "MiMA needs FMS ${MIMA_FMS_MIN_VERSION} or newer; downloading FMS ${MIMA_FMS_VERSION} instead.")
 endif()
 
 include(FetchContent)

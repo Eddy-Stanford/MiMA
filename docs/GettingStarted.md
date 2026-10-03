@@ -30,10 +30,10 @@ Tagged releases are listed on the [releases page](https://github.com/Eddy-Stanfo
 MiMA needs:
 
 * a Fortran and a C compiler: GNU (`gfortran`/`gcc`/`clang`) or Intel oneAPI (`ifx`/`icx`, or the classic `ifort`)
-* an MPI library (e.g. Open MPI, MPICH, Intel MPI) with the Fortran `mpi_f08` module
+* an MPI library (e.g. Open MPI, MPICH, Intel MPI). FMS 2026.02 and later, including the copy CMake downloads, need its Fortran `mpi_f08` module
 * netCDF, **both** the C library and the Fortran library (`netcdf-c` and `netcdf-fortran`)
 * CMake ≥ 3.22
-* the [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.02 or later. You don't need to install it: CMake downloads and builds it if it can't find it (see [FMS](#fms)).
+* the [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.01.01 or later (but not 2026.01). You don't need to install it: CMake downloads and builds it if it can't find it (see [FMS](#fms)).
 
 Optionally, FRE-NCtools (installed separately, see [Installing FRE-NCtools](#installing-fre-nctools)) provides `plevel.sh` for interpolating output to pressure levels, and `mppnccombine` for combining per-processor files if you choose to write them.
 
@@ -49,17 +49,26 @@ CMake finds netCDF using `nc-config`/`nf-config` on your `PATH`. If netCDF is in
 
 ### FMS
 
-MiMA is built on NOAA-GFDL's Flexible Modeling System (FMS) library, which provides the parallel infrastructure, I/O, diagnostics and time management. CMake looks for an installed FMS 2026.02 or later that was built with 8-byte reals (FMS's `-D64BIT=ON`, which provides the `FMS::fms_r8` target). To use one, point CMake at its install prefix:
+MiMA is built on NOAA-GFDL's Flexible Modeling System (FMS) library, which provides the parallel infrastructure, I/O, diagnostics and time management. CMake looks for an installed FMS 2026.01.01 or later that was built with 8-byte reals: either FMS's default build (the `FMS::fms` target; Spack's default `precision=mixed`) or its `-D64BIT=ON` build (`FMS::fms_r8`; Spack's `precision=64`). FMS 2026.01 is not supported, because it crashes when writing restart files on more than one processor; CMake ignores it with a warning. To use an installed FMS, point CMake at its install prefix:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/fms
 ```
 
-(or set `FMS_ROOT=/path/to/fms`). If none is found, CMake downloads the FMS 2026.02 source from GitHub during the configure step and builds it with MiMA. This needs network access the first time. Where there is none, e.g. on some HPC compute nodes, download [FMS 2026.02](https://github.com/NOAA-GFDL/FMS/archive/refs/tags/2026.02.tar.gz) elsewhere, unpack it, and pass its location:
+(or set `FMS_ROOT=/path/to/fms`). With Spack, for example:
+
+```bash
+spack install fms@2026.01.01
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(spack location -i fms@2026.01.01)
+```
+
+If none is found, CMake downloads the FMS 2026.02 source from GitHub during the configure step and builds it with MiMA. This needs network access the first time. Where there is none, e.g. on some HPC compute nodes, download [FMS 2026.02](https://github.com/NOAA-GFDL/FMS/archive/refs/tags/2026.02.tar.gz) elsewhere, unpack it, and pass its location:
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_FMS=/path/to/FMS-2026.02
 ```
+
+This must be FMS 2026.02 or later: older releases cannot be built as part of MiMA, only installed separately.
 
 A downloaded FMS is built with OpenMP only if `MIMA_OPENMP` is on (see [Compiling](#compiling)), and it is not installed by `cmake --install`.
 

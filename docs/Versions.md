@@ -13,7 +13,7 @@ A clean break from v1: results are not bit-for-bit identical to v1, and `input.n
 
 * Unreleased:
     * The model is trimmed to its idealized configurations: RRTM radiation with the mixed-layer surface (the default), gray radiation, and Held-Suarez. Unused physics (the AM2 radiation, Donner, RAS, stratiform clouds, Mellor-Yamada, EDT, dry adjustment, `topo_drag` and others) and their namelist variables and diagnostics are removed.
-    * Built against the external [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.02 or later, instead of the bundled copy; CMake finds an installed FMS or downloads it. CMake 3.22 or later is required. `&sat_vapor_pres_nml do_simple = .true.` is required and `&fms_io_nml` is gone.
+    * Built against the external [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.01.01 or later, instead of the bundled copy; CMake finds an installed FMS or downloads it. CMake 3.22 or later is required. `&sat_vapor_pres_nml do_simple = .true.` is required and `&fms_io_nml` is gone.
     * The radiation scheme is chosen with [`radiation_nml`](Parameters.md#radiation_nml) `radiation_scheme` (`'rrtm'`, `'gray'` or `'none'`), replacing `do_rrtm_radiation`/`do_grey_radiation`; the radiation diagnostics of both schemes are under module `radiation` with unified names.
     * The code defaults equal the shipped `input/input.nml`.
     * Held-Suarez (1994) forcing (`do_held_suarez`, [`held_suarez_nml`](Parameters.md#held_suarez_nml), [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/)) with the new switches `do_boundary_layer` and `do_moist_physics`; example configurations `input/examples/held_suarez` and `input/examples/gray`.
