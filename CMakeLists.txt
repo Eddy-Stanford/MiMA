@@ -13,14 +13,11 @@ target_compile_definitions( mima PRIVATE use_libMPI use_netCDF gFortran ) # gFor
 
 option(INSTALL_EXEC "Install executables to exec/ directory?" OFF)
 
-# OpenMP threads some of MiMA's loops. A downloaded FMS is built with OpenMP
-# only if this is on and the C compiler supports it (AppleClang does not).
-if(APPLE)
-    set(_mima_openmp_default OFF)
-else()
-    set(_mima_openmp_default ON)
-endif()
-option(MIMA_OPENMP "Build with OpenMP" ${_mima_openmp_default})
+# OpenMP threads some of MiMA's loops. Off by default, since an unset
+# OMP_NUM_THREADS would oversubscribe the cores used by MPI. A downloaded FMS
+# is built with OpenMP only if this is on and the C compiler supports it
+# (AppleClang does not).
+option(MIMA_OPENMP "Build with OpenMP" OFF)
 
 #Add cmake directory to the environment module variable
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

@@ -70,7 +70,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_FMS=/pa
 
 This must be FMS 2026.02 or later: older releases cannot be built as part of MiMA, only installed separately.
 
-A downloaded FMS is built with OpenMP only if `MIMA_OPENMP` is on (see [Compiling](#compiling)), and it is not installed by `cmake --install`.
+A downloaded FMS is built with OpenMP only if `MIMA_OPENMP` is on (see [Compiling](#compiling)) and the C compiler supports OpenMP, and it is not installed by `cmake --install`.
 
 An installed FMS must also use FMS's default GFDL physical constants (`-DCONSTANTS=GFDL`, the default; Spack: `constants=GFDL`). MiMA checks this when it starts and stops if, for example, the GFS constants were chosen. It also needs `do_simple = .true.` in `&sat_vapor_pres_nml` (set in the shipped `input.nml`), and stops if it is missing.
 
@@ -122,7 +122,20 @@ The CMake options are:
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | `Debug` | Use `Release` for production runs (enables compiler optimisation). `Debug` builds are much slower. |
 | `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
-| `MIMA_OPENMP` | `OFF` on macOS, `ON` elsewhere | Compile with OpenMP. MiMA itself has no OpenMP code, so this matters only for a downloaded FMS, which then needs OpenMP for both C and Fortran (Apple's `clang` has none). |
+| `MIMA_OPENMP` | `OFF` | Compile with OpenMP, which threads the radiation (RRTM), the spectral transforms and the FFTs within each MPI process (see [OpenMP](#openmp)). |
+
+### OpenMP
+
+With `-DMIMA_OPENMP=ON`, each MPI process runs `OMP_NUM_THREADS` threads. Set it so that the number of processes times the number of threads is no more than the number of cores, e.g. on 8 cores:
+
+```bash
+export OMP_NUM_THREADS=2
+mpirun -n 4 ./mima
+```
+
+If `OMP_NUM_THREADS` is unset, most OpenMP libraries start one thread per core in every process, which oversubscribes the cores. The answers are the same for any number of threads. At high resolution the threads may need a larger stack than the default, e.g. `export OMP_STACKSIZE=256M`.
+
+A downloaded FMS is built with OpenMP too if the C compiler supports it. Apple's `clang` doesn't, so on macOS FMS is built without OpenMP, while MiMA's own code still uses it.
 
 ### Choosing the compiler
 
