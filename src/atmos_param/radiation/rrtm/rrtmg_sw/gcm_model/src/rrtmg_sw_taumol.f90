@@ -216,8 +216,6 @@
 !      real(kind=rb), intent(out) :: ssa(:,:)            ! single scattering albedo (inactive)
                                                          !   Dimensions: (nlayers,ngptsw)
 
-      hvrtau = '$Revision: 11661 $'
-
 ! Calculate gaseous optical depth and planck fractions for each spectral band.
       
       call taumol16

@@ -122,8 +122,6 @@
 
 ! Initialize
 
-      hvrrft = '$Revision: 11661 $'
-
       zsr3=sqrt(3._rb)
       zwcrit=0.9999995_rb
       kmodts=2

@@ -497,6 +497,19 @@
 ! This is the main longitude/column loop in RRTMG.
 ! Modify to loop over all columns (nlon) or over daylight columns
 
+! Columns are independent; dynamic scheduling balances the skipped night columns
+!$omp parallel do schedule(dynamic) default(shared) &
+!$omp private(i, ib, ia, icpr, zdpgcp, nlayers, pavel, tavel, pz, tz, tbound, pdp, &
+!$omp         coldry, wkl, cossza, adjflux, solvar, albdir, albdif, taua, ssaa, asma, &
+!$omp         laytrop, layswtch, laylow, jp, jt, jt1, colh2o, colco2, colo3, coln2o, &
+!$omp         colch4, colo2, colmol, co2mult, indself, indfor, selffac, selffrac, &
+!$omp         forfac, forfrac, fac00, fac01, fac10, fac11, inflag, iceflag, liqflag, &
+!$omp         cldfrac, tauc, ssac, asmc, fsfc, ciwp, clwp, rel, rei, taucloud, &
+!$omp         taucldorig, ssacloud, asmcloud, ztauc, ztaucorig, zasyc, zomgc, ztaua, &
+!$omp         zasya, zomga, zbbfu, zbbfd, zbbcu, zbbcd, zbbfddir, zbbcddir, zuvfd, &
+!$omp         zuvcd, zuvfddir, zuvcddir, znifd, znicd, znifddir, znicddir, swnflx, &
+!$omp         swnflxc, dirdflux, difdflux, uvdflx, nidflx, dirdnuv, difdnuv, dirdnir, &
+!$omp         difdnir)
       do iplon = 1, ncol
 !mj do not run if there is no SW 
          if ( coszen(iplon) < zepzen ) then
@@ -727,6 +740,7 @@
 
 ! End longitude loop
       enddo
+!$omp end parallel do
 
       end subroutine rrtmg_sw
 

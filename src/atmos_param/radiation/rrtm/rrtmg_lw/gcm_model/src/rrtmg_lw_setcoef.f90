@@ -147,8 +147,6 @@
       real(kind=rb) :: plog, fp, ft, ft1, water, scalefac, factor, compfp
 
 
-      hvrset = '$Revision: 1.6 $'
-
       stpfac = 296._rb/1013._rb
 
       indbound = tbound - 159._rb

@@ -574,9 +574,11 @@ contains
     integer :: n
 !-----------------------------------------------------------------------
 
+!$omp parallel do if(size(grid, 3) > 1)
     do n = 1, size(grid, 3)
       fourier(:, :, n) = fft_grid_to_fourier_float_2d(grid(:, :, n))
     end do
+!$omp end parallel do
 
 !-----------------------------------------------------------------------
 
@@ -593,9 +595,11 @@ contains
     integer :: n
 !-----------------------------------------------------------------------
 
+!$omp parallel do if(size(fourier, 3) > 1)
     do n = 1, size(fourier, 3)
       grid(:, :, n) = fft_fourier_to_grid_float_2d(fourier(:, :, n))
     end do
+!$omp end parallel do
 
 !-----------------------------------------------------------------------
 
@@ -612,9 +616,11 @@ contains
     integer :: n
 !-----------------------------------------------------------------------
 
+!$omp parallel do if(size(grid, 3) > 1)
     do n = 1, size(grid, 3)
       fourier(:, :, n) = fft_grid_to_fourier_double_2d(grid(:, :, n))
     end do
+!$omp end parallel do
 
 !-----------------------------------------------------------------------
 
@@ -631,9 +637,11 @@ contains
     integer :: n
 !-----------------------------------------------------------------------
 
+!$omp parallel do if(size(fourier, 3) > 1)
     do n = 1, size(fourier, 3)
       grid(:, :, n) = fft_fourier_to_grid_double_2d(fourier(:, :, n))
     end do
+!$omp end parallel do
 
 !-----------------------------------------------------------------------
 

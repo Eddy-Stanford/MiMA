@@ -253,8 +253,6 @@
       real(kind=rb), intent(out) :: taug(:,:)         ! gaseous optical depth 
                                                       !    Dimensions: (nlayers,ngptlw)
 
-      hvrtau = '$Revision: 1.8 $'
-
 ! Calculate gaseous optical depth and planck fractions for each spectral band.
 
       call taugb1

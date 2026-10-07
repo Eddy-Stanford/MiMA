@@ -256,8 +256,6 @@
                0.414_rb,  0.00_rb,  0.00_rb,  0.00_rb, &
                 0.00_rb,  0.00_rb,  0.00_rb,  0.00_rb /
 
-      hvrrtr = '$Revision: 1.7 $'
-
       do ibnd = 1,nbndlw
          if (ibnd.eq.1 .or. ibnd.eq.4 .or. ibnd.ge.10) then
            secdiff(ibnd) = 1.66_rb

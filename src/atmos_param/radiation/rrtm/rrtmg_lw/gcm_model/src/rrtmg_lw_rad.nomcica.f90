@@ -450,6 +450,17 @@
 !      call rrtmg_lw_ini(cpdair)
 
 !  This is the main longitude/column loop within RRTMG.
+!$omp parallel do default(shared) &
+!$omp private(k, ig, nlayers, pavel, tavel, pz, tz, tbound, coldry, wbrodl, wkl, wx, &
+!$omp         pwvcm, semiss, fracs, taug, taut, taua, laytrop, jp, jt, jt1, planklay, &
+!$omp         planklev, plankbnd, dplankbnd_dt, colh2o, colco2, colo3, coln2o, colco, &
+!$omp         colch4, colo2, colbrd, indself, indfor, selffac, selffrac, forfac, &
+!$omp         forfrac, indminor, minorfrac, scaleminor, scaleminorn2, fac00, fac01, &
+!$omp         fac10, fac11, rat_h2oco2, rat_h2oco2_1, rat_h2oo3, rat_h2oo3_1, &
+!$omp         rat_h2on2o, rat_h2on2o_1, rat_h2och4, rat_h2och4_1, rat_n2oco2, &
+!$omp         rat_n2oco2_1, rat_o3co2, rat_o3co2_1, ncbands, inflag, iceflag, liqflag, &
+!$omp         cldfrac, tauc, ciwp, clwp, rel, rei, taucloud, totuflux, totdflux, fnet, &
+!$omp         htr, totuclfl, totdclfl, fnetc, htrc, dtotuflux_dt, dtotuclfl_dt)
       do iplon = 1, ncol
 
 !  Prepare atmospheric profile from GCM for use in RRTMG, and define
@@ -565,6 +576,7 @@
 
 ! End longitude/column loop
       enddo
+!$omp end parallel do
 
       end subroutine rrtmg_lw
 

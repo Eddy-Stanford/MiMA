@@ -31,6 +31,8 @@ module spherical_fourier_mod
 
   use gauss_and_legendre_mod, only: compute_legendre, compute_gaussian
 
+!$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads
+
   implicit none
   private
 
@@ -190,7 +192,11 @@ contains
 !latitude innermost so that the loops are contiguous and vectorize; each sum is still taken in
 !order of increasing n, so the result is unchanged (the GCC vector directives override the
 !cost model of -O2, which otherwise declines these short loops)
+!each thread takes the same levels k for every m, so needs no barriers
+!$omp parallel if(num_levels > 1) default(shared) &
+!$omp private(m, n, j, jh, k, jd, joff, n_last, x_even, x_odd)
     do m = ms, me
+!$omp do schedule(static)
       do k = 1, num_levels
 !the coefficients above the last nonzero n (e.g. those removed by the truncation) add
 !exact zeros to the sums, so they are skipped
@@ -235,7 +241,9 @@ contains
           end do
         end do DOMAIN_LOOP
       end do
+!$omp end do nowait
     end do
+!$omp end parallel
 
     return
   end subroutine trans_spherical_to_fourier_3d
@@ -248,7 +256,7 @@ contains
     complex, intent(in), contiguous, dimension(ms:, :, :, :) :: fourier
     integer, intent(in), optional :: trunc
 
-    integer :: k, j, m, n, n_max
+    integer :: k, j, m, n, n_max, k1, k2
     complex, dimension(size(spherical, 3)) :: x_odd, x_even
     complex, dimension(size(spherical, 3), ns:ne) :: x_sum
 
@@ -281,12 +289,20 @@ contains
 !the sums over the latitudes are accumulated for all levels at once, with the level innermost
 !so that the loops are contiguous and vectorize; each sum is still taken in the same order of
 !latitudes, so the result is unchanged
+!each thread takes a contiguous block of levels k1:k2 for every m and latitude, so needs no
+!barriers
+    k1 = 1
+    k2 = num_levels
+!$omp parallel if(num_levels > 1) default(shared) firstprivate(k1, k2) &
+!$omp private(m, n, j, k, jd, joff, n_max, x_even, x_odd, x_sum)
+!$  k1 = omp_get_thread_num()*num_levels/omp_get_num_threads() + 1
+!$  k2 = (omp_get_thread_num() + 1)*num_levels/omp_get_num_threads()
     do m = ms, me
 !coefficients with total wavenumber above trunc are not computed (left zero)
       n_max = ne
       if (present(trunc)) n_max = min(ne, trunc - m*fourier_inc)
 
-      x_sum = cmplx(0., 0.)
+      x_sum(k1:k2, :) = cmplx(0., 0.)
       DOMAIN_LOOP: do jd = 1, nd/2 + 1
 !each domain jd has a mirror domain nd+1-jd
 !if nd is even we stop at jd=nd/2; if nd is odd we stop at j=nj/2
@@ -295,31 +311,32 @@ contains
         do j = 1, nj
           if (jd .eq. nd/2 + 1 .and. j .gt. nj/2) exit DOMAIN_LOOP
           if (south_to_north_local) then
-            x_even = fourier(m, nj + 1 - j, :, nd + 1 - jd) + fourier(m, j, :, jd)
-            x_odd = fourier(m, nj + 1 - j, :, nd + 1 - jd) - fourier(m, j, :, jd)
+            x_even(k1:k2) = fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd) + fourier(m, j, k1:k2, jd)
+            x_odd(k1:k2) = fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd) - fourier(m, j, k1:k2, jd)
           else
-            x_even = fourier(m, j, :, jd) + fourier(m, nj + 1 - j, :, nd + 1 - jd)
-            x_odd = fourier(m, j, :, jd) - fourier(m, nj + 1 - j, :, nd + 1 - jd)
+            x_even(k1:k2) = fourier(m, j, k1:k2, jd) + fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd)
+            x_odd(k1:k2) = fourier(m, j, k1:k2, jd) - fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd)
           end if
           do n = neven, n_max, 2
             !GCC$ vector
-            do k = 1, num_levels
+            do k = k1, k2
               x_sum(k, n) = x_sum(k, n) + x_even(k)*legendre_wts(m, n, j + joff)
             end do
           end do
           do n = nodd, n_max, 2
             !GCC$ vector
-            do k = 1, num_levels
+            do k = k1, k2
               x_sum(k, n) = x_sum(k, n) + x_odd(k)*legendre_wts(m, n, j + joff)
             end do
           end do
         end do
       end do DOMAIN_LOOP
 
-      do k = 1, num_levels
+      do k = k1, k2
         spherical(m, :, k) = x_sum(k, :)
       end do
     end do
+!$omp end parallel
 
     return
   end subroutine trans_fourier_to_spherical_3d

@@ -279,8 +279,6 @@
          endif
       enddo
 
-      hvrrtx = '$Revision: 1.7 $'
-
       urad(0) = 0.0_rb
       drad(0) = 0.0_rb
       totuflux(0) = 0.0_rb

@@ -112,8 +112,6 @@
 
 ! Initialize
 
-      hvrcld = '$Revision: 23308 $'
-
 !      ncbands = 29
       ib1 = jpb1
       ib2 = jpb2
