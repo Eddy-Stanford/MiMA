@@ -44,13 +44,29 @@ function(mima_add_fms)
   # FMS build options (plain variables here, so they apply to FMS only)
   set(64BIT       ON)
   set(32BIT       OFF)
-  set(OPENMP      ${MIMA_OPENMP})
   set(OPENACC     OFF)
   set(WITH_YAML   OFF)
   set(CONSTANTS   GFDL)
   set(UNIT_TESTS  OFF)
   set(SHARED_LIBS OFF)
   set(BUILD_TESTING OFF)
+
+  # FMS with OpenMP needs it for C too, which AppleClang lacks. MiMA calls
+  # FMS only outside its threaded loops, so FMS can do without.
+  set(OPENMP      OFF)
+  if(MIMA_OPENMP)
+    find_package(OpenMP QUIET COMPONENTS C)
+    if(OpenMP_C_FOUND)
+      set(OPENMP ON)
+    else()
+      message(STATUS "The C compiler has no OpenMP; building FMS without OpenMP")
+    endif()
+  endif()
+  if(NOT OPENMP)
+    # FMS adds OpenMP to its targets if MiMA has found it
+    set(OpenMP_Fortran_FOUND FALSE)
+    set(OpenMP_C_FOUND FALSE)
+  endif()
 
   # FMS replaces CMAKE_<LANG>_FLAGS_<CONFIG> with its own flags but appends
   # to CMAKE_<LANG>_FLAGS, so pass any -ffp-contract flags on through the latter.

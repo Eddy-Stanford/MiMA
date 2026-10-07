@@ -13,8 +13,8 @@ target_compile_definitions( mima PRIVATE use_libMPI use_netCDF gFortran ) # gFor
 
 option(INSTALL_EXEC "Install executables to exec/ directory?" OFF)
 
-# MiMA's own code has no OpenMP directives. A downloaded FMS is built with
-# OpenMP only if this is on; that needs OpenMP for C too, which AppleClang lacks.
+# OpenMP threads some of MiMA's loops. A downloaded FMS is built with OpenMP
+# only if this is on and the C compiler supports it (AppleClang does not).
 if(APPLE)
     set(_mima_openmp_default OFF)
 else()
