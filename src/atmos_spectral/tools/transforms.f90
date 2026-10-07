@@ -61,7 +61,8 @@ module transforms_mod
 
   !> Transforms the grid field `grid` (2d or 3d) to spherical harmonic coefficients
   !> `spherical`, truncated (triangular or rhomboidal, as set in `transforms_init`) unless
-  !> the optional `do_truncation` is `.false.`.
+  !> the optional `do_truncation` is `.false.`. With the optional `trunc`, the coefficients
+  !> with total wavenumber L > `trunc` are set to zero without being computed.
   interface trans_grid_to_spherical
     module procedure trans_grid_to_spherical_3d, &
       trans_grid_to_spherical_2d
@@ -430,15 +431,16 @@ contains
   end subroutine trans_spherical_to_grid_2d
 
 !-------------------------------------------------------------------------
-  subroutine trans_grid_to_spherical_3d(grid, spherical, do_truncation)
+  subroutine trans_grid_to_spherical_3d(grid, spherical, do_truncation, trunc)
 !-------------------------------------------------------------------------
 
     real, intent(in), dimension(is:, :, :) :: grid
     logical, intent(in), optional :: do_truncation
+    integer, intent(in), optional :: trunc
     complex, intent(inout), dimension(ms:, ns:, :) :: spherical
     real, dimension(num_lon, size(grid, 2), size(grid, 3)) :: grid_xglobal
 
-    integer :: j, k
+    integer :: j, k, trunc_local
     logical :: do_truncation_local, grid_x_is_global
     complex, dimension(0:num_lon/2, js:je, size(grid, 3)) :: fourier_g
     complex, dimension(ms:me, je - js + 1, size(grid, 3), grid_layout(2)) :: fourier_s
@@ -479,8 +481,13 @@ contains
 
     if (trunc_fourier .lt. me) fourier_g(trunc_fourier + 1:me, :, :) = cmplx(0., 0.)
 
+    trunc_local = fourier_inc*num_fourier + num_spherical
+    if (present(trunc)) trunc_local = trunc
+!triangular_truncation below zeroes the coefficients with L > num_spherical - 1
+    if (do_truncation_local .and. triang_trunc_local) trunc_local = min(trunc_local, num_spherical - 1)
+
     call transpose_fourier(fourier_g, fourier_s)
-    call trans_fourier_to_spherical(fourier_s, spherical)
+    call trans_fourier_to_spherical(fourier_s, spherical, trunc=trunc_local)
 
     if (do_truncation_local) then
       if (triang_trunc_local) then
@@ -494,11 +501,12 @@ contains
   end subroutine trans_grid_to_spherical_3d
 
 !-------------------------------------------------------------------------
-  subroutine trans_grid_to_spherical_2d(grid, spherical, do_truncation)
+  subroutine trans_grid_to_spherical_2d(grid, spherical, do_truncation, trunc)
 !-------------------------------------------------------------------------
 
     real, intent(in), dimension(:, :) :: grid
     logical, intent(in), optional :: do_truncation
+    integer, intent(in), optional :: trunc
     complex, intent(inout), dimension(:, :) :: spherical
 
     real, dimension(size(grid, 1), size(grid, 2), 1) :: grid_3d
@@ -506,7 +514,7 @@ contains
 
     grid_3d(:, :, 1) = grid(:, :)
     spherical_3d(:, :, 1) = cmplx(0.0, 0.0)
-    call trans_grid_to_spherical_3d(grid_3d, spherical_3d, do_truncation)
+    call trans_grid_to_spherical_3d(grid_3d, spherical_3d, do_truncation, trunc)
     spherical(:, :) = spherical_3d(:, :, 1)
 
     return
@@ -711,6 +719,7 @@ contains
     real, dimension(size(u_grid, 1), size(u_grid, 2), size(u_grid, 3)) :: grid_tmp
 
     logical :: do_triang
+    integer :: trunc
 
     if (.not. module_is_initialized) then
       call error_mesg('vor_div_from_uv_grid', 'transforms module is not initialized', FATAL)
@@ -722,13 +731,21 @@ contains
       do_triang = .true.
     end if
 
+!the coefficients kept by triangular_truncation (L <= num_spherical - 1) need dx_spec and
+!dy_spec up to L = num_spherical
+    if (do_triang) then
+      trunc = num_spherical
+    else
+      trunc = fourier_inc*num_fourier + num_spherical
+    end if
+
     grid_tmp = u_grid
     call divide_by_cos(grid_tmp)
-    call trans_grid_to_spherical(grid_tmp, dx_spec, do_truncation=.false.)
+    call trans_grid_to_spherical(grid_tmp, dx_spec, do_truncation=.false., trunc=trunc)
 
     grid_tmp = v_grid
     call divide_by_cos(grid_tmp)
-    call trans_grid_to_spherical(grid_tmp, dy_spec, do_truncation=.false.)
+    call trans_grid_to_spherical(grid_tmp, dy_spec, do_truncation=.false., trunc=trunc)
 
     call compute_vor_div(dx_spec, dy_spec, vor_spec, div_spec)
 

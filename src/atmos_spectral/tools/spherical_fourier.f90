@@ -46,7 +46,8 @@ module spherical_fourier_mod
   end interface
   !> Transforms Fourier coefficients `fourier` at all latitudes (arranged as for
   !> `trans_spherical_to_fourier`) to spherical harmonic coefficients `spherical` by Gaussian
-  !> quadrature.
+  !> quadrature. With the optional `trunc`, the coefficients with total wavenumber
+  !> L > `trunc` are not computed and are set to zero.
   interface trans_fourier_to_spherical
     module procedure trans_fourier_to_spherical_3d, &
       trans_fourier_to_spherical_2d
@@ -158,7 +159,7 @@ contains
 
     complex, dimension(lat_max/2) :: x_odd, x_even
 
-    integer :: m, n, j, jh, k, num_levels
+    integer :: m, n, j, jh, k, num_levels, n_last
 
     integer :: neven, nodd
     integer :: jd, joff, nd, nj
@@ -191,15 +192,25 @@ contains
 !cost model of -O2, which otherwise declines these short loops)
     do m = ms, me
       do k = 1, num_levels
+!the coefficients above the last nonzero n (e.g. those removed by the truncation) add
+!exact zeros to the sums, so they are skipped
+        n_last = ns - 1
+        do n = ne, ns, -1
+          if (spherical(m, n, k) .ne. cmplx(0., 0.)) then
+            n_last = n
+            exit
+          end if
+        end do
+
         x_even = cmplx(0., 0.)
         x_odd = cmplx(0., 0.)
-        do n = neven, ne, 2
+        do n = neven, n_last, 2
           !GCC$ vector
           do jh = 1, lat_max/2
             x_even(jh) = x_even(jh) + spherical(m, n, k)*legendre(jh, m, n)
           end do
         end do
-        do n = nodd, ne, 2
+        do n = nodd, n_last, 2
           !GCC$ vector
           do jh = 1, lat_max/2
             x_odd(jh) = x_odd(jh) + spherical(m, n, k)*legendre(jh, m, n)
@@ -230,13 +241,14 @@ contains
   end subroutine trans_spherical_to_fourier_3d
 
 !-----------------------------------------------------------------------
-  subroutine trans_fourier_to_spherical_3d(fourier, spherical)
+  subroutine trans_fourier_to_spherical_3d(fourier, spherical, trunc)
 !-----------------------------------------------------------------------
 
     complex, intent(out), contiguous, dimension(ms:, ns:, :) :: spherical
     complex, intent(in), contiguous, dimension(ms:, :, :, :) :: fourier
+    integer, intent(in), optional :: trunc
 
-    integer :: k, j, m, n
+    integer :: k, j, m, n, n_max
     complex, dimension(size(spherical, 3)) :: x_odd, x_even
     complex, dimension(size(spherical, 3), ns:ne) :: x_sum
 
@@ -270,6 +282,10 @@ contains
 !so that the loops are contiguous and vectorize; each sum is still taken in the same order of
 !latitudes, so the result is unchanged
     do m = ms, me
+!coefficients with total wavenumber above trunc are not computed (left zero)
+      n_max = ne
+      if (present(trunc)) n_max = min(ne, trunc - m*fourier_inc)
+
       x_sum = cmplx(0., 0.)
       DOMAIN_LOOP: do jd = 1, nd/2 + 1
 !each domain jd has a mirror domain nd+1-jd
@@ -285,13 +301,13 @@ contains
             x_even = fourier(m, j, :, jd) + fourier(m, nj + 1 - j, :, nd + 1 - jd)
             x_odd = fourier(m, j, :, jd) - fourier(m, nj + 1 - j, :, nd + 1 - jd)
           end if
-          do n = neven, ne, 2
+          do n = neven, n_max, 2
             !GCC$ vector
             do k = 1, num_levels
               x_sum(k, n) = x_sum(k, n) + x_even(k)*legendre_wts(m, n, j + joff)
             end do
           end do
-          do n = nodd, ne, 2
+          do n = nodd, n_max, 2
             !GCC$ vector
             do k = 1, num_levels
               x_sum(k, n) = x_sum(k, n) + x_odd(k)*legendre_wts(m, n, j + joff)
@@ -326,17 +342,18 @@ contains
   end subroutine trans_spherical_to_fourier_2d
 
 !-----------------------------------------------------------------------
-  subroutine trans_fourier_to_spherical_2d(fourier, spherical)
+  subroutine trans_fourier_to_spherical_2d(fourier, spherical, trunc)
 !-----------------------------------------------------------------------
 
     complex, intent(in), dimension(:, :, :) :: fourier
     complex, intent(out), dimension(:, :) :: spherical
+    integer, intent(in), optional :: trunc
 
     complex, dimension(size(spherical, 1), size(spherical, 2), 1) :: spherical_3d
     complex, dimension(size(fourier, 1), size(fourier, 2), 1, size(fourier, 3)) :: fourier_3d
 
     fourier_3d(:, :, 1, :) = fourier(:, :, :)
-    call trans_fourier_to_spherical_3d(fourier_3d, spherical_3d)
+    call trans_fourier_to_spherical_3d(fourier_3d, spherical_3d, trunc)
     spherical(:, :) = spherical_3d(:, :, 1)
 
     return
