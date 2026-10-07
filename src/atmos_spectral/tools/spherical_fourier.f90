@@ -92,7 +92,7 @@ module spherical_fourier_mod
   real, allocatable, dimension(:) :: deg_lat
   real, allocatable, dimension(:) :: wts_lat
   real, allocatable, dimension(:) :: sin_hem
-  real, allocatable, dimension(:, :, :) :: legendre
+  real, allocatable, dimension(:, :, :) :: legendre  !latitude first, (lat_max/2, ms:me, ns:ne)
   real, allocatable, dimension(:, :, :) :: legendre_wts
 
   type(domain1D), save :: grid_domain_y !used by the trans_s_f anfd f_s routines
@@ -153,12 +153,12 @@ contains
 
 !in parallel, assumes that computational domains are being passed in.
 
-    complex, intent(in), dimension(ms:, ns:, :) :: spherical
-    complex, intent(out), dimension(ms:, :, :, :) :: fourier
+    complex, intent(in), contiguous, dimension(ms:, ns:, :) :: spherical
+    complex, intent(out), contiguous, dimension(ms:, :, :, :) :: fourier
 
-    complex :: x_odd, x_even
+    complex, dimension(lat_max/2) :: x_odd, x_even
 
-    integer :: m, n, j, k, num_levels
+    integer :: m, n, j, jh, k, num_levels
 
     integer :: neven, nodd
     integer :: jd, joff, nd, nj
@@ -185,51 +185,46 @@ contains
     end if
 
     call mpp_get_compute_domains(grid_domain_y, begin=jstart(:))
-    DOMAIN_LOOP: do jd = 1, nd/2 + 1
+!the sums over n are accumulated for all the latitudes of a hemisphere at once, with the
+!latitude innermost so that the loops are contiguous and vectorize; each sum is still taken in
+!order of increasing n, so the result is unchanged (the GCC vector directives override the
+!cost model of -O2, which otherwise declines these short loops)
+    do m = ms, me
+      do k = 1, num_levels
+        x_even = cmplx(0., 0.)
+        x_odd = cmplx(0., 0.)
+        do n = neven, ne, 2
+          !GCC$ vector
+          do jh = 1, lat_max/2
+            x_even(jh) = x_even(jh) + spherical(m, n, k)*legendre(jh, m, n)
+          end do
+        end do
+        do n = nodd, ne, 2
+          !GCC$ vector
+          do jh = 1, lat_max/2
+            x_odd(jh) = x_odd(jh) + spherical(m, n, k)*legendre(jh, m, n)
+          end do
+        end do
+
+        DOMAIN_LOOP: do jd = 1, nd/2 + 1
 !each domain jd has a mirror domain nd+1-jd
 !if nd is even we stop at jd=nd/2; if nd is odd we stop at j=nj/2
-      if (jd .eq. nd/2 + 1 .and. mod(nd, 2) .eq. 0) exit DOMAIN_LOOP
-      joff = jstart(jd) - 1
-      if (debug) write (0, '(a,i2,2i4)') 'pe, jd, joff=', mpp_pe(), jd, joff
-      do j = 1, nj
-        if (jd .eq. nd/2 + 1 .and. j .gt. nj/2) exit DOMAIN_LOOP
-        if (south_to_north_local) then !how long are we going to keep carrying around S2N and N2S?
-          do k = 1, num_levels
-            do m = ms, me
-              x_even = cmplx(0., 0.)
-              x_odd = cmplx(0., 0.)
-
-              do n = neven, ne, 2
-                x_even = x_even + spherical(m, n, k)*legendre(m, n, j + joff)
-              end do
-              do n = nodd, ne, 2
-                x_odd = x_odd + spherical(m, n, k)*legendre(m, n, j + joff)
-              end do
-
-              fourier(m, j, k, jd) = x_even - x_odd
-              fourier(m, nj + 1 - j, k, nd + 1 - jd) = x_even + x_odd
-            end do
+          if (jd .eq. nd/2 + 1 .and. mod(nd, 2) .eq. 0) exit DOMAIN_LOOP
+          joff = jstart(jd) - 1
+          if (debug .and. m .eq. ms .and. k .eq. 1) write (0, '(a,i2,2i4)') 'pe, jd, joff=', mpp_pe(), jd, joff
+          do j = 1, nj
+            if (jd .eq. nd/2 + 1 .and. j .gt. nj/2) exit DOMAIN_LOOP
+            if (south_to_north_local) then !how long are we going to keep carrying around S2N and N2S?
+              fourier(m, j, k, jd) = x_even(j + joff) - x_odd(j + joff)
+              fourier(m, nj + 1 - j, k, nd + 1 - jd) = x_even(j + joff) + x_odd(j + joff)
+            else
+              fourier(m, j, k, jd) = x_even(j + joff) + x_odd(j + joff)
+              fourier(m, nj + 1 - j, k, nd + 1 - jd) = x_even(j + joff) - x_odd(j + joff)
+            end if
           end do
-        else
-          do k = 1, num_levels
-            do m = ms, me
-              x_even = cmplx(0., 0.)
-              x_odd = cmplx(0., 0.)
-
-              do n = neven, ne, 2
-                x_even = x_even + spherical(m, n, k)*legendre(m, n, j + joff)
-              end do
-              do n = nodd, ne, 2
-                x_odd = x_odd + spherical(m, n, k)*legendre(m, n, j + joff)
-              end do
-
-              fourier(m, j, k, jd) = x_even + x_odd
-              fourier(m, nj + 1 - j, k, nd + 1 - jd) = x_even - x_odd
-            end do
-          end do
-        end if
+        end do DOMAIN_LOOP
       end do
-    end do DOMAIN_LOOP
+    end do
 
     return
   end subroutine trans_spherical_to_fourier_3d
@@ -238,12 +233,12 @@ contains
   subroutine trans_fourier_to_spherical_3d(fourier, spherical)
 !-----------------------------------------------------------------------
 
-    complex, intent(out), dimension(ms:, ns:, :) :: spherical
-    complex, intent(in), dimension(ms:, :, :, :) :: fourier
+    complex, intent(out), contiguous, dimension(ms:, ns:, :) :: spherical
+    complex, intent(in), contiguous, dimension(ms:, :, :, :) :: fourier
 
     integer :: k, j, m, n
-!  complex, dimension(ms:me, size(spherical,3)) :: x_odd, x_even
-    complex :: x_odd, x_even
+    complex, dimension(size(spherical, 3)) :: x_odd, x_even
+    complex, dimension(size(spherical, 3), ns:ne) :: x_sum
 
     integer :: num_levels, nd, nj
 
@@ -271,43 +266,44 @@ contains
     end if
 
     call mpp_get_compute_domains(grid_domain_y, begin=jstart(:))
-    spherical = cmplx(0., 0.)
-    DOMAIN_LOOP: do jd = 1, nd/2 + 1
+!the sums over the latitudes are accumulated for all levels at once, with the level innermost
+!so that the loops are contiguous and vectorize; each sum is still taken in the same order of
+!latitudes, so the result is unchanged
+    do m = ms, me
+      x_sum = cmplx(0., 0.)
+      DOMAIN_LOOP: do jd = 1, nd/2 + 1
 !each domain jd has a mirror domain nd+1-jd
 !if nd is even we stop at jd=nd/2; if nd is odd we stop at j=nj/2
-      if (jd .eq. nd/2 + 1 .and. mod(nd, 2) .eq. 0) exit DOMAIN_LOOP
-      joff = jstart(jd) - 1
-      do j = 1, nj
-        if (jd .eq. nd/2 + 1 .and. j .gt. nj/2) exit DOMAIN_LOOP
-        if (south_to_north_local) then
-          do k = 1, num_levels
-            do m = ms, me
-              x_even = fourier(m, nj + 1 - j, k, nd + 1 - jd) + fourier(m, j, k, jd)
-              x_odd = fourier(m, nj + 1 - j, k, nd + 1 - jd) - fourier(m, j, k, jd)
-              do n = neven, ne, 2
-                spherical(m, n, k) = spherical(m, n, k) + x_even*legendre_wts(m, n, j + joff)
-              end do
-              do n = nodd, ne, 2
-                spherical(m, n, k) = spherical(m, n, k) + x_odd*legendre_wts(m, n, j + joff)
-              end do
+        if (jd .eq. nd/2 + 1 .and. mod(nd, 2) .eq. 0) exit DOMAIN_LOOP
+        joff = jstart(jd) - 1
+        do j = 1, nj
+          if (jd .eq. nd/2 + 1 .and. j .gt. nj/2) exit DOMAIN_LOOP
+          if (south_to_north_local) then
+            x_even = fourier(m, nj + 1 - j, :, nd + 1 - jd) + fourier(m, j, :, jd)
+            x_odd = fourier(m, nj + 1 - j, :, nd + 1 - jd) - fourier(m, j, :, jd)
+          else
+            x_even = fourier(m, j, :, jd) + fourier(m, nj + 1 - j, :, nd + 1 - jd)
+            x_odd = fourier(m, j, :, jd) - fourier(m, nj + 1 - j, :, nd + 1 - jd)
+          end if
+          do n = neven, ne, 2
+            !GCC$ vector
+            do k = 1, num_levels
+              x_sum(k, n) = x_sum(k, n) + x_even(k)*legendre_wts(m, n, j + joff)
             end do
           end do
-        else
-          do k = 1, num_levels
-            do m = ms, me
-              x_even = fourier(m, j, k, jd) + fourier(m, nj + 1 - j, k, nd + 1 - jd)
-              x_odd = fourier(m, j, k, jd) - fourier(m, nj + 1 - j, k, nd + 1 - jd)
-              do n = neven, ne, 2
-                spherical(m, n, k) = spherical(m, n, k) + x_even*legendre_wts(m, n, j + joff)
-              end do
-              do n = nodd, ne, 2
-                spherical(m, n, k) = spherical(m, n, k) + x_odd*legendre_wts(m, n, j + joff)
-              end do
+          do n = nodd, ne, 2
+            !GCC$ vector
+            do k = 1, num_levels
+              x_sum(k, n) = x_sum(k, n) + x_odd(k)*legendre_wts(m, n, j + joff)
             end do
           end do
-        end if
+        end do
+      end do DOMAIN_LOOP
+
+      do k = 1, num_levels
+        spherical(m, :, k) = x_sum(k, :)
       end do
-    end do DOMAIN_LOOP
+    end do
 
     return
   end subroutine trans_fourier_to_spherical_3d
@@ -354,15 +350,19 @@ contains
     real, dimension(0:num_spherical, 0:num_spherical) :: norm
     real, dimension(0:num_fourier, 0:num_spherical, lat_max/2) :: legendre_global
 
-    allocate (legendre(ms:me, ns:ne, lat_max/2))
+    allocate (legendre(lat_max/2, ms:me, ns:ne))
 
     allocate (legendre_wts(ms:me, ns:ne, lat_max/2))
 
     call compute_legendre(legendre_global, num_fourier, fourier_inc, num_spherical, sin_hem, lat_max/2)
-    legendre = legendre_global(ms:me, ns:ne, :)
+    do n = ns, ne
+      do m = ms, me
+        legendre(:, m, n) = legendre_global(m, n, :)
+      end do
+    end do
 
     do j = 1, lat_max/2
-      legendre_wts(:, :, j) = legendre(:, :, j)*wts_lat(j)
+      legendre_wts(:, :, j) = legendre_global(ms:me, ns:ne, j)*wts_lat(j)
     end do
 
     return
