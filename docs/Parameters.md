@@ -261,6 +261,7 @@ Declared in [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_rad
 | `dt_rad` | integer(kind=im) | `4500` | [s] radiation time step; radiation is computed every step if `dt_rad` < `dt_atmos` |
 | `dt_rad_avg` | integer(kind=im) | `4500` | [s] averaging interval for the zenith angle; 0: no averaging; < 0: `dt_rad`. 86400 removes the diurnal cycle. |
 | `lonstep` | integer(kind=im) | `4` | compute radiation only at every `lonstep`-th longitude and interpolate |
+| `balance_sw_columns` | logical | `.true.` | share the sunlit columns of the shortwave calculation evenly among the processes. RRTMG skips the columns where the sun is down, so the processes whose latitude bands are more in daylight have more work and the others wait for them. With `.true.` processes with more sunlit columns than the mean send the extra columns to processes with fewer, which compute them and send the fluxes back. The results are the same as with `.false.`, bit for bit. |
 | `do_zm_tracers` | logical | `.false.` | pass only the zonal mean of the absorbers to RRTM |
 | `do_zm_rad` | logical | `.false.` | compute radiation for the zonal mean only |
 | `do_precip_albedo` | logical | `.false.` | increase the surface albedo where it rains (a crude cloud effect) |

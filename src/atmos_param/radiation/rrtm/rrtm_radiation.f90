@@ -181,6 +181,11 @@ module rrtm_radiation
   !  The diurnal cycle has been observed to create strong atmospheric tides with topography.
   integer(kind=im)   :: lonstep = 4                       !! compute radiation only at every `lonstep`-th longitude and
                                                           !! interpolate
+  logical            :: balance_sw_columns = .true.       !! share the sunlit columns of the shortwave calculation evenly
+  !! among the processes. RRTMG skips the columns where the sun is down, so the processes whose latitude bands are
+  !! more in daylight have more work and the others wait for them. With `.true.` processes with more sunlit columns
+  !! than the mean send the extra columns to processes with fewer, which compute them and send the fluxes back.
+  !! The results are the same as with `.false.`, bit for bit.
 ! some fancy radiation tweaks
   real(kind=rb)      :: slowdown_rad = 1.0              !! factor on the speed of the seasonal cycle (> 1 faster, < 1 slower)
   logical            :: do_zm_rad = .false.               !! compute radiation for the zonal mean only
@@ -207,7 +212,7 @@ module rrtm_radiation
        &h2o_lower_limit, temp_lower_limit, temp_upper_limit, co2ppmv, &
        &slowdown_rad, &
        &store_intermediate_rad, do_rad_time_avg, dt_rad, dt_rad_avg, &
-       &lonstep, do_zm_tracers, do_zm_rad, &
+       &lonstep, balance_sw_columns, do_zm_tracers, do_zm_rad, &
        &do_precip_albedo, precip_albedo_mode, precip_albedo, precip_lat
 
 contains
@@ -459,11 +464,9 @@ contains
 !
 ! Modules
     use fms_mod, only: error_mesg, FATAL
-    use mpp_mod, only: mpp_pe, mpp_root_pe
+    use mpp_mod, only: mpp_pe, mpp_root_pe, mpp_npes
     use rrtmg_lw_rad, only: rrtmg_lw
-    use rrtmg_sw_rad, only: rrtmg_sw
-    use rrtm_astro, only: compute_zenith, use_dyofyr, solr_cnst, &
-                          solrad, solday, equinox_day
+    use rrtm_astro, only: compute_zenith, use_dyofyr, solday, equinox_day
     use time_manager_mod, only: time_type, get_time, set_time
     use mima_interpolator_mod, only: interpolator
 !---------------------------------------------------------------------------------------------------------------
@@ -493,10 +496,10 @@ contains
     integer si, sj, sk, locmin(3)
     real(kind=rb), dimension(size(q, 1), size(q, 2), size(q, 3)) :: o3f
     real(kind=rb), dimension(ncols_rrt, nlay_rrt) :: pfull, tfull &
-                                                     , hr, hrc, swhr, swhrc
+                                                     , hr, hrc, swhr
     real(kind=rb), dimension(size(tdt, 1), size(tdt, 2), size(tdt, 3)) :: tdt_rrtm
     real(kind=rb), dimension(ncols_rrt, nlay_rrt + 1) :: uflx, dflx, uflxc, dflxc &
-                                                         , swuflx, swdflx, swuflxc, swdflxc
+                                                         , swuflx, swdflx
     real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2), size(q, 3)) :: swijk, lwijk
     real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2)) :: swflxijk, lwflxijk, olrijk, isrijk
     real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2)) :: swdntoaijk, lwupsfcijk
@@ -627,34 +630,11 @@ contains
     ! anything lower than 0.01 (about 15min) is set to zero
     !where(cosz_rr < 1.e-2)cosz_rr=0.
 
-    if (include_secondary_gases) then
-      call rrtmg_sw &
-        (ncols_rrt, nlay_rrt, icld, iaer, &
-         pfull, phalf, tfull, thalf, tsrf, &
-         h2o, o3, co2, ch4_val*ones, n2o_val*ones, o2_val*ones, &
-         albedo_rr, albedo_rr, albedo_rr, albedo_rr, &
-         cosz_rr, solrad, dyofyr, solr_cnst, &
-         inflglw, iceflglw, liqflglw, &
-         ! cloud parameters
-         zeros, taucld, sw_zro, sw_zro, sw_zro, &
-         zeros, zeros, 10*ones, 10*ones, &
-         tauaer, zro_sw, zro_sw, zro_sw, &
-         ! output
-         swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
+    if (balance_sw_columns .and. mpp_npes() > 1) then
+      call sw_balanced(pfull, phalf, tfull, thalf, tsrf, albedo_rr, cosz_rr, dyofyr, swuflx, swdflx, swhr)
     else
-      call rrtmg_sw &
-        (ncols_rrt, nlay_rrt, icld, iaer, &
-         pfull, phalf, tfull, thalf, tsrf, &
-         h2o, o3, co2, zeros, zeros, zeros, &
-         albedo_rr, albedo_rr, albedo_rr, albedo_rr, &
-         cosz_rr, solrad, dyofyr, solr_cnst, &
-         inflglw, iceflglw, liqflglw, &
-         ! cloud parameters
-         zeros, taucld, sw_zro, sw_zro, sw_zro, &
-         zeros, zeros, 10*ones, 10*ones, &
-         tauaer, zro_sw, zro_sw, zro_sw, &
-         ! output
-         swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_rr, cosz_rr, dyofyr, &
+                      swuflx, swdflx, swhr)
     end if
 
     swijk = reshape(swhr(:, sk:1:-1), (/si/lonstep, sj, sk/))*daypersec
@@ -769,6 +749,196 @@ contains
       call write_diag_rrtm(Time_diag, is, js, o3f, t_half)
     end if
   end subroutine run_rrtmg
+
+!*****************************************************************************************
+  !> Calls the RRTMG shortwave scheme on `n` columns and returns the total-sky fluxes and
+  !> heating rate. RRTMG computes each column on its own, so the result of a column does not
+  !> depend on the others in the call.
+  subroutine sw_columns(n, pfull, phalf, tfull, thalf, tsrf, h2o_c, o3_c, co2_c, albedo_c, cosz, dyofyr, &
+                        swuflx, swdflx, swhr)
+    use rrtmg_sw_rad, only: rrtmg_sw
+    use rrtm_astro, only: solr_cnst, solrad
+    implicit none
+    integer, intent(in) :: n, dyofyr
+    real(kind=rb), dimension(:, :), intent(in) :: pfull, phalf, tfull, thalf, h2o_c, o3_c, co2_c
+    real(kind=rb), dimension(:), intent(in) :: tsrf, albedo_c, cosz
+    real(kind=rb), dimension(:, :), intent(out) :: swuflx, swdflx, swhr
+    real(kind=rb), dimension(n, nlay_rrt + 1) :: swuflxc, swdflxc
+    real(kind=rb), dimension(n, nlay_rrt) :: swhrc
+
+    if (include_secondary_gases) then
+      call rrtmg_sw &
+        (n, nlay_rrt, icld, iaer, &
+         pfull, phalf, tfull, thalf, tsrf, &
+         h2o_c, o3_c, co2_c, ch4_val*ones(1:n, :), n2o_val*ones(1:n, :), o2_val*ones(1:n, :), &
+         albedo_c, albedo_c, albedo_c, albedo_c, &
+         cosz, solrad, dyofyr, solr_cnst, &
+         inflglw, iceflglw, liqflglw, &
+         ! cloud parameters
+         zeros(1:n, :), taucld(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), &
+         zeros(1:n, :), zeros(1:n, :), 10*ones(1:n, :), 10*ones(1:n, :), &
+         tauaer(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), &
+         ! output
+         swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
+    else
+      call rrtmg_sw &
+        (n, nlay_rrt, icld, iaer, &
+         pfull, phalf, tfull, thalf, tsrf, &
+         h2o_c, o3_c, co2_c, zeros(1:n, :), zeros(1:n, :), zeros(1:n, :), &
+         albedo_c, albedo_c, albedo_c, albedo_c, &
+         cosz, solrad, dyofyr, solr_cnst, &
+         inflglw, iceflglw, liqflglw, &
+         ! cloud parameters
+         zeros(1:n, :), taucld(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), &
+         zeros(1:n, :), zeros(1:n, :), 10*ones(1:n, :), 10*ones(1:n, :), &
+         tauaer(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), &
+         ! output
+         swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
+    end if
+  end subroutine sw_columns
+
+!*****************************************************************************************
+  !> Calls the RRTMG shortwave scheme with the sunlit columns shared evenly among the
+  !> processes (`balance_sw_columns`).
+  !>
+  !> RRTMG skips the columns with `cosz < zepzen`. Each process counts its sunlit columns
+  !> and all processes compute the same plan from the counts: in rank order, processes
+  !> with more than the mean send their last sunlit columns to processes with fewer. A
+  !> receiver computes the columns it gets and its own, then sends the fluxes of the
+  !> columns it got back; a sender computes the columns it keeps and receives the rest.
+  subroutine sw_balanced(pfull, phalf, tfull, thalf, tsrf, albedo_c, cosz, dyofyr, swuflx, swdflx, swhr)
+    use mpp_mod, only: mpp_npes, mpp_pe, mpp_get_current_pelist, mpp_sum, mpp_send, mpp_recv, &
+                       mpp_sync_self
+    implicit none
+    real(kind=rb), dimension(:, :), intent(in) :: pfull, phalf, tfull, thalf
+    real(kind=rb), dimension(:), intent(in) :: tsrf, albedo_c, cosz
+    integer, intent(in) :: dyofyr
+    real(kind=rb), dimension(:, :), intent(out) :: swuflx, swdflx, swhr
+
+    real(kind=rb), parameter :: zepzen = 1.e-10_rb  ! RRTMG's threshold for a sunlit column
+    integer, allocatable :: pelist(:), counts(:), nsun(:), ncol(:), excess(:), nmove(:, :), idx(:)
+    real(kind=rb), allocatable :: bufin(:, :), bufout(:, :), r_pfull(:, :), r_phalf(:, :), r_tfull(:, :), &
+                                  r_thalf(:, :), r_h2o(:, :), r_o3(:, :), r_co2(:, :), r_tsrf(:), r_albedo(:), &
+                                  r_cosz(:), r_swuflx(:, :), r_swdflx(:, :), r_swhr(:, :)
+    real(kind=rb), dimension(size(cosz)) :: cosz_kept
+    integer :: npes, me, nl, nin, nout, nsend, nrecv, tot, p, q, m, k, c, off
+
+    npes = mpp_npes()
+    allocate (pelist(npes), counts(2*npes), excess(npes), nmove(npes, npes))
+    call mpp_get_current_pelist(pelist)
+    me = findloc(pelist, mpp_pe(), 1)
+    nl = nlay_rrt
+    nin = 7*nl + 5   ! pfull, tfull, h2o, o3, co2, phalf, thalf, tsrf, albedo, cosz
+    nout = 3*nl + 2  ! swuflx, swdflx, swhr
+
+    ! the same plan on every process: nmove(p, q) columns go from p to q
+    counts = 0
+    counts(me) = count(.not. (cosz < zepzen))
+    counts(npes + me) = ncols_rrt
+    call mpp_sum(counts, 2*npes)
+    nsun = counts(1:npes)
+    ncol = counts(npes + 1:)
+    tot = sum(nsun)
+    do p = 1, npes
+      excess(p) = nsun(p) - tot/npes
+      if (p <= mod(tot, npes)) excess(p) = excess(p) - 1
+      ! a process takes at most as many columns as it has
+      excess(p) = max(excess(p), -ncol(p))
+    end do
+    nmove = 0
+    p = 1
+    q = 1
+    do
+      do while (p <= npes)
+        if (excess(p) > 0) exit
+        p = p + 1
+      end do
+      do while (q <= npes)
+        if (excess(q) < 0) exit
+        q = q + 1
+      end do
+      if (p > npes .or. q > npes) exit
+      m = min(excess(p), -excess(q))
+      nmove(p, q) = m
+      excess(p) = excess(p) - m
+      excess(q) = excess(q) + m
+    end do
+    nsend = sum(nmove(me, :))
+    nrecv = sum(nmove(:, me))
+
+    if (nsend > 0) then
+      ! send the last nsend sunlit columns and keep the others
+      idx = pack([(c, c=1, size(cosz))], .not. (cosz < zepzen))
+      idx = idx(size(idx) - nsend + 1:)
+      allocate (bufin(nin, nsend), bufout(nout, nsend))
+      do k = 1, nsend
+        c = idx(k)
+        bufin(:, k) = [pfull(c, :), tfull(c, :), h2o(c, :), o3(c, :), co2(c, :), phalf(c, :), thalf(c, :), &
+                       tsrf(c), albedo_c(c), cosz(c)]
+      end do
+      off = 0
+      do q = 1, npes
+        if (nmove(me, q) == 0) cycle
+        call mpp_send(bufin(1, off + 1), plen=nin*nmove(me, q), to_pe=pelist(q))
+        off = off + nmove(me, q)
+      end do
+      ! MPI moves a large message only while both sides are in MPI, so wait for it here
+      call mpp_sync_self()
+      cosz_kept = cosz
+      cosz_kept(idx) = 0.
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_c, cosz_kept, dyofyr, &
+                      swuflx, swdflx, swhr)
+      off = 0
+      do q = 1, npes
+        if (nmove(me, q) == 0) cycle
+        call mpp_recv(bufout(1, off + 1), glen=nout*nmove(me, q), from_pe=pelist(q))
+        off = off + nmove(me, q)
+      end do
+      do k = 1, nsend
+        c = idx(k)
+        swuflx(c, :) = bufout(1:nl + 1, k)
+        swdflx(c, :) = bufout(nl + 2:2*nl + 2, k)
+        swhr(c, :) = bufout(2*nl + 3:3*nl + 2, k)
+      end do
+    else if (nrecv > 0) then
+      allocate (bufin(nin, nrecv), bufout(nout, nrecv))
+      off = 0
+      do p = 1, npes
+        if (nmove(p, me) == 0) cycle
+        call mpp_recv(bufin(1, off + 1), glen=nin*nmove(p, me), from_pe=pelist(p))
+        off = off + nmove(p, me)
+      end do
+      r_pfull = transpose(bufin(1:nl, :))
+      r_tfull = transpose(bufin(nl + 1:2*nl, :))
+      r_h2o = transpose(bufin(2*nl + 1:3*nl, :))
+      r_o3 = transpose(bufin(3*nl + 1:4*nl, :))
+      r_co2 = transpose(bufin(4*nl + 1:5*nl, :))
+      r_phalf = transpose(bufin(5*nl + 1:6*nl + 1, :))
+      r_thalf = transpose(bufin(6*nl + 2:7*nl + 2, :))
+      r_tsrf = bufin(7*nl + 3, :)
+      r_albedo = bufin(7*nl + 4, :)
+      r_cosz = bufin(7*nl + 5, :)
+      allocate (r_swuflx(nrecv, nl + 1), r_swdflx(nrecv, nl + 1), r_swhr(nrecv, nl))
+      call sw_columns(nrecv, r_pfull, r_phalf, r_tfull, r_thalf, r_tsrf, r_h2o, r_o3, r_co2, r_albedo, r_cosz, &
+                      dyofyr, r_swuflx, r_swdflx, r_swhr)
+      do k = 1, nrecv
+        bufout(:, k) = [r_swuflx(k, :), r_swdflx(k, :), r_swhr(k, :)]
+      end do
+      ! send the fluxes back after the own columns, when the senders wait for them
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_c, cosz, dyofyr, &
+                      swuflx, swdflx, swhr)
+      off = 0
+      do p = 1, npes
+        if (nmove(p, me) == 0) cycle
+        call mpp_send(bufout(1, off + 1), plen=nout*nmove(p, me), to_pe=pelist(p))
+        off = off + nmove(p, me)
+      end do
+      call mpp_sync_self()
+    else
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_c, cosz, dyofyr, &
+                      swuflx, swdflx, swhr)
+    end if
+  end subroutine sw_balanced
 
 !*****************************************************************************************
 !*****************************************************************************************

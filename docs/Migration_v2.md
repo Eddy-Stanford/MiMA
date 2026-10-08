@@ -145,6 +145,7 @@ The FMS groups that MiMA's input files use, `&fms_nml`, `&topography_nml` and `&
 | [`held_suarez_nml`](Parameters.md#held_suarez_nml) (new) | `t_zero`, `t_strat`, `delh`, `delv`, `p_ref`, `sigma_b`, `ka`, `ks`, `kf`, `do_rayleigh_friction`, `do_conserve_energy` | HS94 values | see [Configurations](Configurations.md#held-suarez-forcing) |
 | [`spec_mpp_nml`](Parameters.md#spec_mpp_nml) (new) | `io_layout` | `1,1` | I/O layout for diagnostics and restarts; `1,1` writes one file each |
 | | `spectral_decomposition`, `spectral_cost_per_m` | `'balanced'`, `20.` | division of the zonal wavenumbers among the processes: by estimated work (`'balanced'`) or in equal blocks (`'equal'`, as in v1); the results are identical |
+| [`rrtm_radiation_nml`](Parameters.md#rrtm_radiation_nml) | `balance_sw_columns` | `.true.` | share the sunlit columns of the shortwave calculation evenly among the processes; the results are identical |
 | `sat_vapor_pres_nml` (FMS) | `do_simple` | FMS default `.false.`; **must be set to `.true.`** | simple Clausius-Clapeyron table, as MiMA has always used |
 
 See [Parameter settings](Parameters.md) for every variable and its default.
