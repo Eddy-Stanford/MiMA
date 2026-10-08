@@ -122,7 +122,7 @@ The CMake options are:
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | `Debug` | Use `Release` for production runs (enables compiler optimisation). `Debug` builds are much slower. |
 | `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
-| `MIMA_OPENMP` | `OFF` | Compile with OpenMP, which threads the radiation (RRTM), the spectral transforms and the FFTs within each MPI process (see [OpenMP](#openmp)). |
+| `MIMA_OPENMP` | `OFF` | Compile with OpenMP, which threads the radiation (RRTM), the spectral transforms, the FFTs and the grid-point dynamics within each MPI process (see [OpenMP](#openmp)). |
 
 ### OpenMP
 
@@ -133,7 +133,9 @@ export OMP_NUM_THREADS=2
 mpirun -n 4 ./mima
 ```
 
-If `OMP_NUM_THREADS` is unset, most OpenMP libraries start one thread per core in every process, which oversubscribes the cores. The answers are the same for any number of threads. At high resolution the threads may need a larger stack than the default, e.g. `export OMP_STACKSIZE=256M`.
+If `OMP_NUM_THREADS` is unset, most OpenMP libraries start one thread per core in every process, which oversubscribes the cores. The answers are the same for any number of threads.
+
+On Linux, MPI libraries can bind each process to a single core (Open MPI does by default for one or two processes), and its threads then share that core. Give each process as many cores as threads, e.g. `mpirun -n 4 --map-by slot:PE=2 ./mima`, or with Slurm `srun --cpus-per-task=2` (and `OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK`). At high resolution the threads may need a larger stack than the default, e.g. `export OMP_STACKSIZE=256M`.
 
 A downloaded FMS is built with OpenMP too if the C compiler supports it. Apple's `clang` doesn't, so on macOS FMS is built without OpenMP, while MiMA's own code still uses it.
 
