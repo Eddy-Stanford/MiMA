@@ -34,6 +34,11 @@ module every_step_diagnostics_mod
 
   public :: every_step_diagnostics_init, every_step_diagnostics, every_step_diagnostics_end
 
+  ! set by every_step_diagnostics_init: whether the diagnostics need the damping tendencies of
+  ! u and v or of T, the kegen fields, and the global advective tendencies of each tracer
+  logical, public, protected :: need_damp_uv = .false., need_damp_t = .false., need_kegen = .false.
+  logical, public, protected, allocatable, dimension(:) :: need_hadv, need_vadv
+
 !===============================================================================================
 
   character(len=128), parameter :: version = '$Id: every_step_diagnostics.f90,v 11.0.2.1 2005/05/13 18:16:38 pjp Exp $'
@@ -195,6 +200,13 @@ contains
     end do
     nsphum = get_tracer_index(MODEL_ATMOS, 'sphum')
 
+    need_damp_uv = id_udt_damp > 0 .or. id_vdt_damp > 0 .or. id_entrop_dampuv > 0 .or. id_tdt_dampuv > 0
+    need_damp_t = id_tdt_damp > 0 .or. id_entrop_dampt > 0
+    need_kegen = id_kegen > 0 .or. id_kegenq > 0 .or. id_kegenqtinv > 0
+    allocate (need_hadv(num_tracers), need_vadv(num_tracers))
+    need_hadv = id_dt_hadv > 0
+    need_vadv = id_dt_vadv > 0
+
     call get_grid_domain(is, ie, js, je)
     num_levels = num_levels_in
     allocate (two_dt_ps(is:ie, js:je))
@@ -291,7 +303,9 @@ contains
       dse = cp_air*t_grid + grav*z_full ! Dry static energy
     end if
 
-    q_grid = tr_grid(:, :, :, nsphum)
+    if (id_moiststaten > 0 .or. id_vq > 0 .or. id_vqint > 0 .or. id_wq > 0 .or. id_wqp > 0 .or. id_wsubtv > 0) then
+      q_grid = tr_grid(:, :, :, nsphum)
+    end if
 
     if (id_drystaten > 0) then
       used = send_data(id_drystaten, dse, Time)
@@ -705,7 +719,7 @@ contains
       if (two_dt_id_tr(ntr) > 0) used = send_data(two_dt_id_tr(ntr), two_dt_tr(:, :, :, ntr))
     end do
 
-    deallocate (id_tr, two_dt_id_tr)
+    deallocate (id_tr, two_dt_id_tr, need_hadv, need_vadv)
     deallocate (two_dt_ps, two_dt_u, two_dt_v, two_dt_t, two_dt_tr)
     module_is_initialized = .false.
 
