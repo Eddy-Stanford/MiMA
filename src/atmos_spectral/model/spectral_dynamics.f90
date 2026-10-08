@@ -76,7 +76,8 @@ module spectral_dynamics_mod
 
   use tracer_type_mod, only: tracer_type, tracer_type_version, tracer_type_tagname
 
-  use every_step_diagnostics_mod, only: every_step_diagnostics_init, every_step_diagnostics, every_step_diagnostics_end
+  use every_step_diagnostics_mod, only: every_step_diagnostics_init, every_step_diagnostics, every_step_diagnostics_end, &
+                                        need_damp_uv, need_damp_t, need_kegen, need_hadv, need_vadv
 !===============================================================================================
   implicit none
   private
@@ -961,12 +962,22 @@ contains
 
       if (use_implicit) call implicit_correction(dt_divs, dt_ts, dt_ln_ps, divs, ts, ln_ps, delta_t, previous, current)
 
-      call compute_spectral_damping_vor(vors(:, :, :, previous), dt_vors, delta_t, dt_vors_damp)
-      call compute_spectral_damping_div(divs(:, :, :, previous), dt_divs, delta_t, dt_divs_damp)
-      call compute_spectral_damping(ts(:, :, :, previous), dt_ts, delta_t, dt_ts_damp)
-
-      call uv_grid_from_vor_div(dt_vors_damp, dt_divs_damp, dt_ug_damp, dt_vg_damp)
-      call trans_spherical_to_grid(dt_ts_damp, dt_tg_damp)
+      ! the damping tendencies are only diagnostics; dt_ug_damp, dt_vg_damp and dt_tg_damp are not
+      ! set when they are not requested
+      if (need_damp_uv) then
+        call compute_spectral_damping_vor(vors(:, :, :, previous), dt_vors, delta_t, dt_vors_damp)
+        call compute_spectral_damping_div(divs(:, :, :, previous), dt_divs, delta_t, dt_divs_damp)
+        call uv_grid_from_vor_div(dt_vors_damp, dt_divs_damp, dt_ug_damp, dt_vg_damp)
+      else
+        call compute_spectral_damping_vor(vors(:, :, :, previous), dt_vors, delta_t)
+        call compute_spectral_damping_div(divs(:, :, :, previous), dt_divs, delta_t)
+      end if
+      if (need_damp_t) then
+        call compute_spectral_damping(ts(:, :, :, previous), dt_ts, delta_t, dt_ts_damp)
+        call trans_spherical_to_grid(dt_ts_damp, dt_tg_damp)
+      else
+        call compute_spectral_damping(ts(:, :, :, previous), dt_ts, delta_t)
+      end if
 
       if (.not. robert_complete_for_fields) then
         call error_mesg('spectral_dynamics', 'robert_complete_for_fields should be .true.', FATAL)
@@ -1069,6 +1080,7 @@ contains
     real, intent(in), dimension(:, :) :: p_surf, dx_psg, dy_psg
     real, intent(inout), dimension(:, :) :: dt_psg
     real, intent(out), dimension(:, :, :) :: wg_full, kegen, kegenq, kegenqtinv
+    !! `kegen`, `kegenq`, `kegenqtinv` are only set when the diagnostics need them
     real, intent(out), dimension(:, :, :) :: wg
     real, intent(in), dimension(:, :, :) :: ln_p_half
     real, intent(inout), dimension(:, :, :) :: dt_tg, dt_ug, dt_vg
@@ -1079,50 +1091,59 @@ contains
 !  When vertical coordinate is pure sigma: wg = psg*d(sigma)/dt
 !  wg_full is the vertical velocity at full levels.
 
-    real, dimension(is:ie, js:je) :: dp, dp_inv, dlog_1, dlog_2, dlog_3, dmean, dmean_tot
-    real, dimension(is:ie, js:je) :: x1, x2, x3, x4, x5
+    real, dimension(size(p_surf, 1)) :: dp, dp_inv, dlog_1, dlog_2, dlog_3, dmean, dmean_tot
+    real, dimension(size(p_surf, 1)) :: x1, x2, x3, x4, x5
 
     real :: kappa
-    integer :: k
+    integer :: j, k
 
     kappa = rdgas/cp_air
 
-    dmean_tot = 0.
+! the columns are independent, so each thread takes whole latitude rows
+!$omp parallel do private(k, dp, dp_inv, dlog_1, dlog_2, dlog_3, dmean, dmean_tot, x1, x2, x3, x4, x5)
+    do j = 1, size(p_surf, 2)
 
-    if (vert_difference_option == 'simmons_and_burridge') then
-      do k = 1, num_levels
-        dp = dpk(k) + dbk(k)*p_surf
-        dp_inv = 1/dp
-        dlog_1 = ln_p_half(:, :, k + 1) - ln_p_full(:, :, k)
-        dlog_2 = ln_p_full(:, :, k) - ln_p_half(:, :, k)
-        dlog_3 = ln_p_half(:, :, k + 1) - ln_p_half(:, :, k)
-        x1 = (bk(k + 1)*dlog_1 + bk(k)*dlog_2)*dp_inv
-        x2 = x1*dx_psg
-        x3 = x1*dy_psg
-        dt_ug(:, :, k) = dt_ug(:, :, k) - rdgas*t_grid(:, :, k)*x2
-        dt_vg(:, :, k) = dt_vg(:, :, k) - rdgas*t_grid(:, :, k)*x3
-        dmean = divg(:, :, k)*dp + dbk(k)*(u_grid(:, :, k)*dx_psg + v_grid(:, :, k)*dy_psg)
-        x4 = (dmean_tot*dlog_3 + dmean*dlog_1)*dp_inv
-        x5 = x4 - u_grid(:, :, k)*x2 - v_grid(:, :, k)*x3
-        dt_tg(:, :, k) = dt_tg(:, :, k) - kappa*t_grid(:, :, k)*x5
-        kegen(:, :, k) = -kappa*t_grid(:, :, k)*x5
-        kegenq(:, :, k) = -kappa*t_grid(:, :, k)*x5*q_grid(:, :, k)
-        kegenqtinv(:, :, k) = -kappa*x5*q_grid(:, :, k)
-        wg_full(:, :, k) = -x5*p_full(:, :, k)
-        dmean_tot = dmean_tot + dmean
-        wg(:, :, k + 1) = -dmean_tot
+      dmean_tot = 0.
+
+      if (vert_difference_option == 'simmons_and_burridge') then
+        do k = 1, num_levels
+          dp = dpk(k) + dbk(k)*p_surf(:, j)
+          dp_inv = 1/dp
+          dlog_1 = ln_p_half(:, j, k + 1) - ln_p_full(:, j, k)
+          dlog_2 = ln_p_full(:, j, k) - ln_p_half(:, j, k)
+          dlog_3 = ln_p_half(:, j, k + 1) - ln_p_half(:, j, k)
+          x1 = (bk(k + 1)*dlog_1 + bk(k)*dlog_2)*dp_inv
+          x2 = x1*dx_psg(:, j)
+          x3 = x1*dy_psg(:, j)
+          dt_ug(:, j, k) = dt_ug(:, j, k) - rdgas*t_grid(:, j, k)*x2
+          dt_vg(:, j, k) = dt_vg(:, j, k) - rdgas*t_grid(:, j, k)*x3
+          dmean = divg(:, j, k)*dp + dbk(k)*(u_grid(:, j, k)*dx_psg(:, j) + v_grid(:, j, k)*dy_psg(:, j))
+          x4 = (dmean_tot*dlog_3 + dmean*dlog_1)*dp_inv
+          x5 = x4 - u_grid(:, j, k)*x2 - v_grid(:, j, k)*x3
+          dt_tg(:, j, k) = dt_tg(:, j, k) - kappa*t_grid(:, j, k)*x5
+          if (need_kegen) then
+            kegen(:, j, k) = -kappa*t_grid(:, j, k)*x5
+            kegenq(:, j, k) = -kappa*t_grid(:, j, k)*x5*q_grid(:, j, k)
+            kegenqtinv(:, j, k) = -kappa*x5*q_grid(:, j, k)
+          end if
+          wg_full(:, j, k) = -x5*p_full(:, j, k)
+          dmean_tot = dmean_tot + dmean
+          wg(:, j, k + 1) = -dmean_tot
+        end do
+
+      end if
+
+      dt_psg(:, j) = dt_psg(:, j) - dmean_tot
+
+      do k = 2, num_levels
+        wg(:, j, k) = wg(:, j, k) + dmean_tot*bk(k)
       end do
 
-    end if
+      wg(:, j, 1) = 0.0
+      wg(:, j, num_levels + 1) = 0.0
 
-    dt_psg = dt_psg - dmean_tot
-
-    do k = 2, num_levels
-      wg(:, :, k) = wg(:, :, k) + dmean_tot*bk(k)
     end do
-
-    wg(:, :, 1) = 0.0
-    wg(:, :, num_levels + 1) = 0.0
+!$omp end parallel do
 
     return
   end subroutine four_in_one
@@ -1150,7 +1171,8 @@ contains
         dt_tmp = 0.0
         call horizontal_advection(spec_tracers(:, :, :, current, ntr), ug(:, :, :, current), vg(:, :, :, current), dt_tmp)
         dt_tr(:, :, :, ntr) = dt_tr(:, :, :, ntr) + dt_tmp
-        dt_hadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to hor adv
+        dt_hadv(ntr) = 0.
+        if (need_hadv(ntr)) dt_hadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to hor adv
         if (tracer_vert_advect_scheme(ntr) == SECOND_CENTERED .or. &
             tracer_vert_advect_scheme(ntr) == FOURTH_CENTERED) time_level = current
         if (tracer_vert_advect_scheme(ntr) == VAN_LEER_LINEAR .or. &
@@ -1158,7 +1180,8 @@ contains
         call vert_advection(delta_t, wg, dp, grid_tracers(:, :, :, time_level, ntr), dt_tmp, &
                             scheme=tracer_vert_advect_scheme(ntr), form=ADVECTIVE_FORM)
         dt_tr(:, :, :, ntr) = dt_tr(:, :, :, ntr) + dt_tmp
-        dt_vadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to vert adv
+        dt_vadv(ntr) = 0.
+        if (need_vadv(ntr)) dt_vadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to vert adv
         if (trim(tracer_attributes(ntr)%hole_filling) == 'on') then
           call water_borrowing(dt_tr(:, :, :, ntr), grid_tracers(:, :, :, previous, ntr), current, p_half, delta_t)
         end if
@@ -1180,11 +1203,13 @@ contains
         call a_grid_horiz_advection(ug(:, :, :, current), vg(:, :, :, current), tr_future, delta_t, dt_tr(:, :, :, ntr))
         tr_future = tr_future + delta_t*dt_tr(:, :, :, ntr)
         ! tendency of integrated tracer due to hor adv
-        dt_hadv(ntr) = mass_weighted_global_integral(dt_tr(:, :, :, ntr), psg(:, :, future))
+        dt_hadv(ntr) = 0.
+        if (need_hadv(ntr)) dt_hadv(ntr) = mass_weighted_global_integral(dt_tr(:, :, :, ntr), psg(:, :, future))
         dp = p_half(:, :, 2:num_levels + 1) - p_half(:, :, 1:num_levels)
         call vert_advection(delta_t, wg, dp, tr_future, dt_tmp, scheme=tracer_vert_advect_scheme(ntr), form=ADVECTIVE_FORM)
         tr_future = tr_future + delta_t*dt_tmp
-        dt_vadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to vert adv
+        dt_vadv(ntr) = 0.
+        if (need_vadv(ntr)) dt_vadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to vert adv
         if (step_number == num_steps) then
           grid_tracers(:, :, :, current, ntr) = grid_tracers(:, :, :, current, ntr) + &
                                                 tracer_attributes(ntr)%robert_coeff &
@@ -1324,9 +1349,6 @@ contains
       energy = 0.5*((ug(:, :, :, previous) + dt_ug*delta_t)**2 + (vg(:, :, :, previous) + dt_vg*delta_t)**2) &
                + cp_air*(tg(:, :, :, previous) + dt_tg*delta_t)
       mean_energy_previous = mass_weighted_global_integral(energy, psg(:, :, previous))
-
-      energy = 0.5*((ug(:, :, :, current) + dt_ug*delta_t)**2 + (vg(:, :, :, current) + dt_vg*delta_t)**2) &
-               + cp_air*(tg(:, :, :, current) + dt_tg*delta_t)
     end if
 
     if (do_water_correction) then

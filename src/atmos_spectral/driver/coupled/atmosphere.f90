@@ -315,16 +315,22 @@ contains
 ! All bottom-level fields are taken at the previous time level, which is
 ! the level the implicit vertical diffusion steps from. The pressure and
 ! height of the lowest level are recomputed for that level here (p_full
-! holds the values for the current level).
+! holds the values for the current level). With one level, the top level
+! formula of pressure_variables applies, so the full columns are computed.
     t_bot = tg(:, :, num_levels, previous)
     q_bot = grid_tracers(:, :, num_levels, previous, nhum)
     p_surf = psg(:, :, previous)
-    call compute_pressures_and_heights(tg(:, :, :, previous), psg(:, :, previous), &
-                                       z_full_prev, z_half_prev, p_full_prev, p_half_prev, &
-                                       grid_tracers(:, :, :, previous, nhum))
-    p_bot = p_full_prev(:, :, num_levels)
-    call compute_z_bot(psg(:, :, previous), tg(:, :, num_levels, previous), z_bot_out, &
-                       grid_tracers(:, :, num_levels, previous, nhum))
+    if (num_levels > 1) then
+      call compute_z_bot(psg(:, :, previous), tg(:, :, num_levels, previous), z_bot_out, &
+                         grid_tracers(:, :, num_levels, previous, nhum), p_bot)
+    else
+      call compute_pressures_and_heights(tg(:, :, :, previous), psg(:, :, previous), &
+                                         z_full_prev, z_half_prev, p_full_prev, p_half_prev, &
+                                         grid_tracers(:, :, :, previous, nhum))
+      p_bot = p_full_prev(:, :, num_levels)
+      call compute_z_bot(psg(:, :, previous), tg(:, :, num_levels, previous), z_bot_out, &
+                         grid_tracers(:, :, num_levels, previous, nhum))
+    end if
 
     return
   end subroutine get_bottom_mass

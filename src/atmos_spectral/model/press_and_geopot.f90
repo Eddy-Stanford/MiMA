@@ -143,61 +143,69 @@ contains
 
     real, dimension(size(p_half, 1), size(p_half, 2)) :: alpha
 
-    integer :: k
+    integer :: k, kstart
 
     if (.not. module_is_initialized) then
       call error_mesg('pressure_variables', 'press_and_geopot_init has not been called', FATAL)
     end if
 
-    p_half = half_level_pressures(surface_p)
-
-    if (trim(vert_difference_option) == 'simmons_and_burridge') then
-
-      if (pk(1) .eq. 0.0 .and. bk(1) .eq. 0.0) then
-
-        do k = 2, size(p_half, 3)
-          ln_p_half(:, :, k) = log(p_half(:, :, k))
-        end do
-
-        do k = 2, size(p_half, 3) - 1
-          alpha = 1.0 - p_half(:, :, k)*(ln_p_half(:, :, k + 1) - ln_p_half(:, :, k))/(p_half(:, :, k + 1) - p_half(:, :, k))
-          ln_p_full(:, :, k) = ln_p_half(:, :, k + 1) - alpha
-        end do
-        ln_p_full(:, :, 1) = ln_p_half(:, :, 2) + ln_top_level_factor
-        ln_p_half(:, :, 1) = 0.0
-
-      else
-
-        do k = 1, size(p_half, 3)
-          ln_p_half(:, :, k) = log(p_half(:, :, k))
-        end do
-
-        do k = 1, size(p_half, 3) - 1
-          alpha = 1.0 - p_half(:, :, k)*(ln_p_half(:, :, k + 1) - ln_p_half(:, :, k))/(p_half(:, :, k + 1) - p_half(:, :, k))
-          ln_p_full(:, :, k) = ln_p_half(:, :, k + 1) - alpha
-        end do
-
-      end if
-      p_full = exp(ln_p_full)
-
-    else
-
+    if (trim(vert_difference_option) /= 'simmons_and_burridge') then
       call error_mesg('pressure_variables', '"'//trim(vert_difference_option)//'"'// &
                       ' is not a valid value for vert_difference_option', FATAL)
-
     end if
+
+    ! simmons_and_burridge; with a zero pressure at the top, the top full level is set apart
+    kstart = 1
+    if (pk(1) .eq. 0.0 .and. bk(1) .eq. 0.0) kstart = 2
+
+! the levels are shared out over the threads; each element is computed as in serial
+!$omp parallel if(size(p_half, 1)*size(p_half, 2) > 1) default(shared) private(k, alpha)
+!$omp do
+    do k = 1, num_levels + 1
+      p_half(:, :, k) = pk(k) + bk(k)*surface_p(:, :)
+    end do
+!$omp end do
+
+!$omp do
+    do k = kstart, size(p_half, 3)
+      ln_p_half(:, :, k) = log(p_half(:, :, k))
+    end do
+!$omp end do
+
+!$omp do
+    do k = kstart, size(p_half, 3) - 1
+      alpha = 1.0 - p_half(:, :, k)*(ln_p_half(:, :, k + 1) - ln_p_half(:, :, k))/(p_half(:, :, k + 1) - p_half(:, :, k))
+      ln_p_full(:, :, k) = ln_p_half(:, :, k + 1) - alpha
+    end do
+!$omp end do
+
+    if (kstart == 2) then
+!$omp single
+      ln_p_full(:, :, 1) = ln_p_half(:, :, 2) + ln_top_level_factor
+      ln_p_half(:, :, 1) = 0.0
+!$omp end single
+    end if
+
+!$omp do
+    do k = 1, size(p_full, 3)
+      p_full(:, :, k) = exp(ln_p_full(:, :, k))
+    end do
+!$omp end do nowait
+!$omp end parallel
 
     return
   end subroutine pressure_variables_3d
 
 !-------------------------------------------------------------------------------------
-  !> Computes the height of the lowest full level above the surface.
-  subroutine compute_z_bot(psg, tg, z_bot, qg)
+  !> Computes the height of the lowest full level above the surface, and optionally its
+  !> pressure (the same as `pressure_variables` gives when there is more than one level).
+  subroutine compute_z_bot(psg, tg, z_bot, qg, p_bot)
     real, intent(in), dimension(:, :) :: psg, tg
     !! `psg`: surface pressure [Pa]; `tg`: temperature at the lowest level [K]
     real, intent(out), dimension(:, :) :: z_bot  !! height of the lowest full level above the surface [m]
     real, intent(in), optional, dimension(:, :) :: qg
     !! specific humidity at the lowest level [kg/kg] (required with virtual temperature)
+    real, intent(out), optional, dimension(:, :) :: p_bot  !! pressure of the lowest full level [Pa]
 
     real, dimension(size(psg, 1), size(psg, 2)) ::    p_half_bot, p_half_nxt
     real, dimension(size(psg, 1), size(psg, 2)) :: ln_p_half_bot, ln_p_half_nxt
@@ -225,6 +233,7 @@ contains
     end if
 
     z_bot = (rdgas*virtual_t*(ln_p_half_bot - ln_p_full_bot))/grav
+    if (present(p_bot)) p_bot = exp(ln_p_full_bot)
 
     return
   end subroutine compute_z_bot

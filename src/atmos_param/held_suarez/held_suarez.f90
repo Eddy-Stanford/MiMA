@@ -132,8 +132,8 @@ contains
     cos4 = cos2**2
     p_surf = p_half(:, :, nlev + 1)
 
-    udt_hs = 0.
-    vdt_hs = 0.
+! the levels are independent, so each thread takes whole levels
+!$omp parallel do
     do k = 1, nlev
       ! equilibrium temperature
       teq(:, :, k) = (t_zero - delh*sin2 - delv*log(p_full(:, :, k)/p_ref)*cos2) &
@@ -148,18 +148,22 @@ contains
       if (do_rayleigh_friction) then
         udt_hs(:, :, k) = -rkf*max(0., (p_full(:, :, k)/p_surf - sigma_b)/(1.-sigma_b))*u(:, :, k)
         vdt_hs(:, :, k) = -rkf*max(0., (p_full(:, :, k)/p_surf - sigma_b)/(1.-sigma_b))*v(:, :, k)
+      else
+        udt_hs(:, :, k) = 0.
+        vdt_hs(:, :, k) = 0.
       end if
+
+      if (do_conserve_energy) then
+        diss(:, :, k) = -(u(:, :, k)*udt_hs(:, :, k) + v(:, :, k)*vdt_hs(:, :, k))/cp_air
+      else
+        diss(:, :, k) = 0.
+      end if
+
+      tdt(:, :, k) = tdt(:, :, k) + tdt_hs(:, :, k) + diss(:, :, k)
+      udt(:, :, k) = udt(:, :, k) + udt_hs(:, :, k)
+      vdt(:, :, k) = vdt(:, :, k) + vdt_hs(:, :, k)
     end do
-
-    if (do_conserve_energy) then
-      diss = -(u*udt_hs + v*vdt_hs)/cp_air
-    else
-      diss = 0.
-    end if
-
-    tdt = tdt + tdt_hs + diss
-    udt = udt + udt_hs
-    vdt = vdt + vdt_hs
+!$omp end parallel do
 
     if (id_teq > 0) used = send_data(id_teq, teq, Time, is, js, 1)
     if (id_tdt_hs > 0) used = send_data(id_tdt_hs, tdt_hs, Time, is, js, 1)

@@ -169,29 +169,29 @@ contains
       end do
     end if
 
-    uc(2:nx, js:je, :) = 0.5*(ua(1:nx - 1, js:je, :) + ua(2:nx, js:je, :))
-    uc(1, js:je, :) = 0.5*(ua(nx, js:je, :) + ua(1, js:je, :))
+! the levels are independent, so each thread takes whole levels
+!$omp parallel do private(i, j)
+    do k = 1, size(q, 3)
+      uc(2:nx, js:je, k) = 0.5*(ua(1:nx - 1, js:je, k) + ua(2:nx, js:je, k))
+      uc(1, js:je, k) = 0.5*(ua(nx, js:je, k) + ua(1, js:je, k))
 
-    do k = 1, size(vc, 3)
       do j = js, je + 1
         do i = 1, nx
           vc(i, j, k) = 0.5*(vx(i, j - 1, k) + vx(i, j, k))
         end do
       end do
+
+      if (.not. flux_local) then
+        do j = js, je
+          div(:, j, k) = (vc(:, j + 1, k)*cc(j + 1) - vc(:, j, k)*cc(j))/(c(j)*dy(j))
+          div(1:nx - 1, j, k) = div(1:nx - 1, j, k) + (uc(2:nx, j, k) - uc(1:nx - 1, j, k))/(c(j)*dx)
+          div(nx, j, k) = div(nx, j, k) + (uc(1, j, k) - uc(nx, j, k))/(c(j)*dx)
+        end do
+
+        dq_dt(:, :, k) = dq_dt(:, :, k) + q(:, :, k)*div(:, :, k)
+      end if
     end do
-
-    if (.not. flux_local) then
-      do j = js, je
-        div(:, j, :) = (vc(:, j + 1, :)*cc(j + 1) - vc(:, j, :)*cc(j))/(c(j)*dy(j))
-      end do
-
-      do j = js, je
-        div(1:nx - 1, j, :) = div(1:nx - 1, j, :) + (uc(2:nx, j, :) - uc(1:nx - 1, j, :))/(c(j)*dx)
-        div(nx, j, :) = div(nx, j, :) + (uc(1, j, :) - uc(nx, j, :))/(c(j)*dx)
-      end do
-
-      dq_dt = dq_dt + q*div
-    end if
+!$omp end parallel do
 
     call advection_sphere_3d(dq_dt, dt, qx, uc, vc, ua, va)
 
@@ -239,13 +239,18 @@ contains
     real, dimension(nx, js - 2:je + 2, size(q, 3)) :: q1
 
     integer, dimension(nx) :: ii
-    integer :: i
+    integer :: i, k
 
-    call semi_x_3d(q1(:, js:je, :), ua(:, js:je, :), q(:, js:je, :), 0.5*dt)
-    q1(:, js:je, :) = q(:, js:je, :) + q1(:, js:je, :)
+! the levels are independent, so each thread takes whole levels
+!$omp parallel do
+    do k = 1, size(q, 3)
+      call semi_x_3d(q1(:, js:je, k:k), ua(:, js:je, k:k), q(:, js:je, k:k), 0.5*dt)
+      q1(:, js:je, k) = q(:, js:je, k) + q1(:, js:je, k)
 
-    call semi_y_3d(q2(:, js:je, :), va(:, js:je, :), q(:, js - 2:je + 2, :), 0.5*dt)
-    q2(:, js:je, :) = q(:, js:je, :) + q2(:, js:je, :)
+      call semi_y_3d(q2(:, js:je, k:k), va(:, js:je, k:k), q(:, js - 2:je + 2, k:k), 0.5*dt)
+      q2(:, js:je, k) = q(:, js:je, k) + q2(:, js:je, k)
+    end do
+!$omp end parallel do
 
     call mpp_update_domains(q1, advection_domain)
 
@@ -270,7 +275,11 @@ contains
 
     call vanleer_x_3d(dq_dt(:, js:je, :), uc(:, js:je, :), q2(:, js:je, :), dt)
 
-    call vanleer_sphere_3d(dq_dt(:, js:je, :), vc(:, js:je + 1, :), q1(:, js - 2:je + 2, :), dt)
+!$omp parallel do
+    do k = 1, size(q, 3)
+      call vanleer_sphere_3d(dq_dt(:, js:je, k:k), vc(:, js:je + 1, k:k), q1(:, js - 2:je + 2, k:k), dt)
+    end do
+!$omp end parallel do
 
     return
   end subroutine advection_sphere_3d
@@ -327,39 +336,51 @@ contains
     real, dimension(nx + 1, js:je, size(q, 3)) :: flux
     real, dimension(nx, js:je, size(q, 3)) :: b, bb, qq, ss, s
     integer, dimension(nx, js:je, size(q, 3)) :: ii
+    logical, dimension(js:je) :: big_row
 
     integer :: i, j, k
 
-    do j = js, je
-      b(:, j, :) = uc(:, j, :)*dt/(dx*c(j))
-    end do
-    bb = b - int(b)
-
-    flux = 0.0
-    do j = js, je   ! try doing one row at a time to avoid unecessary computations
-      if (maxval(abs(b(:, j:j, :))) > 1.0) &
-        call integer_flux_x(flux(1:nx, j:j, :), b(:, j:j, :), q(:, j:j, :))
-    end do
-    call slope_x(s, q)
-    call find_cell_x(ii, b)
-
+! each thread takes whole levels, except for the test of each latitude row over all levels
+!$omp parallel default(shared) private(i, j, k)
+!$omp do
     do k = 1, size(q, 3)
+      do j = js, je
+        b(:, j, k) = uc(:, j, k)*dt/(dx*c(j))
+      end do
+    end do
+!$omp end do
+
+!$omp do
+    do j = js, je   ! try doing one row at a time to avoid unecessary computations
+      big_row(j) = maxval(abs(b(:, j:j, :))) > 1.0
+    end do
+!$omp end do
+
+!$omp do
+    do k = 1, size(q, 3)
+      bb(:, :, k) = b(:, :, k) - int(b(:, :, k))
+
+      flux(:, :, k) = 0.0
+      do j = js, je
+        if (big_row(j)) call integer_flux_x(flux(1:nx, j:j, k:k), b(:, j:j, k:k), q(:, j:j, k:k))
+      end do
+      call slope_x(s(:, :, k:k), q(:, :, k:k))
+      call find_cell_x(ii(:, :, k:k), b(:, :, k:k))
+
       do j = js, je
         do i = 1, nx
           qq(i, j, k) = q(ii(i, j, k), j, k)
           ss(i, j, k) = s(ii(i, j, k), j, k)
         end do
       end do
+
+      flux(1:nx, :, k) = flux(1:nx, :, k) + bb(:, :, k)*(qq(:, :, k) + 0.5*ss(:, :, k)*(sign(1.0, bb(:, :, k)) - bb(:, :, k)))
+      flux(nx + 1, :, k) = flux(1, :, k)
+
+      dq_dt(:, :, k) = dq_dt(:, :, k) - (flux(2:nx + 1, :, k) - flux(1:nx, :, k))/dt
     end do
-
-    flux(1:nx, :, :) = flux(1:nx, :, :) + bb*(qq + 0.5*ss*(sign(1.0, bb) - bb))
-    flux(nx + 1, :, :) = flux(1, :, :)
-
-    dq_dt = dq_dt - (flux(2:nx + 1, :, :) - flux(1:nx, :, :))/dt
-
-    do j = js, je
-      flux(:, j, :) = flux(:, j, :)*dt/(dx*c(j))
-    end do
+!$omp end do nowait
+!$omp end parallel
 
     return
   end subroutine vanleer_x_3d

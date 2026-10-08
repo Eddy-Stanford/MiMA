@@ -72,10 +72,6 @@ module vert_advection_mod
     module procedure vert_advection_1d, vert_advection_2d, vert_advection_3d
   end interface
 
-! buffers for coefficients used by the parabolic scheme
-  real, allocatable :: zwts(:, :, :, :), dzs(:, :, :)
-  integer :: nlons = 0, nlats = 0, nlevs = 0
-
 ! for cfl diagnostics with finite volume schemes
   real    :: cflmaxc = 0.
   real    :: cflmaxx = 0.
@@ -116,6 +112,9 @@ contains
 
     real :: cn, rsum, dzsum, dtw
     integer :: kk
+    real :: cnmax, xxmax
+    integer :: nerr
+    logical :: any_flux, use_threads
 
     if (.not. module_is_initialized) then
       call write_version_number(version, tagname)
@@ -135,6 +134,10 @@ contains
     ! note: size(r,3)+1 = size(w,3)
     if (size(w, 3) /= size(r, 3) + 1) &
       call error_handler('vertical dimension of input arrays inconsistent')
+    if (diff_scheme < SECOND_CENTERED .or. diff_scheme > FOURTH_CENTERED_WTS) &
+      call error_handler('invalid value for optional argument scheme')
+    if (eqn_form /= FLUX_FORM .and. eqn_form /= ADVECTIVE_FORM) &
+      call error_handler('invalid value for optional argument form')
 
     ! vertical indexing
     ks = 1; ke = size(r, 3)
@@ -157,10 +160,24 @@ contains
       flux(:, :, ke + 1) = w(:, :, ke + 1)*r(:, :, ke)
     end if
 
+    cnmax = cflmaxc
+    xxmax = cflmaxx
+    nerr = 0
+    any_flux = .false.
+
+    ! the centered schemes are too cheap to gain from threads
+    use_threads = size(r, 1)*size(r, 2) > 1 .and. diff_scheme /= SECOND_CENTERED .and. &
+                  diff_scheme /= FOURTH_CENTERED .and. diff_scheme /= SECOND_CENTERED_WTS
+
+! each loop below is shared out over one dimension, so each output element is computed by one
+! thread as in serial; the CFL maxima and error count are exact reductions
+!$omp parallel if(use_threads) default(shared) &
+!$omp private(i, j, k, kk, xx, a, b, rm, r6, rst, wt, tt, c1, c2, test_1, cn, rsum, dzsum, dtw)
     select case (diff_scheme)
 
       !------ 2nd-order centered scheme assuming variable grid spacing ------
     case (SECOND_CENTERED_WTS)
+!$omp do
       do k = ks + 1, ke
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
@@ -170,9 +187,11 @@ contains
       end do
       end do
       end do
+!$omp end do
 
       !------ 2nd-order centered scheme assuming uniform grid spacing ------
     case (SECOND_CENTERED)
+!$omp do
       do k = ks + 1, ke
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
@@ -181,6 +200,7 @@ contains
       end do
       end do
       end do
+!$omp end do
 
       !------ 4th-order centered scheme assuming variable grid spacing ------
     case (FOURTH_CENTERED_WTS)
@@ -188,6 +208,7 @@ contains
       call slope_z(r, dz, slp, limit=.false., linear=.false.)
       if (present(mask)) then
         ! second order if adjacent to ground
+!$omp do
         do k = ks + 2, ke - 1
         do j = 1, size(r, 2)
         do i = 1, size(r, 1)
@@ -201,8 +222,10 @@ contains
         end do
         end do
         end do
+!$omp end do nowait
       else
         ! no mask: always fourth order
+!$omp do
         do k = ks + 2, ke - 1
         do j = 1, size(r, 2)
         do i = 1, size(r, 1)
@@ -212,8 +235,10 @@ contains
         end do
         end do
         end do
+!$omp end do nowait
       end if
       ! second order at top and bottom
+!$omp do
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
         wt = dz(i, j, ks)/(dz(i, j, ks) + dz(i, j, ks + 1))
@@ -224,12 +249,14 @@ contains
         flux(i, j, ke) = w(i, j, ke)*rst
       end do
       end do
+!$omp end do
 
       !------ 4th-order centered scheme assuming uniform grid spacing ------
     case (FOURTH_CENTERED)
       c1 = 7./12.; c2 = 1./12.
       if (present(mask)) then
         ! second order if adjacent to ground
+!$omp do
         do k = ks + 2, ke - 1
         do j = 1, size(r, 2)
         do i = 1, size(r, 1)
@@ -242,8 +269,10 @@ contains
         end do
         end do
         end do
+!$omp end do nowait
       else
         ! no mask: always fourth order
+!$omp do
         do k = ks + 2, ke - 1
         do j = 1, size(r, 2)
         do i = 1, size(r, 1)
@@ -252,8 +281,10 @@ contains
         end do
         end do
         end do
+!$omp end do nowait
       end if
       ! second order at top and bottom
+!$omp do
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
         rst = 0.5*(r(i, j, ks + 1) + r(i, j, ks))
@@ -262,11 +293,13 @@ contains
         flux(i, j, ke) = w(i, j, ke)*rst
       end do
       end do
+!$omp end do
 
       !------ finite volume scheme using piecewise linear method ------
     case (FINITE_VOLUME_LINEAR)
       ! slope along the z-axis
       call slope_z(r, dz, slp)
+!$omp do reduction(max:cnmax) reduction(+:nerr) reduction(.or.:any_flux)
       do k = kstart, kend
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
@@ -280,17 +313,19 @@ contains
           rst = r(i, j, k) - 0.5*slp(i, j, k)*(1.-cn)
         end if
         flux(i, j, k) = w(i, j, k)*rst
-        if (cn > 1.) cflerr = cflerr + 1
-        cflmaxc = max(cflmaxc, cn)
-        cflmaxx = cflmaxc ! same for linear scheme
+        if (cn > 1.) nerr = nerr + 1
+        cnmax = max(cnmax, cn)
+        any_flux = .true.
       end do
       end do
       end do
+!$omp end do
 
       !------ finite volume scheme using piecewise parabolic method (PPM) ------
     case (FINITE_VOLUME_PARABOLIC:FINITE_VOLUME_PARABOLIC2)
       call compute_weights(dz, zwt)
       call slope_z(r, dz, slp, linear=.false.)
+!$omp do
       do k = ks + 2, ke - 1
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
@@ -301,9 +336,11 @@ contains
       end do
       end do
       end do
+!$omp end do nowait
 
       ! boundary values  ! masks ???????
 
+!$omp do
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
         r_left(i, j, ks + 1) = r(i, j, ks + 1) - 0.5*slp(i, j, ks + 1)
@@ -324,11 +361,13 @@ contains
         r_right(i, j, ke) = r(i, j, ke) + 0.5*slp(i, j, ke)
       end do
       end do
+!$omp end do
 
       ! monotonicity constraint
 
       if (diff_scheme == FINITE_VOLUME_PARABOLIC2) then
         ! limiters from Lin (2003), Equation 6 (relaxed constraint)
+!$omp do
         do k = ks, ke
         do j = 1, size(r, 2)
         do i = 1, size(r, 1)
@@ -337,8 +376,10 @@ contains
         end do
         end do
         end do
+!$omp end do
       else
         ! limiters from Colella and Woodward (1984), Equation 1.10
+!$omp do
         do k = ks, ke
         do j = 1, size(r, 2)
         do i = 1, size(r, 1)
@@ -356,11 +397,13 @@ contains
         end do
         end do
         end do
+!$omp end do
       end if
 
       ! compute fluxes at interfaces
 
       tt = 2./3.
+!$omp do reduction(max:cnmax, xxmax) reduction(+:nerr)
       do k = kstart, kend
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
@@ -420,16 +463,14 @@ contains
           if (cn > 1.) rst = (xx*rst + rsum)/cn
         end if
         flux(i, j, k) = w(i, j, k)*rst
-        if (xx > 1.) cflerr = cflerr + 1
-        cflmaxx = max(cflmaxx, xx)
-        cflmaxc = max(cflmaxc, cn)
+        if (xx > 1.) nerr = nerr + 1
+        xxmax = max(xxmax, xx)
+        cnmax = max(cnmax, cn)
       end do
       end do
       end do
+!$omp end do
 
-    case default
-      ! ERROR
-      call error_handler('invalid value for optional argument scheme')
     end select
 
     ! vertical advective tendency
@@ -437,42 +478,51 @@ contains
     select case (eqn_form)
     case (FLUX_FORM)
       if (do_weighted_dt) then
+!$omp do
         do k = ks, ke
           rdt(:, :, k) = -(flux(:, :, k + 1) - flux(:, :, k))
         end do
+!$omp end do nowait
       else
+!$omp do
         do k = ks, ke
           rdt(:, :, k) = -(flux(:, :, k + 1) - flux(:, :, k))/dz(:, :, k)
         end do
+!$omp end do nowait
       end if
     case (ADVECTIVE_FORM)
       if (do_weighted_dt) then
+!$omp do
         do k = ks, ke
           rdt(:, :, k) = -(flux(:, :, k + 1) - flux(:, :, k) - &
                            r(:, :, k)*(w(:, :, k + 1) - w(:, :, k)))
         end do
+!$omp end do nowait
       else
+!$omp do
         do k = ks, ke
           rdt(:, :, k) = -(flux(:, :, k + 1) - flux(:, :, k) - &
                            r(:, :, k)*(w(:, :, k + 1) - w(:, :, k)))/dz(:, :, k)
         end do
+!$omp end do nowait
       end if
-    case default
-      ! ERROR
-      call error_handler('invalid value for optional argument form')
     end select
+!$omp end parallel
+
+    cflerr = cflerr + nerr
+    cflmaxc = cnmax
+    if (diff_scheme == FINITE_VOLUME_LINEAR) then
+      if (any_flux) cflmaxx = cflmaxc ! same for linear scheme
+    else
+      cflmaxx = xxmax
+    end if
 
   end subroutine vert_advection_3d
 
 !-------------------------------------------------------------------------------
 
-  !> Frees the stored coefficients and prints the maximum CFL numbers and the number of
-  !> CFL errors of the finite-volume schemes.
+  !> Prints the maximum CFL numbers and the number of CFL errors of the finite-volume schemes.
   subroutine vert_advection_end
-
-    ! deallocate storage
-    if (allocated(zwts)) deallocate (zwts)
-    if (allocated(dzs)) deallocate (dzs)
 
     ! cfl diagnostics
     call mpp_max(cflmaxc)
@@ -511,6 +561,7 @@ contains
 
 ! compute slope (weighted for unequal levels)
 
+!$omp do
     do j = 1, size(r, 2)
     do i = 1, size(r, 1)
 
@@ -553,73 +604,43 @@ contains
 
     end do
     end do
+!$omp end do
 
   end subroutine slope_z
 
 !-------------------------------------------------------------------------------
 
-  !> Computes and stores the weights for interface values used by the
-  !> `FOURTH_CENTERED_WTS` and parabolic schemes.
+  !> Computes the weights for interface values used by the `FOURTH_CENTERED_WTS` and
+  !> parabolic schemes.
   subroutine compute_weights(dz, zwt)
     real, intent(in), dimension(:, :, :)    :: dz
     real, intent(out), dimension(0:, :, :, :) :: zwt
     real    :: denom1, denom2, denom3, denom4, num3, num4, x, y
     integer :: i, j, k
-    logical :: redo
-
-! check the size of stored coefficients
-! need to reallocate if size has changed
-    if (nlons /= size(dz, 1) .or. nlats /= size(dz, 2) .or. nlevs /= size(dz, 3)) then
-      if (allocated(zwts)) deallocate (zwts)
-      if (allocated(dzs)) deallocate (dzs)
-      nlons = size(dz, 1)
-      nlats = size(dz, 2)
-      nlevs = size(dz, 3)
-      allocate (zwts(0:3, nlons, nlats, nlevs))
-      allocate (dzs(nlons, nlats, nlevs))
-      dzs = -1.
-    end if
 
 ! coefficients/weights for computing values at grid box interfaces
-! only recompute coefficients for a column when layer depth has changed
 
+!$omp do
     do j = 1, size(dz, 2)
     do i = 1, size(dz, 1)
-
-      redo = .false.
-      do k = 1, size(dz, 3)
-        if (dz(i, j, k) /= dzs(i, j, k)) then
-          redo = .true.
-          exit
-        end if
+      do k = 3, size(dz, 3) - 1
+        denom1 = 1.0/(dz(i, j, k - 1) + dz(i, j, k))
+        denom2 = 1.0/(dz(i, j, k - 2) + dz(i, j, k - 1) + dz(i, j, k) + dz(i, j, k + 1))
+        denom3 = 1.0/(2*dz(i, j, k - 1) + dz(i, j, k))
+        denom4 = 1.0/(dz(i, j, k - 1) + 2*dz(i, j, k))
+        num3 = dz(i, j, k - 2) + dz(i, j, k - 1)
+        num4 = dz(i, j, k) + dz(i, j, k + 1)
+        x = num3*denom3 - num4*denom4
+        y = 2.0*dz(i, j, k - 1)*dz(i, j, k) ! everything up to this point is just
+        ! needed to compute x1,x1,x3
+        zwt(0, i, j, k) = dz(i, j, k - 1)*denom1                ! = 1/2 in equally spaced case
+        zwt(1, i, j, k) = zwt(0, i, j, k) + x*y*denom1*denom2  ! = 1/2 in equally spaced case
+        zwt(2, i, j, k) = dz(i, j, k - 1)*num3*denom3*denom2    ! = 1/6 ''
+        zwt(3, i, j, k) = dz(i, j, k)*num4*denom4*denom2      ! = 1/6 ''
       end do
-
-      if (redo) then
-        do k = 3, size(dz, 3) - 1
-          denom1 = 1.0/(dz(i, j, k - 1) + dz(i, j, k))
-          denom2 = 1.0/(dz(i, j, k - 2) + dz(i, j, k - 1) + dz(i, j, k) + dz(i, j, k + 1))
-          denom3 = 1.0/(2*dz(i, j, k - 1) + dz(i, j, k))
-          denom4 = 1.0/(dz(i, j, k - 1) + 2*dz(i, j, k))
-          num3 = dz(i, j, k - 2) + dz(i, j, k - 1)
-          num4 = dz(i, j, k) + dz(i, j, k + 1)
-          x = num3*denom3 - num4*denom4
-          y = 2.0*dz(i, j, k - 1)*dz(i, j, k) ! everything up to this point is just
-          ! needed to compute x1,x1,x3
-          zwt(0, i, j, k) = dz(i, j, k - 1)*denom1                ! = 1/2 in equally spaced case
-          zwt(1, i, j, k) = zwt(0, i, j, k) + x*y*denom1*denom2  ! = 1/2 in equally spaced case
-          zwt(2, i, j, k) = dz(i, j, k - 1)*num3*denom3*denom2    ! = 1/6 ''
-          zwt(3, i, j, k) = dz(i, j, k)*num4*denom4*denom2      ! = 1/6 ''
-        end do
-        dzs(i, j, :) = dz(i, j, :)
-        zwts(0:3, i, j, :) = zwt(0:3, i, j, :)
-      else
-
-        ! use previously computed coefficients
-        zwt(0:3, i, j, :) = zwts(0:3, i, j, :)
-      end if
-
     end do
     end do
+!$omp end do
 
   end subroutine compute_weights
 
