@@ -3,7 +3,8 @@
 !>
 !> The grid domain is decomposed in latitude (layout `1, npes`; the number of latitudes must
 !> be a multiple of the number of processors) and the spectral domain in the zonal index m
-!> (layout `npes, 1`). `io_layout` sets the I/O domains of both.
+!> (layout `npes, 1`), into contiguous blocks of m chosen by `spectral_decomposition`.
+!> `io_layout` sets the I/O domains of both.
 !>
 !> Namelist: `spec_mpp_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#spec_mpp_nml)).
@@ -38,7 +39,24 @@ module spec_mpp_mod
   ! The spectral domain, which is decomposed along m rather than latitude,
   ! uses the transposed layout, (io_layout(2), io_layout(1)).
 
-  namelist /spec_mpp_nml/ io_layout
+  character(len=16), private :: spectral_decomposition = 'balanced'
+  !! how the zonal indices m are divided among the processes, in contiguous blocks:
+  !! `'equal'`: blocks of equal numbers of m; `'balanced'`: blocks of equal estimated work.
+  !! With triangular truncation the Legendre transforms of zonal index m cost about
+  !! `num_spherical - m` (the number of its retained coefficients), so equal blocks leave the
+  !! first process with the most work. `'balanced'` gives each m the cost
+  !! `num_spherical - m + spectral_cost_per_m` and minimizes the largest block cost. It applies
+  !! only to triangular truncation with `fourier_inc = 1` (otherwise `'equal'` is used). The
+  !! results and restart files are the same as with `'equal'`, bit for bit, and a run may restart
+  !! with either.
+  real, private :: spectral_cost_per_m = 20.
+  !! for `spectral_decomposition = 'balanced'`: the cost of each zonal index m that does not
+  !! depend on its number of retained coefficients (the time step and damping work on all
+  !! `num_spherical + 1` coefficients, the transposes on all latitudes), in units of the cost of
+  !! one retained coefficient. Measured at T42 on 4 processes: about 16 with 1 OpenMP thread and
+  !! 28 with 2, as the threads speed up the Legendre transforms more than the rest.
+
+  namelist /spec_mpp_nml/ io_layout, spectral_decomposition, spectral_cost_per_m
 
   public :: spec_mpp_init, get_grid_domain, get_spec_domain, spec_mpp_end
 
@@ -47,15 +65,22 @@ contains
 !=======================================================================================================================
 
   !> Reads `spec_mpp_nml` and defines the grid and spectral domains and their I/O domains.
-  subroutine spec_mpp_init(num_fourier, num_spherical, num_lon, lat_max, grid_layout, spectral_layout)
+  subroutine spec_mpp_init(num_fourier, num_spherical, num_lon, lat_max, grid_layout, spectral_layout, &
+                           fourier_inc, triang_trunc)
     integer, intent(in) ::  num_fourier, num_spherical, num_lon, lat_max
     !! `num_fourier`, `num_spherical`: largest spectral indices m and n; `num_lon`, `lat_max`:
     !! numbers of longitudes and latitudes
     integer, intent(in), optional :: grid_layout(2), spectral_layout(2)
     !! `grid_layout`, `spectral_layout`: processor layouts of the grid and spectral domains (default:
     !! `1, npes` and `npes, 1`)
+    integer, intent(in), optional :: fourier_inc
+    !! zonal wavenumber increment (default 1); `spectral_decomposition = 'balanced'` needs 1
+    logical, intent(in), optional :: triang_trunc
+    !! triangular truncation (default `.true.`); `spectral_decomposition = 'balanced'` needs it
     integer :: i, io, ierr
     integer :: layout(2)
+    integer, allocatable :: xextent(:)
+    logical :: balanced
     character(len=4) :: chtmp1, chtmp2
 
     if (module_is_initialized) return
@@ -65,6 +90,10 @@ contains
 
     read (input_nml_file, nml=spec_mpp_nml, iostat=io)
     ierr = check_nml_error(io, 'spec_mpp_nml')
+    if (spectral_decomposition /= 'equal' .and. spectral_decomposition /= 'balanced') &
+      call mpp_error(FATAL, 'SPEC_MPP_INIT: spectral_decomposition must be ''equal'' or ''balanced'', not '''// &
+                     trim(spectral_decomposition)//'''')
+    if (spectral_cost_per_m < 0.) call mpp_error(FATAL, 'SPEC_MPP_INIT: spectral_cost_per_m must not be negative')
 
     call write_version_number(version, tagname)
     if (pe == mpp_root_pe()) write (stdlog(), nml=spec_mpp_nml)
@@ -73,7 +102,7 @@ contains
     layout = (/1, npes/)
     if (present(grid_layout)) layout = grid_layout
     call mpp_define_domains((/1, num_lon, 1, lat_max/), layout, grid_domain)
-    if (pe == mpp_root_pe()) call print_decomp(npes, layout, grid_domain)
+    if (pe == mpp_root_pe()) call print_decomp(npes, layout, grid_domain, 'ATMOS MODEL DOMAIN DECOMPOSITION')
 
 !requirement of equal domains: can be generalized to retain mirror symmetry between N/S if unequal.
 !the equal-domains requirement permits us to eliminate one buffer/unbuffer in the transpose_fourier routines.
@@ -89,21 +118,96 @@ contains
 !spectral domain: by default, 1D decomposition along M
     layout = (/npes, 1/)
     if (present(spectral_layout)) layout = spectral_layout
-    call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, spectral_domain)
+    balanced = spectral_decomposition == 'balanced' .and. layout(1) > 1 .and. layout(1) <= num_fourier + 1
+    if (present(fourier_inc)) balanced = balanced .and. fourier_inc == 1
+    if (present(triang_trunc)) balanced = balanced .and. triang_trunc
+    if (balanced) then
+      allocate (xextent(layout(1)))
+      call balanced_m_blocks(num_fourier, num_spherical, xextent)
+      call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, spectral_domain, xextent=xextent)
+    else
+      call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, spectral_domain)
+    end if
     call mpp_define_io_domain(spectral_domain, (/io_layout(2), io_layout(1)/))
+    if (pe == mpp_root_pe()) call print_decomp(npes, layout, spectral_domain, 'SPECTRAL DOMAIN DECOMPOSITION (X = M, Y = N)')
 
 !global spectral domains (may be used for I/O) are the same as spectral domains, with global data boundaries
-    call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, global_spectral_domain, &
-                            xflags=GLOBAL_DATA_DOMAIN, yflags=GLOBAL_DATA_DOMAIN)
+    if (balanced) then
+      call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, global_spectral_domain, &
+                              xflags=GLOBAL_DATA_DOMAIN, yflags=GLOBAL_DATA_DOMAIN, xextent=xextent)
+    else
+      call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, global_spectral_domain, &
+                              xflags=GLOBAL_DATA_DOMAIN, yflags=GLOBAL_DATA_DOMAIN)
+    end if
 
     module_is_initialized = .true.
     return
   end subroutine spec_mpp_init
 !=======================================================================================================================
 
-  subroutine print_decomp(npes, layout, Domain)
+  !> Divides the zonal indices 0 to `num_fourier` into `size(xextent)` contiguous, nonempty
+  !> blocks that minimize the largest block cost, the cost of m being
+  !> `num_spherical - m + spectral_cost_per_m` (triangular truncation).
+  subroutine balanced_m_blocks(num_fourier, num_spherical, xextent)
+    integer, intent(in) :: num_fourier, num_spherical
+    integer, intent(out) :: xextent(:)
+    real :: cost(0:num_fourier), lo, hi, mid
+    integer :: m, iter
+    logical :: ok
+
+    do m = 0, num_fourier
+      cost(m) = real(max(num_spherical - m, 0)) + spectral_cost_per_m
+    end do
+! bisect for the smallest largest block cost that a partition achieves
+    lo = maxval(cost)
+    hi = sum(cost)
+    do iter = 1, 100
+      mid = 0.5*(lo + hi)
+      if (mid <= lo .or. mid >= hi) exit
+      call fill_blocks(mid, ok)
+      if (ok) then
+        hi = mid
+      else
+        lo = mid
+      end if
+    end do
+    call fill_blocks(hi, ok)
+    if (.not. ok) call mpp_error(FATAL, 'SPEC_MPP_INIT: balanced_m_blocks failed')
+
+  contains
+
+    ! Fills each block in turn with as many m as fit in max_cost, leaving at least one m
+    ! for each later block.
+    subroutine fill_blocks(max_cost, ok)
+      real, intent(in) :: max_cost
+      logical, intent(out) :: ok
+      real :: block_cost
+      integer :: p, m, nb
+
+      nb = size(xextent)
+      xextent = 0
+      m = 0
+      do p = 1, nb
+        block_cost = 0.
+        do while (m <= num_fourier - (nb - p))
+          if (block_cost + cost(m) > max_cost) exit
+          block_cost = block_cost + cost(m)
+          xextent(p) = xextent(p) + 1
+          m = m + 1
+        end do
+        if (xextent(p) == 0) exit
+      end do
+      ok = m == num_fourier + 1 .and. all(xextent > 0)
+
+    end subroutine fill_blocks
+
+  end subroutine balanced_m_blocks
+!=======================================================================================================================
+
+  subroutine print_decomp(npes, layout, Domain, title)
     integer, intent(in) :: npes, layout(2)
     type(domain2d), intent(in) :: Domain
+    character(len=*), intent(in) :: title
     integer, dimension(0:npes - 1) :: xsize, ysize
     integer :: i, j, xlist(layout(1)), ylist(layout(2))
     type(domain1D) :: Xdom, Ydom
@@ -113,11 +217,10 @@ contains
     call mpp_get_pelist(Xdom, xlist)
     call mpp_get_pelist(Ydom, ylist)
 
-    write (*, 100)
+    write (*, '(a)') title
     write (*, 110) (xsize(xlist(i)), i=1, layout(1))
     write (*, 120) (ysize(ylist(j)), j=1, layout(2))
 
-100 format('ATMOS MODEL DOMAIN DECOMPOSITION')
 110 format('  X-AXIS = ', 24i4, /, (11x, 24i4))
 120 format('  Y-AXIS = ', 24i4, /, (11x, 24i4))
 

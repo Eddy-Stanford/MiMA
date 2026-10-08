@@ -269,7 +269,8 @@ contains
       longitude_origin_local = 0.0
     end if
 
-    call spec_mpp_init(num_fourier, num_spherical, num_lon, lat_max)
+    call spec_mpp_init(num_fourier, num_spherical, num_lon, lat_max, fourier_inc=fourier_inc, &
+                       triang_trunc=triang_trunc_local)
     call get_grid_domain(is, ie, js, je)
     call get_spec_domain(ms, me, ns, ne)
 
