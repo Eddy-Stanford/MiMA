@@ -202,7 +202,8 @@ module spectral_dynamics_mod
              p_sigma = .3, & !! `hybrid` levels: transition between pressure and sigma levels (`p_sigma` > `p_press`)
              exponent = 1.4, & !! parameter 3 of the `uneven_sigma` and `hybrid` levels
              ocean_topog_smoothing = 0.995, &
-             !! fractional smoothing of the topography over the ocean (with `'interpolated'`); 0: spectrally
+             !! with `'interpolated'`: fraction of the roughness (squared Laplacian) of the topography over
+             !! the ocean removed by the regularization (`topog_regularization_nml`), 0 to below 1; 0: spectrally
              !! truncated but not regularized
              initial_sphum = 2.e-06, & !! [kg/kg] cold-start specific humidity (so the stratosphere does not start dry)
              reference_sea_level_press = 1.e5, &

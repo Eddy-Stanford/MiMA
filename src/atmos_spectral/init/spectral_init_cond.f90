@@ -31,7 +31,7 @@ module spectral_init_cond_mod
 
   use spectral_initialize_fields_mod, only: spectral_initialize_fields
 
-  use topog_regularization_mod, only: compute_lambda, regularize
+  use topog_regularization_mod, only: regularize_topography
 
   use topography_mod, only: gaussian_topog_init, get_topog_mean, get_ocean_mask
 
@@ -233,17 +233,8 @@ contains
                             ' and ocean_mask is not present but water data file does not exist', FATAL)
           end if
         end if
-        call compute_lambda(ocean_topog_smoothing, ocean_mask, surf_geopotential, lambda, fraction_smoothed)
-
-!  Note that the array surf_height is used here for the smoothed surf_geopotential,
-!  then immediately loaded back into surf_geopotential
-        call regularize(lambda, ocean_mask, surf_geopotential, surf_height, fraction_smoothed)
-        surf_geopotential = surf_height
-
-        if (mpp_pe() == mpp_root_pe()) then
-          print '(/,"Message from subroutine get_topography:")'
-          print '("lambda=",1pe16.8,"  fraction_smoothed=",1pe16.8,/)', lambda, fraction_smoothed
-        end if
+        call regularize_topography(ocean_topog_smoothing, ocean_mask, grav*surf_height, surf_geopotential, &
+                                   lambda, fraction_smoothed)
       end if
       deallocate (blon, blat)
 

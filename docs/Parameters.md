@@ -14,7 +14,7 @@ A few rules:
 Contents:
 
 * [General](#general): [`coupler_nml`](#coupler_nml), [`atmos_model_nml`](#atmos_model_nml), [`spec_mpp_nml`](#spec_mpp_nml), [`diag_integral_nml`](#diag_integral_nml)
-* [Dynamics](#dynamics): [`spectral_dynamics_nml`](#spectral_dynamics_nml), [`vert_coordinate_nml`](#vert_coordinate_nml), [`spectral_init_cond_nml`](#spectral_init_cond_nml), [`transforms_nml`](#transforms_nml)
+* [Dynamics](#dynamics): [`spectral_dynamics_nml`](#spectral_dynamics_nml), [`vert_coordinate_nml`](#vert_coordinate_nml), [`spectral_init_cond_nml`](#spectral_init_cond_nml), [`topog_regularization_nml`](#topog_regularization_nml), [`transforms_nml`](#transforms_nml)
 * [Physics driver](#physics-driver): [`physics_driver_nml`](#physics_driver_nml)
 * [Radiation](#radiation): [`radiation_nml`](#radiation_nml), [`rrtm_radiation_nml`](#rrtm_radiation_nml), [`astro_nml`](#astro_nml), [`gray_radiation_nml`](#gray_radiation_nml)
 * [Surface](#surface): [`simple_surface_nml`](#simple_surface_nml), [`qflux_nml`](#qflux_nml), [`surface_flux_nml`](#surface_flux_nml), [`monin_obukhov_nml`](#monin_obukhov_nml)
@@ -137,7 +137,7 @@ Declared in [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/s
 | `p_press` | real | `.1` | `hybrid` levels: transition between pressure and sigma levels (`p_sigma` > `p_press`) |
 | `p_sigma` | real | `.3` | `hybrid` levels: transition between pressure and sigma levels (`p_sigma` > `p_press`) |
 | `exponent` | real | `1.4` | parameter 3 of the `uneven_sigma` and `hybrid` levels |
-| `ocean_topog_smoothing` | real | `0.995` | fractional smoothing of the topography over the ocean (with `'interpolated'`); 0: spectrally truncated but not regularized |
+| `ocean_topog_smoothing` | real | `0.995` | with `'interpolated'`: fraction of the roughness (squared Laplacian) of the topography over the ocean removed by the regularization (`topog_regularization_nml`), 0 to below 1; 0: spectrally truncated but not regularized |
 | `initial_sphum` | real | `2.e-06` | [kg/kg] cold-start specific humidity (so the stratosphere does not start dry) |
 | `valid_range_t` | real, dimension(2) | `(/100., 500./)` | [K] the model stops if the temperature leaves this range |
 | `eddy_sponge_coeff` | real | `0.` | `del^2` sponge at the top level for the eddy winds (0: off) |
@@ -177,6 +177,24 @@ Declared in [`spectral_init_cond_mod`](https://eddy-stanford.github.io/MiMA/api/
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `initial_temperature` | real | `264.` | [K] temperature of the isothermal atmosphere on a cold start |
+
+<!-- mimadoc:end -->
+
+### `topog_regularization_nml`
+
+The regularization of the topography over the ocean after Lindberg and Broccoli (1996), used with `topography_option = 'interpolated'` and `ocean_topog_smoothing` > 0 in [`spectral_dynamics_nml`](#spectral_dynamics_nml). It removes the Gibbs ripples of the spectrally truncated topography over the ocean while keeping it close to the truncated topography elsewhere; `ocean_topog_smoothing` is the fraction of the ocean roughness (the squared Laplacian) that it removes. The defaults work at any resolution, so this group is normally not needed; `verbose = .true.` shows the progress of the search for the smoothing parameter. See [`topog_regularization_mod`](https://eddy-stanford.github.io/MiMA/api/topog_regularization_mod/) for the method.
+
+<!-- mimadoc:namelist topog_regularization_nml -->
+
+Declared in [`topog_regularization_mod`](https://eddy-stanford.github.io/MiMA/api/topog_regularization_mod/) (`src/atmos_spectral/init/topog_regularization.f90`).
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `fraction_tolerance` | real | `1.e-4` | the search for `lambda` stops when the fraction of the ocean roughness removed is within this of `ocean_topog_smoothing` |
+| `solver_tolerance` | real | `1.e-10` | the conjugate-gradient solver stops when the norm of the residual is below this times the norm of the unsmoothed field |
+| `max_solver_iterations` | integer | `2000` | largest number of conjugate-gradient iterations |
+| `max_lambda_iterations` | integer | `30` | largest number of solves in the search for `lambda` |
+| `verbose` | logical | `.false.` | print the progress of the solver and of the `lambda` search |
 
 <!-- mimadoc:end -->
 
@@ -764,7 +782,7 @@ These groups belong to the [FMS library](https://github.com/NOAA-GFDL/FMS) and k
  :--- | :--- | :---: | :---
  `sat_vapor_pres_nml` | `do_simple` | `.true.` | **required**: the simple saturation vapour pressure table (Clausius-Clapeyron with constant latent heat, no ice) that MiMA uses. The FMS default (`.false.`, Goff-Gratch) is rejected at start-up.
  `topography_nml` | `topog_file`, `water_file` | `'INPUT/navy_topography.data.nc'`, `'INPUT/navy_pctwater.data.nc'` | high-resolution topography and water fraction, used by `topography_option = 'interpolated'` and `land_option = 'interpolated'`
- `fms_nml` | `domains_stack_size` | `600000` | stack size of the domain communication buffer; may need to be larger at higher resolution
+ `fms_nml` | `domains_stack_size` | `600000` | stack size of the domain communication buffer; must be larger at higher resolution (the error message gives the size needed, e.g. about 1.2e6 at T255)
  `diag_manager_nml` | `do_diag_field_log` | not set | `.true.` writes the list of registered diagnostic fields to `diag_field_log.out.0`
 
 Namelist `gaussian_topog_nml` sets idealized mountains for `topography_option = 'gaussian'`. For example, 3 km wave-two mountains in midlatitudes:
