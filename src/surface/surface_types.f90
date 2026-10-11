@@ -45,8 +45,9 @@ module surface_types_mod
     real, allocatable :: drdt_surf(:, :)
     !! derivative of the upward longwave flux with respect to the surface temperature [W/m2/K]
     real, allocatable :: extra_heating(:, :)  !! local surface heating (`local_heating_nml`; 0 if off) [K/s]
-    real, allocatable :: qflux_legacy(:, :)
-    !! prescribed ocean heat flux added at all points, ocean and land, as in v1 [W/m2]
+    real, allocatable :: qflux_land(:, :)
+    !! Q-flux applied over land: 0 unless `qflux_ocean_only = .false.` (`qflux_nml`), when it
+    !! is the Q-flux on the land points, as in v1 [W/m2]
     real :: dt  !! time step [s]
     type(time_type) :: Time  !! time at the end of the step
   end type surface_exchange_type

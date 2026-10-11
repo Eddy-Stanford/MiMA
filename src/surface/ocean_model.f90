@@ -6,7 +6,7 @@
 !>
 !> * `'slab'`: stepped with the implicit surface energy budget (`slab_tendency_mod`), with a
 !>   heat capacity that can vary with latitude and the prescribed ocean heat fluxes of
-!>   `ocean_qflux_mod`;
+!>   `ocean_qflux_mod` (by default applied over the ocean only, with their mean removed);
 !> * `'prescribed'`: read from `sst_file` at every step;
 !> * `'fixed'`: held at its initial value.
 !>
@@ -46,7 +46,9 @@ module ocean_model_mod
     real, allocatable :: t_surf(:, :)  !! surface temperature [K]
     real, allocatable :: cap(:, :)  !! mixed-layer heat capacity [J/m2/K]
     real, allocatable :: qflux(:, :)
-    !! prescribed ocean heat flux convergence (Q-flux); at present defined on all points [W/m2]
+    !! prescribed ocean heat flux convergence (Q-flux) applied at each point: by the slab over
+    !! the ocean and, with `qflux_ocean_only = .false.` (v1), by the land model over land;
+    !! otherwise 0 over land [W/m2]
     real, allocatable :: dt_t_surf(:, :)  !! change of `t_surf` over the last step [K]
     real :: rough_ocean  !! roughness length of the ocean for momentum, heat and moisture [m]
   end type ocean_data_type
@@ -214,7 +216,7 @@ contains
     Ocean%t_surf = 0.0
     where (mask) Ocean%t_surf = t_all
 
-    call ocean_qflux_init(grid%lon_bnd, grid%lat_bnd, Ocean%qflux)
+    call ocean_qflux_init(grid, mask, Ocean%qflux)
 
     id_qflux = register_diag_field(mod_name, 'qflux', grid%axes, Time, &
                                    'prescribed ocean heat divergence', 'W/m2')
@@ -241,7 +243,7 @@ contains
     case ('slab')
       where (Ocean%mask)
         Ocean%dt_t_surf = slab_dt(Exch%flux_lw, Exch%flux_sw, hlf*Exch%fprec, Exch%flux_t, &
-                                  Exch%flux_q, Exch%qflux_legacy, Exch%dhdt_surf, Exch%dedt_surf, &
+                                  Exch%flux_q, Ocean%qflux, Exch%dhdt_surf, Exch%dedt_surf, &
                                   Exch%drdt_surf, Exch%dt, Ocean%cap)
       elsewhere
         Ocean%dt_t_surf = 0.0

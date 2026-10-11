@@ -561,7 +561,7 @@ contains
 
     allocate (Exch%flux_lw(id, jd), Exch%flux_sw(id, jd), Exch%lprec(id, jd), Exch%fprec(id, jd), &
               Exch%flux_t(id, jd), Exch%flux_q(id, jd), Exch%dhdt_surf(id, jd), Exch%dedt_surf(id, jd), &
-              Exch%drdt_surf(id, jd), Exch%extra_heating(id, jd), Exch%qflux_legacy(id, jd))
+              Exch%drdt_surf(id, jd), Exch%extra_heating(id, jd), Exch%qflux_land(id, jd))
     Exch%flux_lw = 0.0
     Exch%flux_sw = 0.0
     Exch%lprec = 0.0
@@ -572,8 +572,10 @@ contains
     Exch%dedt_surf = 0.0
     Exch%drdt_surf = 0.0
     Exch%extra_heating = 0.0
-! v1 behaviour: the Q-flux is added at all points, land included
-    Exch%qflux_legacy = Ocean%qflux
+! The Q-flux over land: Ocean%qflux holds the Q-flux applied at every point, which is 0
+! over land unless qflux_ocean_only = .false. (then the land gets it as in v1)
+    Exch%qflux_land = 0.0
+    where (Land%mask) Exch%qflux_land = Ocean%qflux
     Exch%dt = 0.0
     Exch%Time = Time
 

@@ -314,7 +314,7 @@ contains
     case ('simple')
       where (Land%mask)
         Land%dt_t_surf = slab_dt(Exch%flux_lw, Exch%flux_sw, hlf*Exch%fprec, Exch%flux_t, &
-                                 Exch%flux_q, Exch%qflux_legacy, Exch%dhdt_surf, Exch%dedt_surf, &
+                                 Exch%flux_q, Exch%qflux_land, Exch%dhdt_surf, Exch%dedt_surf, &
                                  Exch%drdt_surf, Exch%dt, Land%cap)
       elsewhere
         Land%dt_t_surf = 0.0

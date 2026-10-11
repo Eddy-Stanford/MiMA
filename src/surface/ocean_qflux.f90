@@ -9,6 +9,12 @@
 !> and warm-pool fluxes do not change in time; they are computed once by
 !> `ocean_qflux_init`, which is called by `ocean_model_mod`.
 !>
+!> By default the sum is applied over the ocean only (`qflux_ocean_only`), and a constant
+!> is removed from the ocean points so that its global area integral is zero
+!> (`qflux_remove_mean`): the Q-flux neither heats the land nor adds net heat. Setting both
+!> switches to `.false.` reproduces v1, where the Q-flux was added at every point, land
+!> included, without removing its mean.
+!>
 !> Namelist: `qflux_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#qflux_nml)).
 !>
@@ -25,6 +31,8 @@ module ocean_qflux_mod
   use constants_mod, only: pi
   use fms_mod, only: input_nml_file, check_nml_error, &
                      error_mesg, FATAL, mpp_pe, mpp_root_pe, stdlog
+  use mpp_domains_mod, only: mpp_global_sum, BITWISE_EXACT_SUM
+  use surface_types_mod, only: surface_grid_type
 
   implicit none
 
@@ -60,6 +68,16 @@ module ocean_qflux_mod
   !! add the zonally asymmetric Q-fluxes (warm pool and regional patterns), whatever `qflux_source`
   character(len=256) :: qflux_file = ''  !! with `qflux_source = 'file'`, Q-flux file name, without `.nc`, in `INPUT/`
   character(len=256) :: qflux_file_var = 'qflux'  !! name of the Q-flux variable in `qflux_file`
+  logical :: qflux_ocean_only = .true.
+  !! apply the Q-flux over the ocean only (the default); `.false.`: also over land, as in v1
+  !! (set both `qflux_ocean_only` and `qflux_remove_mean` to `.false.` to reproduce v1)
+  logical :: qflux_remove_mean = .true.
+  !! subtract a constant from the Q-flux at the ocean points so that its global area
+  !! integral is zero (the default): the constant is the area integral of the applied Q-flux
+  !! over all points (land included with `qflux_ocean_only = .false.`) divided by the ocean
+  !! area; with `qflux_ocean_only` it is the ocean mean (the global mean without land).
+  !! `.false.`: no mean removed, as in v1 (set both `qflux_ocean_only` and `qflux_remove_mean`
+  !! to `.false.` to reproduce v1)
 
   integer :: warmpool_localization_choice = 3
   !! `1`: cosine in longitude; `2`: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and
@@ -68,6 +86,7 @@ module ocean_qflux_mod
   logical :: qflux_initialized = .false.
 
   namelist /qflux_nml/ qflux_source, do_warmpool, qflux_file, qflux_file_var, &
+    qflux_ocean_only, qflux_remove_mean, &
     qflux_amp, qflux_width, &
     warmpool_amp, warmpool_width, warmpool_centr, &
     warmpool_k, warmpool_phase, warmpool_localization_choice, &
@@ -84,13 +103,24 @@ contains
 !########################################################
   !> Reads `qflux_nml` and returns the Q-flux on this PE's grid.
   !>
-  !> The Q-flux is the sum of the meridional Q-flux (`qflux_source = 'analytic'`) and the
-  !> zonally asymmetric fluxes (`do_warmpool`); it is zero if neither is selected.
-  subroutine ocean_qflux_init(lonb, latb, flux)
+  !> The raw Q-flux is the sum of the meridional Q-flux (`qflux_source = 'analytic'`) and
+  !> the zonally asymmetric fluxes (`do_warmpool`); it is zero if neither is selected. With
+  !> `qflux_ocean_only` it is then set to 0 off the ocean, and with `qflux_remove_mean` its
+  !> global area integral (over all points, land included where it is applied there),
+  !> divided by the ocean area, is subtracted at the ocean points, so that the global net
+  !> Q-flux is zero. The global sums are
+  !> bitwise independent of the domain decomposition. Statistics of the raw and the applied
+  !> Q-flux are written to the log file.
+  subroutine ocean_qflux_init(grid, mask, flux)
     implicit none
-    real, dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell boundaries [rad]
-    real, dimension(:, :), intent(out) :: flux  !! Q-flux (ocean heat flux convergence) [W/m2]
+    type(surface_grid_type), intent(in) :: grid  !! the surface grid
+    logical, dimension(:, :), intent(in) :: mask  !! ocean points
+    real, dimension(:, :), intent(out) :: flux
+    !! Q-flux applied at each point (ocean heat flux convergence; 0 over land with
+    !! `qflux_ocean_only`) [W/m2]
     integer :: ierr, io
+    real, dimension(size(flux, 1), size(flux, 2)) :: ocean, land_q
+    real :: area_total, area_ocean, area_land_q, mean_ocean, mean_land_q, removed
 
     read (input_nml_file, nml=qflux_nml, iostat=io)
     ierr = check_nml_error(io, 'qflux_nml')
@@ -112,9 +142,53 @@ contains
 
     flux = 0.
 !mj q-flux as in Merlis et al (2013) [Part II]
-    if (trim(qflux_source) == 'analytic') call qflux(latb, flux)
+    if (trim(qflux_source) == 'analytic') call qflux(grid%lat_bnd, flux)
 !mj q-flux to create a tropical temperature perturbation
-    if (do_warmpool) call warmpool(lonb, latb, flux)
+    if (do_warmpool) call warmpool(grid%lon_bnd, grid%lat_bnd, flux)
+
+! Statistics of the raw Q-flux (they do not change flux): its mean over the ocean, and the
+! land points where it is nonzero, with their area and mean
+    ocean = merge(1., 0., mask)
+    land_q = merge(1., 0., (.not. mask) .and. flux /= 0.)
+    area_total = mpp_global_sum(grid%domain, grid%area, flags=BITWISE_EXACT_SUM)
+    area_ocean = mpp_global_sum(grid%domain, grid%area*ocean, flags=BITWISE_EXACT_SUM)
+    area_land_q = mpp_global_sum(grid%domain, grid%area*land_q, flags=BITWISE_EXACT_SUM)
+    mean_ocean = 0.
+    if (area_ocean > 0.) &
+      mean_ocean = mpp_global_sum(grid%domain, grid%area*ocean*flux, flags=BITWISE_EXACT_SUM)/area_ocean
+    mean_land_q = 0.
+    if (area_land_q > 0.) &
+      mean_land_q = mpp_global_sum(grid%domain, grid%area*land_q*flux, flags=BITWISE_EXACT_SUM)/area_land_q
+
+! Ocean only: no Q-flux over land
+    if (qflux_ocean_only) then
+      where (.not. mask) flux = 0.
+    end if
+! Make the global net Q-flux zero: subtract, at the ocean points, the area integral of the
+! applied Q-flux over all points (land included where it is applied there) divided by the
+! ocean area. With qflux_ocean_only this is the ocean mean (the whole sphere without land).
+    removed = 0.
+    if (qflux_remove_mean .and. area_ocean > 0.) then
+      removed = mpp_global_sum(grid%domain, grid%area*flux, flags=BITWISE_EXACT_SUM)/area_ocean
+      where (mask) flux = flux - removed
+    end if
+
+    if (mpp_pe() == mpp_root_pe()) then
+      write (stdlog(), '(a)') 'ocean_qflux_init: Q-flux statistics (area-weighted)'
+      write (stdlog(), '(a,es14.6)') '  raw Q-flux mean over the ocean [W/m2]:          ', mean_ocean
+      write (stdlog(), '(a,es14.6)') '  removed from the ocean points (net Q / ocean area) [W/m2]: ', removed
+      write (stdlog(), '(a,es14.6)') '  land area with a nonzero raw Q-flux [fraction of the globe]: ', &
+        area_land_q/area_total
+      if (area_total > area_ocean) &
+        write (stdlog(), '(a,es14.6)') '  land area with a nonzero raw Q-flux [fraction of the land]:  ', &
+        area_land_q/(area_total - area_ocean)
+      write (stdlog(), '(a,es14.6)') '  raw Q-flux mean over that land area [W/m2]:     ', mean_land_q
+      if (qflux_ocean_only) then
+        write (stdlog(), '(a)') '  qflux_ocean_only: the Q-flux over land is set to 0'
+      else
+        write (stdlog(), '(a)') '  qflux_ocean_only = .false.: the Q-flux is also applied over land (v1)'
+      end if
+    end if
 
   end subroutine ocean_qflux_init
 !########################################################
