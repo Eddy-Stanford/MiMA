@@ -327,7 +327,7 @@ contains
 
       ! epg: cfr is 1.0 by default, but set to 0.0 when no_surface_radiative_flux is activated
       flux_r = cfr*stefan*t_surf**4               ! (W/m**2)
-      drdt_surf = 4*stefan*t_surf**3               ! d(upward longwave)/d(surface temperature)
+      drdt_surf = cfr*4*stefan*t_surf**3               ! d(upward longwave)/d(surface temperature)
 
       ! stresses
       rho_drag = drag_m*rho
@@ -367,8 +367,8 @@ contains
       end where
     else
       where (avail)
-        dtaudu_atm = -cd_m*rho*(dw_atmdu*u_dif + w_atm)
-        dtaudv_atm = -cd_m*rho*(dw_atmdv*v_dif + w_atm)
+        dtaudu_atm = -cfm*cd_m*rho*(dw_atmdu*u_dif + w_atm)
+        dtaudv_atm = -cfm*cd_m*rho*(dw_atmdv*v_dif + w_atm)
       end where
     end if
 
