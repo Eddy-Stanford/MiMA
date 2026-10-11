@@ -47,7 +47,8 @@ module surface_types_mod
     real, allocatable :: extra_heating(:, :)  !! local surface heating (`local_heating_nml`; 0 if off) [K/s]
     real, allocatable :: qflux_land(:, :)
     !! Q-flux applied over land: 0 unless `qflux_ocean_only = .false.` (`qflux_nml`), when it
-    !! is the Q-flux on the land points, as in v1 [W/m2]
+    !! is the Q-flux on the land points, as in v1; set at initialization and, for a Q-flux
+    !! read from a file, at every step by `update_ocean_model_fast` [W/m2]
     real :: dt  !! time step [s]
     type(time_type) :: Time  !! time at the end of the step
   end type surface_exchange_type

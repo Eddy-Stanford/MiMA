@@ -14,6 +14,11 @@
 !>    updates the fluxes to the new surface temperature and returns the changes of the
 !>    lowest-level temperature and humidity for the up sweep.
 !>
+!> With a prescribed or fixed SST (`ocean_model_nml`), `flux_up_to_atmos` also sends the
+!> implied ocean heat flux `ocean/qflux_implied`: the Q-flux with which a slab ocean of the
+!> same heat capacity would reproduce the SST change of the step. Its time mean (or monthly
+!> means) can be read back as `qflux_file` (`qflux_nml`).
+!>
 !> The surface temperature seen by the atmosphere is the land temperature on land points
 !> and the ocean temperature elsewhere. The module also sends the merged surface
 !> diagnostics (module `flux`), including the reference-height diagnostics `t_ref`,
@@ -43,7 +48,7 @@ module flux_exchange_mod
 
   use time_manager_mod, only: time_type
 
-  use constants_mod, only: cp_air
+  use constants_mod, only: cp_air, hlv, hlf
 
 !mj local surface heating
   use physics_driver_mod, only: do_local_heating
@@ -76,6 +81,7 @@ module flux_exchange_mod
              id_del_h, id_del_m, id_del_q, id_albedo, id_entrop_evap, &
              id_entrop_shflx, id_entrop_lwflx, &
              id_heat
+  integer :: id_qflux_implied = 0
 
   logical :: do_init = .true.
   logical :: do_surface_heating = .false.
@@ -382,7 +388,7 @@ contains
 
     real, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
       dt_t_surf, t_surf, heat_capacity, &
-      entrop_evap, entrop_shflx, entrop_lwflx
+      entrop_evap, entrop_shflx, entrop_lwflx, qflux_implied
 
     logical :: used
 
@@ -400,6 +406,18 @@ contains
 
 !=======================================================================
 !-------------------- diagnostics section ------------------------------
+
+! Implied ocean heat flux (prescribed or fixed SST): with the final fluxes of the step,
+! cap*dT/dt = F_net + Q, where dT excludes the local surface heating
+    if (id_qflux_implied > 0) then
+      where (Ocean%mask)
+        qflux_implied = Ocean%cap*(Ocean%dt_t_surf/Exch%dt - Exch%extra_heating) &
+                        - (flux_lw + Exch%flux_sw - hlf*Exch%fprec - (flux_t + hlv*flux_q))
+      elsewhere
+        qflux_implied = 0.0
+      end where
+      used = send_data(id_qflux_implied, qflux_implied, Time)
+    end if
 
     where (Land%mask)
       t_surf = Land%t_surf
@@ -442,7 +460,7 @@ contains
   !> `simple_surface.res.nc`. Reads `flux_exchange_nml`, sets the land mask, initializes
   !> the ocean and then the land state (each from its restart file if it exists), sets the
   !> background albedo and the roughness lengths, allocates `Boundary` and `Exch`, and
-  !> registers the diagnostics.
+  !> registers the diagnostics (`ocean/qflux_implied` only with a prescribed or fixed SST).
   subroutine flux_exchange_init(Time, Atm, Ocean, Land, Boundary, Exch)
 
     type(time_type), intent(in)  :: Time  !! current time
@@ -511,6 +529,12 @@ contains
     call land_model_init_state(Land, Time, grid, t_all, cap_default)
     deallocate (t_all, cap_all)
     if (ocean_rst) call read_surface_restarts(Ocean, Land)
+
+! The implied ocean heat flux: only where the SST is not stepped by the slab
+    if (trim(Ocean%model) == 'prescribed' .or. trim(Ocean%model) == 'fixed') &
+      id_qflux_implied = register_diag_field('ocean', 'qflux_implied', grid%axes, Time, &
+                                             'implied ocean heat flux convergence: the Q-flux a slab '// &
+                                             'ocean needs to reproduce the SST change (0 over land)', 'W/m2')
 
 !------ albedo and roughness ------
 

@@ -7,7 +7,8 @@
 !> * `'slab'`: stepped with the implicit surface energy budget (`slab_tendency_mod`), with a
 !>   heat capacity that can vary with latitude and the prescribed ocean heat fluxes of
 !>   `ocean_qflux_mod` (by default applied over the ocean only, with their mean removed);
-!> * `'prescribed'`: read from `sst_file` at every step;
+!> * `'prescribed'`: read from `sst_file` at every step (the interpolated field is the debug
+!>   diagnostic `ocean/sst_interp`);
 !> * `'fixed'`: held at its initial value.
 !>
 !> In every mode the local surface heating of `local_heating_nml` is added. On a cold start
@@ -31,7 +32,7 @@ module ocean_model_mod
   use mima_interpolator_mod, only: interpolate_type, interpolator_init, CONSTANT, interpolator
   use surface_types_mod, only: surface_grid_type, surface_exchange_type
   use slab_tendency_mod, only: slab_dt
-  use ocean_qflux_mod, only: ocean_qflux_init
+  use ocean_qflux_mod, only: ocean_qflux_init, ocean_qflux_update
 
   implicit none
   private
@@ -42,13 +43,14 @@ module ocean_model_mod
   !> State of the ocean surface. All arrays are on this PE's grid; off the ocean mask they
   !> are 0.
   type ocean_data_type
+    character(len=32) :: model = ''  !! the ocean model: `'slab'`, `'prescribed'` or `'fixed'` (`ocean_model`)
     logical, allocatable :: mask(:, :)  !! ocean points
     real, allocatable :: t_surf(:, :)  !! surface temperature [K]
     real, allocatable :: cap(:, :)  !! mixed-layer heat capacity [J/m2/K]
     real, allocatable :: qflux(:, :)
     !! prescribed ocean heat flux convergence (Q-flux) applied at each point: by the slab over
     !! the ocean and, with `qflux_ocean_only = .false.` (v1), by the land model over land;
-    !! otherwise 0 over land [W/m2]
+    !! otherwise 0 over land; recomputed at every step when read from a file [W/m2]
     real, allocatable :: dt_t_surf(:, :)  !! change of `t_surf` over the last step [K]
     real :: rough_ocean  !! roughness length of the ocean for momentum, heat and moisture [m]
   end type ocean_data_type
@@ -81,7 +83,7 @@ module ocean_model_mod
 
   type(interpolate_type), save :: sst_interp
   character(len=256) :: sst_var
-  integer :: id_qflux, id_heat
+  integer :: id_qflux, id_heat, id_sst_interp = 0
 
 contains
 
@@ -145,6 +147,7 @@ contains
     allocate (Ocean%mask(grid%nx, grid%ny), Ocean%t_surf(grid%nx, grid%ny), &
               Ocean%cap(grid%nx, grid%ny), Ocean%qflux(grid%nx, grid%ny), &
               Ocean%dt_t_surf(grid%nx, grid%ny))
+    Ocean%model = ocean_model
     Ocean%mask = mask
     Ocean%rough_ocean = rough_ocean
     Ocean%dt_t_surf = 0.0
@@ -216,12 +219,15 @@ contains
     Ocean%t_surf = 0.0
     where (mask) Ocean%t_surf = t_all
 
-    call ocean_qflux_init(grid, mask, Ocean%qflux)
+    call ocean_qflux_init(grid, mask, Time, Ocean%qflux)
 
     id_qflux = register_diag_field(mod_name, 'qflux', grid%axes, Time, &
                                    'prescribed ocean heat divergence', 'W/m2')
     id_heat = register_diag_field(mod_name, 'heat_capacity_ocean', grid%axes, Time, &
                                   'ocean mixed layer heat capacity (0 over land)', 'J/m2/K')
+    if (trim(ocean_model) == 'prescribed') &
+      id_sst_interp = register_diag_field(mod_name, 'sst_interp', grid%axes, Time, &
+                                          'SST interpolated from sst_file (prescribed ocean; debug)', 'K')
 
   end subroutine ocean_model_init
 
@@ -231,13 +237,22 @@ contains
   !>
   !> `'slab'`: implicit surface energy budget; `'prescribed'`: change to the SST of
   !> `sst_file`; `'fixed'`: no change. The local surface heating is then added in every
-  !> mode. Sends the ocean diagnostics.
+  !> mode. A Q-flux read from a file is first updated to the time of the step (also over
+  !> land in `Exch%qflux_land` when `qflux_ocean_only = .false.`). Sends the ocean
+  !> diagnostics.
   subroutine update_ocean_model_fast(Exch, Ocean)
-    type(surface_exchange_type), intent(in) :: Exch  !! fluxes and derivatives from the flux exchange
+    type(surface_exchange_type), intent(inout) :: Exch
+    !! fluxes and derivatives from the flux exchange; on return `qflux_land` holds the
+    !! Q-flux of this step over land
     type(ocean_data_type), intent(inout) :: Ocean  !! the ocean state
 
     real, dimension(size(Ocean%t_surf, 1), size(Ocean%t_surf, 2)) :: sst_new
     logical :: used
+
+! A Q-flux from a file changes with time; the land gets its part (0 with qflux_ocean_only)
+    if (ocean_qflux_update(Exch%Time, Ocean%qflux)) then
+      where (.not. Ocean%mask) Exch%qflux_land = Ocean%qflux
+    end if
 
     select case (trim(ocean_model))
     case ('slab')
@@ -250,6 +265,7 @@ contains
       end where
     case ('prescribed') !mj sst read from input file
       call interpolator(sst_interp, Exch%Time, sst_new, trim(sst_var))
+      if (id_sst_interp > 0) used = send_data(id_sst_interp, sst_new, Exch%Time)
       where (Ocean%mask)
         Ocean%dt_t_surf = sst_new - Ocean%t_surf
       elsewhere

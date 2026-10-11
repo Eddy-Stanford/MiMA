@@ -7,13 +7,20 @@
 !> depending on `warmpool_localization_choice`, regional patterns such as the Gulf Stream,
 !> the Kuroshio and the tropical Atlantic, following Garfinkel et al. (2020). The analytic
 !> and warm-pool fluxes do not change in time; they are computed once by
-!> `ocean_qflux_init`, which is called by `ocean_model_mod`.
+!> `ocean_qflux_init`, which is called by `ocean_model_mod`. With `qflux_source = 'file'`,
+!> the meridional Q-flux is replaced by the field `qflux_file_var` of `INPUT/qflux_file.nc`,
+!> regridded to the model grid and interpolated in time at every step by
+!> `ocean_qflux_update`: a file with 1 record is used at all times, one with 2 to 12 records
+!> is a climatology repeated every year, and one with more records is a dated time series
+!> that must span the run. The `ocean/qflux_implied` output of a prescribed-SST run (a time
+!> mean, or 12 monthly means) can be used as it is.
 !>
 !> By default the sum is applied over the ocean only (`qflux_ocean_only`), and a constant
 !> is removed from the ocean points so that its global area integral is zero
 !> (`qflux_remove_mean`): the Q-flux neither heats the land nor adds net heat. Setting both
 !> switches to `.false.` reproduces v1, where the Q-flux was added at every point, land
-!> included, without removing its mean.
+!> included, without removing its mean. With a file, the warm-pool fluxes (if `do_warmpool`)
+!> are added to the file field and both switches are applied again at every step.
 !>
 !> Namelist: `qflux_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#qflux_nml)).
@@ -31,7 +38,9 @@ module ocean_qflux_mod
   use constants_mod, only: pi
   use fms_mod, only: input_nml_file, check_nml_error, &
                      error_mesg, FATAL, mpp_pe, mpp_root_pe, stdlog
-  use mpp_domains_mod, only: mpp_global_sum, BITWISE_EXACT_SUM
+  use mpp_domains_mod, only: domain2d, mpp_global_sum, BITWISE_EXACT_SUM
+  use time_manager_mod, only: time_type
+  use mima_interpolator_mod, only: interpolate_type, interpolator_init, CONSTANT, interpolator
   use surface_types_mod, only: surface_grid_type
 
   implicit none
@@ -63,11 +72,15 @@ module ocean_qflux_mod
 
   character(len=32) :: qflux_source = 'analytic'
   !! `'analytic'`: the meridional Q-flux of Merlis et al. (2013) (`qflux_amp`, `qflux_width`);
-  !! `'none'`: no meridional Q-flux; `'file'`: read from `qflux_file` (not yet available)
+  !! `'none'`: no meridional Q-flux; `'file'`: read from `qflux_file` and interpolated in time
+  !! at every step (1 record: constant; 2 to 12 records: a climatology repeated every year;
+  !! more: a dated time series)
   logical :: do_warmpool = .true.
   !! add the zonally asymmetric Q-fluxes (warm pool and regional patterns), whatever `qflux_source`
   character(len=256) :: qflux_file = ''  !! with `qflux_source = 'file'`, Q-flux file name, without `.nc`, in `INPUT/`
-  character(len=256) :: qflux_file_var = 'qflux'  !! name of the Q-flux variable in `qflux_file`
+  character(len=256) :: qflux_file_var = 'qflux'
+  !! name of the Q-flux variable [W/m2] in `qflux_file` (empty: `qflux_file`); for the
+  !! output of a prescribed-SST run, `'qflux_implied'`
   logical :: qflux_ocean_only = .true.
   !! apply the Q-flux over the ocean only (the default); `.false.`: also over land, as in v1
   !! (set both `qflux_ocean_only` and `qflux_remove_mean` to `.false.` to reproduce v1)
@@ -85,6 +98,15 @@ module ocean_qflux_mod
   !! regional amplitudes below are used depends on this choice (see `ocean_qflux.f90`).
   logical :: qflux_initialized = .false.
 
+  ! The Q-flux from a file (qflux_source = 'file'), which is recomputed at every step
+  type(interpolate_type), save :: qflux_interp
+  character(len=256) :: qflux_var  ! name of the field in the file
+  type(domain2d), save :: qdomain  ! domain of the surface grid, for the global sums
+  real, allocatable :: qarea(:, :)  ! relative grid-box area
+  logical, allocatable :: qmask(:, :)  ! ocean points
+  real, allocatable :: q_static(:, :)  ! the warm-pool fluxes (0 without do_warmpool) [W/m2]
+  real :: qarea_ocean  ! global ocean area (relative)
+
   namelist /qflux_nml/ qflux_source, do_warmpool, qflux_file, qflux_file_var, &
     qflux_ocean_only, qflux_remove_mean, &
     qflux_amp, qflux_width, &
@@ -96,25 +118,27 @@ module ocean_qflux_mod
 
   private
 
-  public :: ocean_qflux_init
+  public :: ocean_qflux_init, ocean_qflux_update
 
 contains
 
 !########################################################
   !> Reads `qflux_nml` and returns the Q-flux on this PE's grid.
   !>
-  !> The raw Q-flux is the sum of the meridional Q-flux (`qflux_source = 'analytic'`) and
-  !> the zonally asymmetric fluxes (`do_warmpool`); it is zero if neither is selected. With
-  !> `qflux_ocean_only` it is then set to 0 off the ocean, and with `qflux_remove_mean` its
-  !> global area integral (over all points, land included where it is applied there),
-  !> divided by the ocean area, is subtracted at the ocean points, so that the global net
-  !> Q-flux is zero. The global sums are
-  !> bitwise independent of the domain decomposition. Statistics of the raw and the applied
-  !> Q-flux are written to the log file.
-  subroutine ocean_qflux_init(grid, mask, flux)
+  !> The raw Q-flux is the sum of the meridional Q-flux (`qflux_source = 'analytic'`) or
+  !> the file field at `Time` (`qflux_source = 'file'`) and the zonally asymmetric fluxes
+  !> (`do_warmpool`); it is zero if none is selected. With `qflux_ocean_only` it is then set
+  !> to 0 off the ocean, and with `qflux_remove_mean` its global area integral (over all
+  !> points, land included where it is applied there), divided by the ocean area, is
+  !> subtracted at the ocean points, so that the global net Q-flux is zero. The global sums
+  !> are bitwise independent of the domain decomposition. Statistics of the raw and the
+  !> applied Q-flux are written to the log file. With a file, `ocean_qflux_update` repeats
+  !> this at every step.
+  subroutine ocean_qflux_init(grid, mask, Time, flux)
     implicit none
     type(surface_grid_type), intent(in) :: grid  !! the surface grid
     logical, dimension(:, :), intent(in) :: mask  !! ocean points
+    type(time_type), intent(in) :: Time  !! current time (for the file field)
     real, dimension(:, :), intent(out) :: flux
     !! Q-flux applied at each point (ocean heat flux convergence; 0 over land with
     !! `qflux_ocean_only`) [W/m2]
@@ -131,8 +155,6 @@ contains
     case ('file')
       if (len_trim(qflux_file) == 0) &
         call error_mesg('ocean_qflux_init', "qflux_source = 'file' needs qflux_file", FATAL)
-      call error_mesg('ocean_qflux_init', "qflux_source = 'file' is not implemented yet "// &
-                      '(available from stage S5a)', FATAL)
     case default
       call error_mesg('ocean_qflux_init', 'unknown qflux_source = "'//trim(qflux_source)// &
                       '"; use analytic, none or file', FATAL)
@@ -140,18 +162,37 @@ contains
 
     qflux_initialized = .true.
 
+    ocean = merge(1., 0., mask)
+    area_total = mpp_global_sum(grid%domain, grid%area, flags=BITWISE_EXACT_SUM)
+    area_ocean = mpp_global_sum(grid%domain, grid%area*ocean, flags=BITWISE_EXACT_SUM)
+
     flux = 0.
+    if (trim(qflux_source) == 'file') then
+! Q-flux from a file, plus the (static) warm-pool fluxes; kept for ocean_qflux_update
+      qflux_var = qflux_file_var
+      if (len_trim(qflux_var) == 0) qflux_var = qflux_file
+      call interpolator_init(qflux_interp, trim(qflux_file)//'.nc', grid%lon_bnd, grid%lat_bnd, &
+                             data_names=(/qflux_var/), data_out_of_bounds=(/CONSTANT/))
+      qdomain = grid%domain
+      allocate (qarea(size(flux, 1), size(flux, 2)), qmask(size(flux, 1), size(flux, 2)), &
+                q_static(size(flux, 1), size(flux, 2)))
+      qarea = grid%area
+      qmask = mask
+      qarea_ocean = area_ocean
+      q_static = 0.
+      if (do_warmpool) call warmpool(grid%lon_bnd, grid%lat_bnd, q_static)
+      call interpolator(qflux_interp, Time, flux, trim(qflux_var))
+      flux = flux + q_static
+    else
 !mj q-flux as in Merlis et al (2013) [Part II]
-    if (trim(qflux_source) == 'analytic') call qflux(grid%lat_bnd, flux)
+      if (trim(qflux_source) == 'analytic') call qflux(grid%lat_bnd, flux)
 !mj q-flux to create a tropical temperature perturbation
-    if (do_warmpool) call warmpool(grid%lon_bnd, grid%lat_bnd, flux)
+      if (do_warmpool) call warmpool(grid%lon_bnd, grid%lat_bnd, flux)
+    end if
 
 ! Statistics of the raw Q-flux (they do not change flux): its mean over the ocean, and the
 ! land points where it is nonzero, with their area and mean
-    ocean = merge(1., 0., mask)
     land_q = merge(1., 0., (.not. mask) .and. flux /= 0.)
-    area_total = mpp_global_sum(grid%domain, grid%area, flags=BITWISE_EXACT_SUM)
-    area_ocean = mpp_global_sum(grid%domain, grid%area*ocean, flags=BITWISE_EXACT_SUM)
     area_land_q = mpp_global_sum(grid%domain, grid%area*land_q, flags=BITWISE_EXACT_SUM)
     mean_ocean = 0.
     if (area_ocean > 0.) &
@@ -160,21 +201,13 @@ contains
     if (area_land_q > 0.) &
       mean_land_q = mpp_global_sum(grid%domain, grid%area*land_q*flux, flags=BITWISE_EXACT_SUM)/area_land_q
 
-! Ocean only: no Q-flux over land
-    if (qflux_ocean_only) then
-      where (.not. mask) flux = 0.
-    end if
-! Make the global net Q-flux zero: subtract, at the ocean points, the area integral of the
-! applied Q-flux over all points (land included where it is applied there) divided by the
-! ocean area. With qflux_ocean_only this is the ocean mean (the whole sphere without land).
-    removed = 0.
-    if (qflux_remove_mean .and. area_ocean > 0.) then
-      removed = mpp_global_sum(grid%domain, grid%area*flux, flags=BITWISE_EXACT_SUM)/area_ocean
-      where (mask) flux = flux - removed
-    end if
+    call apply_switches(grid%domain, grid%area, mask, area_ocean, flux, removed)
 
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), '(a)') 'ocean_qflux_init: Q-flux statistics (area-weighted)'
+      if (trim(qflux_source) == 'file') &
+        write (stdlog(), '(a)') '  (Q-flux from '//trim(qflux_file)//'.nc at the initial time; '// &
+        'it is recomputed at every step)'
       write (stdlog(), '(a,es14.6)') '  raw Q-flux mean over the ocean [W/m2]:          ', mean_ocean
       write (stdlog(), '(a,es14.6)') '  removed from the ocean points (net Q / ocean area) [W/m2]: ', removed
       write (stdlog(), '(a,es14.6)') '  land area with a nonzero raw Q-flux [fraction of the globe]: ', &
@@ -191,6 +224,59 @@ contains
     end if
 
   end subroutine ocean_qflux_init
+!########################################################
+
+  !> Recomputes the Q-flux at `Time` when it is read from a file (`qflux_source = 'file'`);
+  !> otherwise does nothing, and returns `.false.`.
+  !>
+  !> The file field is interpolated to `Time`, the warm-pool fluxes are added (if
+  !> `do_warmpool`), and `qflux_ocean_only` and `qflux_remove_mean` are applied as in
+  !> `ocean_qflux_init`, with bitwise reproducible global sums.
+  logical function ocean_qflux_update(Time, flux) result(updated)
+    implicit none
+    type(time_type), intent(in) :: Time  !! time of the step
+    real, dimension(:, :), intent(inout) :: flux
+    !! Q-flux applied at each point; unchanged unless it is read from a file [W/m2]
+    real :: removed
+
+    updated = trim(qflux_source) == 'file'
+    if (.not. updated) return
+    call interpolator(qflux_interp, Time, flux, trim(qflux_var))
+    flux = flux + q_static
+    call apply_switches(qdomain, qarea, qmask, qarea_ocean, flux, removed)
+
+  end function ocean_qflux_update
+!########################################################
+
+  !> Applies `qflux_ocean_only` and `qflux_remove_mean` to the raw Q-flux `flux`.
+  !>
+  !> With `qflux_ocean_only`, `flux` is set to 0 off the ocean. With `qflux_remove_mean`,
+  !> its global area integral (over all points), divided by the ocean area, is subtracted
+  !> at the ocean points; the global sum is bitwise independent of the domain
+  !> decomposition.
+  subroutine apply_switches(domain, area, mask, area_ocean, flux, removed)
+    implicit none
+    type(domain2d), intent(in) :: domain  !! domain of the surface grid
+    real, dimension(:, :), intent(in) :: area  !! relative grid-box area
+    logical, dimension(:, :), intent(in) :: mask  !! ocean points
+    real, intent(in) :: area_ocean  !! global ocean area (relative, as `area`)
+    real, dimension(:, :), intent(inout) :: flux  !! raw Q-flux on input, applied Q-flux on output [W/m2]
+    real, intent(out) :: removed  !! the constant subtracted at the ocean points [W/m2]
+
+! Ocean only: no Q-flux over land
+    if (qflux_ocean_only) then
+      where (.not. mask) flux = 0.
+    end if
+! Make the global net Q-flux zero: subtract, at the ocean points, the area integral of the
+! applied Q-flux over all points (land included where it is applied there) divided by the
+! ocean area. With qflux_ocean_only this is the ocean mean (the whole sphere without land).
+    removed = 0.
+    if (qflux_remove_mean .and. area_ocean > 0.) then
+      removed = mpp_global_sum(domain, area*flux, flags=BITWISE_EXACT_SUM)/area_ocean
+      where (mask) flux = flux - removed
+    end if
+
+  end subroutine apply_switches
 !########################################################
 
   !> Subtracts the meridional Q-flux of Merlis et al. (2013, Part II) from `flux`.
