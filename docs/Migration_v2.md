@@ -398,7 +398,9 @@ The other fatal errors each have a message that says what to change:
 * `sst_init = 'profile'` with `Tm <= 0` or `Tm >= 399` (the magic v1 values);
 * `ocean_model = 'prescribed'` or `sst_init = 'file'` without `sst_file`; `land_model = 'prescribed'` or `t_init = 'file'` without `t_surf_file`; `qflux_source = 'file'` without `qflux_file`; a missing variable in a surface input file;
 * `hydrology = 'bucket'` with `rough_moist_factor /= 1` or `rough_moist_profile /= 'uniform'` (the bucket would be throttled twice); `do_snow` without `hydrology = 'bucket'` or with `land_model /= 'simple'`; and out-of-range bucket and snow parameters;
-* only one of `ocean_model.res.nc` and `land_model.res.nc` in `INPUT/`, or a restart with no surface temperature at some points (the land mask has changed since the restart was written).
+* only one of `ocean_model.res.nc` and `land_model.res.nc` in `INPUT/`, or a restart with no surface temperature at some points (not after a change of the land mask, which is accepted: see [Surface restart files](#surface-restart-files));
+* an initial surface temperature outside 150-400 K at an ocean or land point, from a cold start or a restart (for example an `sst_file` with fill values over land, which the land takes on a cold start with `t_init = 'ocean'`);
+* a `heat_capacity` of the ocean that is not positive, or a land `heat_capacity <= 0` that the ocean value does not make positive.
 
 ## field_table changes
 
@@ -525,8 +527,11 @@ The surface restart files are a clean break from v1: `simple_surface.res.nc` is 
 
 * exactly one of `INPUT/ocean_model.res.nc` and `INPUT/land_model.res.nc` exists;
 * `INPUT/simple_surface.res.nc` exists and neither new file does (convert it as below, or delete it to cold-start the surface);
-* the files hold no surface temperature at some ocean or land point of the current land mask (the land mask has changed since the restart was written: cold-start the surface, or restart with the same `land_mask`);
+* the files hold no surface temperature (`t_surf <= 0` in both) at some ocean or land point, which cannot happen with files written by the model (see below) and means that they were edited or converted by hand;
+* the initial `t_surf` is outside 150-400 K at some ocean or land point;
 * `t_surf` is missing from either file.
+
+**A change of the land mask between segments is accepted.** The model writes `t_surf` on the ocean points to the ocean file and on the land points to the land file, so together they cover every point. A point that is land now and was ocean takes the old SST; a point that is ocean now and was land takes the old land temperature.
 
 If `water` or `snow` is missing from `land_model.res.nc` (you changed `hydrology` or `do_snow` between segments), they are cold-started and the model prints a note. A land point that was ocean when the files were written starts dry and without snow.
 

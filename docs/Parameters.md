@@ -412,7 +412,7 @@ Declared in [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_m
 | `sst_file` | character(len=256) | `''` | SST file name, without `.nc`, in `INPUT/` |
 | `sst_file_var` | character(len=256) | `''` | name of the SST variable in `sst_file` (empty: `sst_file`) |
 | `rough_ocean` | real | `3.21e-05` | [m] roughness length of the ocean (momentum, heat and moisture) |
-| `heat_capacity` | real | `3.e08` | [J/m2/K] mixed-layer heat capacity (poleward of `heat_cap_limit`) |
+| `heat_capacity` | real | `3.e08` | [J/m2/K] mixed-layer heat capacity (poleward of `heat_cap_limit`); must be positive |
 | `trop_capacity` | real | `1.e08` | [J/m2/K] heat capacity equatorward of `trop_cap_limit`, varying linearly to `heat_capacity` at `heat_cap_limit`; <= 0: `heat_capacity` |
 | `trop_cap_limit` | real | `20.` | [deg] latitude of the tropical heat capacity `trop_capacity` |
 | `heat_cap_limit` | real | `60.` | [deg] latitude of the extratropical heat capacity `heat_capacity` |

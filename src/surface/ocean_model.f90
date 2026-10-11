@@ -25,6 +25,7 @@
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#ocean_model_nml)).
 module ocean_model_mod
 
+  use physics_driver_mod, only: surface_is_coupled
   use fms_mod, only: input_nml_file, check_nml_error, error_mesg, FATAL, NOTE, &
                      mpp_pe, mpp_root_pe, stdlog
   use restart_file_mod, only: restart_file_type, open_restart_write, close_restart, &
@@ -73,7 +74,8 @@ module ocean_model_mod
   character(len=256) :: sst_file = ''  !! SST file name, without `.nc`, in `INPUT/`
   character(len=256) :: sst_file_var = ''  !! name of the SST variable in `sst_file` (empty: `sst_file`)
   real :: rough_ocean = 3.21e-05  !! [m] roughness length of the ocean (momentum, heat and moisture)
-  real :: heat_capacity = 3.e08  !! [J/m2/K] mixed-layer heat capacity (poleward of `heat_cap_limit`)
+  real :: heat_capacity = 3.e08
+  !! [J/m2/K] mixed-layer heat capacity (poleward of `heat_cap_limit`); must be positive
   real :: trop_capacity = 1.e08
   !! [J/m2/K] heat capacity equatorward of `trop_cap_limit`, varying linearly to
   !! `heat_capacity` at `heat_cap_limit`; <= 0: `heat_capacity`
@@ -86,7 +88,7 @@ module ocean_model_mod
 
   type(interpolate_type), save :: sst_interp
   character(len=256) :: sst_var
-  integer :: id_qflux, id_heat, id_sst_interp = 0
+  integer :: id_qflux = 0, id_heat = 0, id_sst_interp = 0
 
 contains
 
@@ -95,20 +97,20 @@ contains
   !> Reads `ocean_model_nml`, sets up the heat capacity, the Q-flux and the cold-start SST,
   !> and registers the diagnostics.
   !>
-  !> The cold-start SST and the heat-capacity profile are also returned on all points, for
-  !> the land model. A restart (`INPUT/ocean_model.res.nc`) is applied afterwards by
+  !> The cold-start SST is also returned on all points, and the `heat_capacity` as
+  !> `cap_default`, for the land model. A restart (`INPUT/ocean_model.res.nc`) is applied afterwards by
   !> `flux_exchange_init`.
-  subroutine ocean_model_init(Ocean, Time, grid, mask, t_all, cap_all, cap_default)
+  subroutine ocean_model_init(Ocean, Time, grid, mask, t_all, cap_default)
     type(ocean_data_type), intent(inout) :: Ocean  !! the ocean state
     type(time_type), intent(in) :: Time  !! current time
     type(surface_grid_type), intent(in) :: grid  !! the surface grid
     logical, intent(in) :: mask(:, :)  !! ocean points
     real, intent(out) :: t_all(:, :)  !! cold-start SST on all points [K]
-    real, intent(out) :: cap_all(:, :)  !! mixed-layer heat-capacity profile on all points [J/m2/K]
     real, intent(out) :: cap_default  !! `heat_capacity` [J/m2/K]
 
     integer :: ierr, io, j
     real :: lat, pi, xx, loc_cap
+    real, dimension(grid%nx, grid%ny) :: cap_all  ! heat-capacity profile on all points
 
     pi = 4.0*atan(1.)
 
@@ -141,6 +143,9 @@ contains
                       "v1 magic values are no longer used. For a uniform SST set sst_init = 'uniform' "// &
                       "and Tm to the (positive) SST; for Tm >= 399 use sst_init = 'ape_control_plus2', "// &
                       "'ape_control', 'ape_qobs' or 'ape_qobs5' (see the table in Migration_v2.md)", FATAL)
+    if (heat_capacity .le. 0.) &
+      call error_mesg('ocean_model_init', 'heat_capacity must be positive (it is the heat capacity '// &
+                      'of the ocean mixed layer, and the default of the land)', FATAL)
     if (trop_capacity .le. 0.) trop_capacity = heat_capacity
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=ocean_model_nml)
 
@@ -224,11 +229,14 @@ contains
 
     call ocean_qflux_init(grid, mask, Time, Ocean%qflux)
 
-    id_qflux = register_diag_field(mod_name, 'qflux', grid%axes, Time, &
-                                   'prescribed ocean heat divergence', 'W/m2')
-    id_heat = register_diag_field(mod_name, 'heat_capacity_ocean', grid%axes, Time, &
-                                  'ocean mixed layer heat capacity (0 over land)', 'J/m2/K')
-    if (trim(ocean_model) == 'prescribed') &
+! These fields are sent by update_ocean_model_fast, which runs only with a coupled surface
+    if (surface_is_coupled()) then
+      id_qflux = register_diag_field(mod_name, 'qflux', grid%axes, Time, &
+                                     'prescribed ocean heat divergence', 'W/m2')
+      id_heat = register_diag_field(mod_name, 'heat_capacity_ocean', grid%axes, Time, &
+                                    'ocean mixed layer heat capacity (0 over land)', 'J/m2/K')
+    end if
+    if (trim(ocean_model) == 'prescribed' .and. surface_is_coupled()) &
       id_sst_interp = register_diag_field(mod_name, 'sst_interp', grid%axes, Time, &
                                           'SST interpolated from sst_file (prescribed ocean; debug)', 'K')
 

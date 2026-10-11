@@ -110,7 +110,7 @@
      gulf_phase   = 310., 
      Hawaiiextra = 30.0,
       Pac_ITCZextra = -0.0,
-     north_sea_heat =0.0
+     north_sea_heat =0.0,
     qflux_source = 'analytic',
     do_warmpool = .true. /
 

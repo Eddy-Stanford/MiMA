@@ -51,7 +51,7 @@ module flux_exchange_mod
   use constants_mod, only: cp_air, hlv, hlf
 
 !mj local surface heating
-  use physics_driver_mod, only: do_local_heating
+  use physics_driver_mod, only: do_local_heating, surface_is_coupled
   use local_heating_mod, only: horizontal_heating, ngauss, hamp, pcenter
 
   use surface_types_mod, only: surface_grid_type, surface_exchange_type
@@ -75,13 +75,13 @@ module flux_exchange_mod
 
   integer :: id_drag_moist, id_drag_heat, id_drag_mom, &
              id_rough_moist, id_rough_heat, id_rough_mom, &
-             id_u_star, id_b_star, id_u_flux, id_v_flux, id_t_surf, &
-             id_t_flux, id_q_flux, id_r_flux, &
+             id_u_star, id_b_star, id_u_flux, id_v_flux, &
              id_t_atm, id_u_atm, id_v_atm, id_wind, &
              id_t_ref, id_rh_ref, id_u_ref, id_v_ref, &
-             id_del_h, id_del_m, id_del_q, id_albedo, id_entrop_evap, &
-             id_entrop_shflx, id_entrop_lwflx, &
-             id_heat
+             id_del_h, id_del_m, id_del_q, id_albedo
+! Sent by flux_up_to_atmos, which runs only with a coupled surface: registered only then
+  integer :: id_t_surf = 0, id_t_flux = 0, id_q_flux = 0, id_r_flux = 0, id_heat = 0, &
+             id_entrop_evap = 0, id_entrop_shflx = 0, id_entrop_lwflx = 0
   integer :: id_qflux_implied = 0
 
   logical :: do_init = .true.
@@ -479,6 +479,9 @@ contains
   !> the ocean and then the land state (each from its restart file if it exists), sets the
   !> background albedo and the roughness lengths, allocates `Boundary` and `Exch`, and
   !> registers the diagnostics (`ocean/qflux_implied` only with a prescribed or fixed SST).
+  !> Also stops if an initial surface temperature, from a cold start or a restart, is outside
+  !> 150-400 K on its component's points. The diagnostics that are sent only with a coupled
+  !> surface (`physics_driver_mod`: `surface_is_coupled`) are registered only then.
   subroutine flux_exchange_init(Time, Atm, Ocean, Land, Boundary, Exch)
 
     type(time_type), intent(in)  :: Time  !! current time
@@ -489,7 +492,7 @@ contains
     type(surface_exchange_type), intent(inout) :: Exch  !! fields for the ocean and land models
 
     integer :: ierr, io, i, j, id, jd
-    real, allocatable, dimension(:, :) :: t_all, cap_all
+    real, allocatable, dimension(:, :) :: t_all
     real :: cap_default
     logical :: ocean_rst, land_rst
 
@@ -542,17 +545,18 @@ contains
 
     call land_model_read_nml_and_mask(Land, grid)
 
-    allocate (t_all(id, jd), cap_all(id, jd))
-    call ocean_model_init(Ocean, Time, grid, .not. Land%mask, t_all, cap_all, cap_default)
+    allocate (t_all(id, jd))
+    call ocean_model_init(Ocean, Time, grid, .not. Land%mask, t_all, cap_default)
     call land_model_init_state(Land, Time, grid, t_all, cap_default)
-    deallocate (t_all, cap_all)
+    deallocate (t_all)
     if (ocean_rst) then
       call read_surface_restarts(Ocean, Land)
       call land_model_read_restart(Land, grid)
     end if
+    call check_t_surf_range(Ocean, Land)
 
 ! The implied ocean heat flux: only where the SST is not stepped by the slab
-    if (trim(Ocean%model) == 'prescribed' .or. trim(Ocean%model) == 'fixed') &
+    if ((trim(Ocean%model) == 'prescribed' .or. trim(Ocean%model) == 'fixed') .and. surface_is_coupled()) &
       id_qflux_implied = register_diag_field('ocean', 'qflux_implied', grid%axes, Time, &
                                              'implied ocean heat flux convergence: the Q-flux a slab '// &
                                              'ocean needs to reproduce the SST change (0 over land)', 'W/m2')
@@ -646,9 +650,11 @@ contains
   ! INPUT/land_model.res.nc, which take precedence over the cold-start fields. Each file
   ! holds t_surf on the points of the component that wrote it (0 elsewhere), so the two are
   ! combined (ocean file where it is positive, land file elsewhere) and each component then
-  ! takes the combined field on its current mask. This also accepts files converted from a
-  ! v1 restart (the same SST on all points in both), and stops if a point of the current
-  ! mask has no temperature in either file (the land mask has changed since the restart).
+  ! takes the combined field on its current mask. Files written by the model cover every
+  ! point, so a change of the land mask is accepted: a point that is now land takes the
+  ! SST it had, and a point that is now ocean takes the land temperature it had. This also
+  ! accepts files converted from a v1 restart (the same SST on all points in both). Stops
+  ! if a point of the current mask has no temperature in either file.
   subroutine read_surface_restarts(Ocean, Land)
     type(ocean_data_type), intent(inout) :: Ocean
     type(land_data_type), intent(inout) :: Land
@@ -664,13 +670,36 @@ contains
     end where
     if (any((Ocean%mask .or. Land%mask) .and. t_rst .le. 0.)) &
       call error_mesg('flux_exchange_init', 'INPUT/ocean_model.res.nc and INPUT/land_model.res.nc '// &
-                      'have no surface temperature at some points: the land mask (land_mask) has '// &
-                      'probably changed since the restart was written. Cold-start the surface '// &
-                      '(remove both files), or restart from files written with the same land mask', FATAL)
+                      'have no surface temperature (t_surf <= 0 in both) at some points. Files '// &
+                      'written by the model cover every point, even after a change of the land mask '// &
+                      '(a point that is now land takes its old SST, one that is now ocean its old '// &
+                      'land temperature), so the files were probably edited or converted by hand. '// &
+                      'Fill t_surf at those points, or cold-start the surface (remove both files)', FATAL)
     where (Ocean%mask) Ocean%t_surf = t_rst
     where (Land%mask) Land%t_surf = t_rst
 
   end subroutine read_surface_restarts
+
+  ! Stops if the initial surface temperature, from a cold start or a restart, is outside
+  ! 150-400 K at a point of the component's mask. The usual cause is an SST file with fill
+  ! values over land, which the land takes through t_init = 'ocean'.
+  subroutine check_t_surf_range(Ocean, Land)
+    type(ocean_data_type), intent(in) :: Ocean
+    type(land_data_type), intent(in) :: Land
+
+    if (any(Ocean%mask .and. .not. (Ocean%t_surf >= 150. .and. Ocean%t_surf <= 400.))) &
+      call error_mesg('flux_exchange_init', 'the initial ocean surface temperature is outside '// &
+                      '150-400 K at some ocean points. Check the cold-start SST (sst_init, Tm, '// &
+                      'deltaT, and the values of sst_file) or, on a restart, INPUT/ocean_model.res.nc', FATAL)
+    if (any(Land%mask .and. .not. (Land%t_surf >= 150. .and. Land%t_surf <= 400.))) &
+      call error_mesg('flux_exchange_init', 'the initial land surface temperature is outside '// &
+                      '150-400 K at some land points. A likely cause: an SST file with fill '// &
+                      "values over land, which the land takes on a cold start with t_init = 'ocean' "// &
+                      "(sst_init = 'file' or ocean_model = 'prescribed'). Fill the land points of the "// &
+                      "SST file, or set t_init = 'file' with a t_surf_file. Otherwise check t_surf_file "// &
+                      'or, on a restart, INPUT/land_model.res.nc', FATAL)
+
+  end subroutine check_t_surf_range
 
   ! Reads t_surf from a surface restart file.
   subroutine read_t_surf(path, t_surf)
@@ -808,22 +837,24 @@ contains
       register_diag_field(mod_name, 'tau_y', atmos_axes, Time, &
                           'meridional surface stress on the atmosphere (positive northward)', 'N/m2')
 
-    id_t_surf = &
-      register_diag_field(mod_name, 't_surf', atmos_axes, Time, &
-                          'surface temperature', 'K', &
-                          range=trange)
+    if (surface_is_coupled()) then
+      id_t_surf = &
+        register_diag_field(mod_name, 't_surf', atmos_axes, Time, &
+                            'surface temperature', 'K', &
+                            range=trange)
 
-    id_t_flux = &
-      register_diag_field(mod_name, 'shflx', atmos_axes, Time, &
-                          'sensible heat flux', 'W/m2')
+      id_t_flux = &
+        register_diag_field(mod_name, 'shflx', atmos_axes, Time, &
+                            'sensible heat flux', 'W/m2')
 
-    id_q_flux = &
-      register_diag_field(mod_name, 'evap', atmos_axes, Time, &
-                          'evaporation rate', 'kg/m2/s')
+      id_q_flux = &
+        register_diag_field(mod_name, 'evap', atmos_axes, Time, &
+                            'evaporation rate', 'kg/m2/s')
 
-    id_r_flux = &
-      register_diag_field(mod_name, 'lwflx', atmos_axes, Time, &
-                          'net (down-up) longwave flux', 'W/m2')
+      id_r_flux = &
+        register_diag_field(mod_name, 'lwflx', atmos_axes, Time, &
+                            'net (down-up) longwave flux', 'W/m2')
+    end if
 
     id_t_atm = &
       register_diag_field(mod_name, 't_atm', atmos_axes, Time, &
@@ -871,20 +902,22 @@ contains
     id_albedo = &
       register_diag_field(mod_name, 'albedo', atmos_axes, Time, &
                           'surface albedo', '1')
-    id_heat = & !mj
-      register_diag_field(mod_name, 'heat_capacity', atmos_axes, Time, &
-                          'mixed layer heat capacity', 'J/m2/K')
-    id_entrop_evap = &
-      register_diag_field(mod_name, 'entrop_evap', atmos_axes, Time, &
-                          'entropy source from evap', 'kg/m2/s/K')
+    if (surface_is_coupled()) then
+      id_heat = & !mj
+        register_diag_field(mod_name, 'heat_capacity', atmos_axes, Time, &
+                            'mixed layer heat capacity', 'J/m2/K')
+      id_entrop_evap = &
+        register_diag_field(mod_name, 'entrop_evap', atmos_axes, Time, &
+                            'entropy source from evap', 'kg/m2/s/K')
 
-    id_entrop_shflx = &
-      register_diag_field(mod_name, 'entrop_shflx', atmos_axes, Time, &
-                          'entropy source from SH flux', 'W/m2/K')
+      id_entrop_shflx = &
+        register_diag_field(mod_name, 'entrop_shflx', atmos_axes, Time, &
+                            'entropy source from SH flux', 'W/m2/K')
 
-    id_entrop_lwflx = &
-      register_diag_field(mod_name, 'entrop_lwflx', atmos_axes, Time, &
-                          'entropy source from LW flux', 'W/m2/K')
+      id_entrop_lwflx = &
+        register_diag_field(mod_name, 'entrop_lwflx', atmos_axes, Time, &
+                            'entropy source from LW flux', 'W/m2/K')
+    end if
 
 !-----------------------------------------------------------------------
 
