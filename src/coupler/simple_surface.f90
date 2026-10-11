@@ -187,6 +187,7 @@ module simple_surface_mod
 !mj read sst and land sea mask from input file
   real, allocatable, dimension(:, :) :: land_sea_mask
   logical, allocatable, dimension(:, :):: lmask_navy
+  logical, allocatable, dimension(:, :) :: is_land  !! land points: where the `land_option` branch sets `land_capacity`
   type(interpolate_type), save :: sst_interp, lmask_interp
 
 contains
@@ -279,27 +280,23 @@ contains
       rough_heat = const_roughness
       rough_moist = const_roughness
 
-      if (trim(land_option) .eq. 'interpolated' .or. trim(land_option) .eq. 'oceanmaskpole') then
-        where (.not. lmask_navy) rough_mom = const_roughness*mom_roughness_land
-        where (.not. lmask_navy) rough_moist = const_roughness*q_roughness_land
-      end if
+      where (is_land) rough_mom = const_roughness*mom_roughness_land
+      where (is_land) rough_moist = const_roughness*q_roughness_land
     elseif (roughness_choice == 4) then
       !cig: set higher roughness values over land as compared to ocean, and more evaporation over tropics and
       !midlatitudes as compared to subtropics
       rough_mom = const_roughness
       rough_heat = const_roughness
       rough_moist = const_roughness
-      if (trim(land_option) .eq. 'interpolated' .or. trim(land_option) .eq. 'oceanmaskpole') then
-        where (.not. lmask_navy) rough_mom = const_roughness*mom_roughness_land
+      where (is_land) rough_mom = const_roughness*mom_roughness_land
 
-        do j = 1, size(Atm%t_bot, 2)
-          lat = 0.5*(Atm%lat_bnd(j + 1) + Atm%lat_bnd(j))*180./pi
-          where (.not. lmask_navy(:, j)) rough_moist(:, j) = const_roughness*q_roughness_land + &
-                      &         +(1.e-7)*exp(-abs(lat - 0.)**3./(2*15.)) &
-                      &         + (1.e-25)*exp(-abs(lat - 45.)**3./(2*30.)) &
-                      &         + (1.e-25)*exp(-abs(lat + 45.)**3./(2*30.))
-        end do
-      end if
+      do j = 1, size(Atm%t_bot, 2)
+        lat = 0.5*(Atm%lat_bnd(j + 1) + Atm%lat_bnd(j))*180./pi
+        where (is_land(:, j)) rough_moist(:, j) = const_roughness*q_roughness_land + &
+                    &         +(1.e-7)*exp(-abs(lat - 0.)**3./(2*15.)) &
+                    &         + (1.e-25)*exp(-abs(lat - 45.)**3./(2*30.)) &
+                    &         + (1.e-25)*exp(-abs(lat + 45.)**3./(2*30.))
+      end do
 
     end if
 
@@ -755,6 +752,8 @@ contains
 ! heat_capacity diagnostic.
     allocate (land_sea_heat_capacity(size(Atm%t_bot, 1), size(Atm%t_bot, 2)))
     land_sea_heat_capacity = heat_capacity
+    allocate (is_land(size(Atm%t_bot, 1), size(Atm%t_bot, 2)))
+    is_land = .false.
     !mj ocean depth function of latitude
     if (trop_capacity .ne. heat_capacity .or. np_cap_factor .ne. 1.0) then
       do j = 1, size(Atm%t_bot, 2)
@@ -790,6 +789,7 @@ contains
       land_sea_mask = global_mask(is:ie, js:je)
       deallocate (global_mask)
       where (land_sea_mask .gt. 0) land_sea_heat_capacity = land_capacity
+      where (land_sea_mask .gt. 0) is_land = .true.
 ! mj use navy land-sea mask
     else if (trim(land_option) .eq. 'interpolated') then
       allocate (lmask_navy(size(land_sea_heat_capacity, 1), size(land_sea_heat_capacity, 2)))
@@ -799,11 +799,13 @@ contains
                         ' and ocean_mask is not present but water data file does not exist', FATAL)
       end if
       where (.not. lmask_navy) land_sea_heat_capacity = land_capacity
+      where (.not. lmask_navy) is_land = .true.
 ! mj land heat capacity function of surface topography
     else if (trim(land_option) .eq. 'zsurf') then
       allocate (zsurf(size(Atm%t_bot, 1), size(Atm%t_bot, 2)))
       call get_surf_geopotential(zsurf)
       where (zsurf/grav > zsurf_cap_limit) land_sea_heat_capacity = land_capacity
+      where (zsurf/grav > zsurf_cap_limit) is_land = .true.
       ! mj land heat capacity given in inputfile
 ! mj land heat capacity given through ?landlon, ?landlat
     else if (trim(land_option) .eq. 'lonlat') then
@@ -815,6 +817,7 @@ contains
             if (lon >= slandlon(k) .and. lon <= elandlon(k) &
                  &.and. lat >= slandlat(k) .and. lat <= elandlat(k)) then
               land_sea_heat_capacity(i, j) = land_capacity
+              is_land(i, j) = .true.
             end if
           end do
         end do
@@ -848,6 +851,7 @@ contains
         end if
       end do
       where (.not. lmask_navy) land_sea_heat_capacity = land_capacity
+      where (.not. lmask_navy) is_land = .true.
     end if
 
     if (open_restart_read(rst, 'INPUT/simple_surface.res.nc', Atm%domain)) then
