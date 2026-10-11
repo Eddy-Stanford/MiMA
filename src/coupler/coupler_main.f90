@@ -71,41 +71,13 @@ program coupler_main
   use diag_manager_mod, only: diag_manager_init, diag_manager_end, &
                               DIAG_OTHER, DIAG_ALL, get_base_date
 !
-! model interfaces used to couple the component models:
-!               atmosphere, land, ice, and ocean
+! model interfaces: the atmosphere and the surface
 !
   use atmos_model_mod, only: atmos_model_init, atmos_model_end, &
                              update_atmos_model_down, &
                              update_atmos_model_up, &
                              atmos_data_type, &
                              land_ice_atmos_boundary_type
-
-! use   land_model_mod, only: land_model_init, land_model_end, &
-!                             land_data_type, atmos_land_boundary_type, &
-!                             update_land_model_fast, update_land_model_slow
-
-! use    ice_model_mod, only: ice_model_init, ice_model_end,  &
-!                             update_ice_model_slow_up,          &
-!                             update_ice_model_fast,          &
-!                             update_ice_model_slow_dn,          &
-!                             ice_data_type, land_ice_boundary_type, &
-!                             ocean_ice_boundary_type, atmos_ice_boundary_type
-
-! use  ocean_model_mod, only: update_ocean_model, ocean_model_init,  &
-!                             ocean_model_end, ocean_data_type, ice_ocean_boundary_type, &
-!                             read_ice_ocean_boundary, write_ice_ocean_boundary, &
-!                             init_default_ice_ocean_boundary
-!
-! flux_ calls translate information between model grids - see flux_exchange.f90
-!
-! use flux_exchange_mod, only: flux_exchange_init,   &
-!                              sfc_boundary_layer,   &
-!                              generate_sfc_xgrid,   &
-!                              flux_down_from_atmos, &
-!                              flux_up_to_atmos,     &
-!                              flux_land_to_ice,     &
-!                              flux_ice_to_ocean,    &
-!                              flux_ocean_to_ice
 
   use simple_surface_mod, only: simple_surface_init, &
                                 compute_flux, &
@@ -116,9 +88,8 @@ program coupler_main
 
   use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end
   use mpp_mod, only: mpp_init, mpp_pe, mpp_npes, mpp_root_pe, &
-                     stderr, stdlog, mpp_error, NOTE, FATAL, WARNING, &
+                     stdlog, mpp_error, NOTE, FATAL, WARNING, &
                      mpp_set_current_pelist, mpp_declare_pelist
-  use mpp_domains_mod, only: mpp_broadcast_domain
 
   use memutils_mod, only: print_memuse_stats
 
@@ -135,30 +106,17 @@ program coupler_main
 !---- model defined-types ----
 
   type(atmos_data_type) :: Atm
-! type  (land_data_type) :: Land
-! type   (ice_data_type) :: Ice
-! type (ocean_data_type) :: Ocean
-
-! type(atmos_land_boundary_type)     :: Atmos_land_boundary
-! type(atmos_ice_boundary_type)      :: Atmos_ice_boundary
   type(land_ice_atmos_boundary_type) :: Land_ice_atmos_boundary
-! type(land_ice_boundary_type)       :: Land_ice_boundary
-! type(ice_ocean_boundary_type)      :: Ice_ocean_boundary
-! type(ocean_ice_boundary_type)      :: Ocean_ice_boundary
 
 !-----------------------------------------------------------------------
 ! ----- coupled model time -----
 
   type(time_type) :: Time, Time_init, Time_end, Time_step_atmos
   type(time_type) :: Time_atmos
-! integer :: num_ocean_calls, num_atmos_calls, no, na
-  integer ::                  num_atmos_calls, na
-! integer :: num_cpld_calls, nc
+  integer :: num_atmos_calls, na
 
 ! ----- coupled model initial date -----
 
-! logical :: ocean_seg_start
-! logical :: ocean_seg_end
   integer :: date_init(6)
   integer :: calendar_type = -99
 
@@ -175,15 +133,9 @@ program coupler_main
   !! `months`, `days`, `hours`, `minutes`, `seconds`: run length; it should be a whole multiple of
   !! `dt_atmos`
 !mj exported dt_atmos into coupler_mod
-!  integer :: dt_atmos = 0  ! fluxes passed between atmosphere & ice/land
-! integer :: dt_ocean = 0  ! ocean tracer timestep
-! integer :: dt_cpld  = 0  ! fluxes passed between ice & ocean
-  integer, dimension(3)           :: locmax, locmin
 
   integer ::atmos_npes = 0  !! number of processes for the atmosphere (0: all)
   logical :: do_atmos = .true.  !! run the atmosphere
-! logical :: concurrent=.FALSE.
-! logical :: use_lag_fluxes=.TRUE.
   namelist /coupler_nml/ current_date, calendar, force_date_from_namelist, months, days, hours, &
     minutes, seconds, dt_atmos, do_atmos, atmos_npes
 
@@ -212,42 +164,24 @@ program coupler_main
   call mpp_clock_begin(mainClock) !begin main loop
 
 !-----------------------------------------------------------------------
-!------ ocean/slow-ice integration loop ------
+!------ integration loop ------
 
-! do nc = 1, num_cpld_calls
   if (Atm%pe) then
     call mpp_set_current_pelist(Atm%pelist)
-!        call generate_sfc_xgrid( Land, Ice )
   end if
   call mpp_set_current_pelist()
 
-! Calls to flux_ocean_to_ice and flux_ice_to_ocean are all PE communication
-! points when running concurrently. The calls as placed next to each other in
-! concurrent mode to avoid multiple synchronizations within the main loop.
-! This is only possible in the serial case when use_lag_fluxes.
-!    call flux_ocean_to_ice( Time, Ocean, Ice, Ocean_ice_boundary )
-
-! Update Ice_ocean_boundary; first iteration is supplied by restart
-!    if( use_lag_fluxes )then
-!        call flux_ice_to_ocean( Time, Ice, Ocean, Ice_ocean_boundary )
-!    end if
-
   if (Atm%pe) then
     call mpp_set_current_pelist(Atm%pelist)
-!        if (do_ice) call update_ice_model_slow_up( Ocean_ice_boundary, Ice )
 
 !-----------------------------------------------------------------------
-!   ------ atmos/fast-land/fast-ice integration loop -------
+!   ------ atmosphere/surface time step loop -------
 
     do na = 1, num_atmos_calls
 
       Time_atmos = Time_atmos + Time_step_atmos
 
       call compute_flux(float(dt_atmos), Time_atmos, Atm, &
-                        !                              land_frac_atm,                          &
-                        !                              t_surf_atm, albedo_atm, rough_mom_atm,  &
-                        !                              flux_u_atm, flux_v_atm, dtaudv_atm,     &
-                        !                              u_star_atm, b_star_atm                  )
                         Land_ice_atmos_boundary%land_frac, &
                         Land_ice_atmos_boundary%t, &
                         Land_ice_atmos_boundary%albedo, &
@@ -271,88 +205,18 @@ program coupler_main
                                    Land_ice_atmos_boundary%dt_t, &
                                    Land_ice_atmos_boundary%dt_q)
 
-!           call flux_down_from_atmos( Time_atmos, Atm, Land, Ice, &
-!                Land_ice_atmos_boundary, &
-!                Atmos_land_boundary, &
-!                Atmos_ice_boundary )
-
-!      --------------------------------------------------------------
-
-!      ---- land model ----
-
-!           if (do_land) &
-!             call update_land_model_fast( Atmos_land_boundary, Land )
-
-!      ---- ice model ----
-!           if (do_ice) &
-!             call update_ice_model_fast( Atmos_ice_boundary, Ice )
-
-!      --------------------------------------------------------------
 !      ---- atmosphere up ----
-
-!           call flux_up_to_atmos( Time_atmos, Land, Ice, Land_ice_atmos_boundary )
 
       if (do_atmos) &
         call update_atmos_model_up(Land_ice_atmos_boundary, Atm)
 
-!--------------
-
     end do
 
 !   ------ end of atmospheric time step loop -----
-!        if (do_land) call update_land_model_slow(Atmos_land_boundary,Land)
 !-----------------------------------------------------------------------
 
-!
-!     need flux call to put runoff and p_surf on ice grid
-!
-!        call flux_land_to_ice( Time, Land, Ice, Land_ice_boundary )
-
-!        Atmos_ice_boundary%p = 0.0 ! call flux_atmos_to_ice_slow ?
-
-!   ------ slow-ice model ------
-
-!        if (do_ice) call update_ice_model_slow_dn( Atmos_ice_boundary, &
-!                                                   Land_ice_boundary, Ice )
     Time = Time_atmos
   end if                     !Atm%pe block
-
-!    if( .NOT.use_lag_fluxes )then !this will serialize
-!        call mpp_set_current_pelist()
-!        call flux_ice_to_ocean( Time, Ice, Ocean, Ice_ocean_boundary )
-!    end if
-
-!    if( Ocean%pe )then
-!        call mpp_set_current_pelist(Ocean%pelist)
-!        do no = 1,num_ocean_calls
-
-!            if( mpp_pe().EQ.mpp_root_pe() )write( stderr(),'(a,2i4)' )'nc,no=', nc,no
-!           Time_ocean = Time_ocean + Time_step_ocean
-
-!           ocean_seg_start = ( no .eq. 1 )               ! could eliminate these by
-!           ocean_seg_end   = ( no .eq. num_ocean_calls ) ! putting this loop in
-  ! update_ocean_model since
-  ! fluxes don't change here
-
-!           if (do_ocean) call update_ocean_model( Ice_ocean_boundary, Ocean, &
-!                              ocean_seg_start, ocean_seg_end, num_ocean_calls)
-
-!        enddo
-!   ------ end of ocean time step loop -----
-!-----------------------------------------------------------------------
-!        Time = Time_ocean
-!    end if
-!--------------
-!    write( text,'(a,i4)' )'Main loop at coupling timestep=', nc
-!    call print_memuse_stats(text)
-
-! enddo
-
-! Need final update of Ice_ocean_boundary for concurrent restart
-!  if( concurrent )then
-!      call mpp_set_current_pelist()
-!      call flux_ice_to_ocean( Time, Ice, Ocean, Ice_ocean_boundary )
-!  endif
 
   call mpp_set_current_pelist()
 !-----------------------------------------------------------------------
@@ -376,19 +240,12 @@ contains
   !> diagnostics manager and the run length, and initializes the atmosphere and the surface.
   subroutine coupler_init
 
-    integer :: unit, log_unit, ierr, io, id, jd, kd, m, i
+    integer :: unit, ierr, io, id, jd, m, i
     integer :: date(6)
     type(time_type) :: Run_length
     character(len=9) :: month
     integer :: pe, npes
     integer :: atmos_pe_start = 0, atmos_pe_end = 0
-!              ocean_pe_start=0, ocean_pe_end=0, &
-!              ice_pe_start=0, ice_pe_end=0, &
-!              land_pe_start=0, land_pe_end=0
-    integer :: atm1_pe_start = 0, atm1_pe_end, &
-               ocn1_pe_start = 0, ocn1_pe_end, &
-               atm2_pe_start = 0, atm2_pe_end, &
-               ocn2_pe_start = 0, ocn2_pe_end
     integer :: diag_model_subset = DIAG_ALL
 !-----------------------------------------------------------------------
 !----- read namelist -------
@@ -444,21 +301,6 @@ contains
       case default
         call mpp_error(FATAL, 'COUPLER_MAIN: coupler_nml entry calendar must be one of JULIAN|NOLEAP|THIRTY_DAY|NO_CALENDAR.')
       end select
-!        if ( uppercase(calendar(1:6)) == 'JULIAN') then
-!            calendar_type = JULIAN
-!        else if ( uppercase(calendar(1:6)) == 'NOLEAP') then
-!            calendar_type = NOLEAP
-!        else if ( uppercase(calendar(1:10)) == 'THIRTY_DAY') then
-!            calendar_type = THIRTY_DAY_MONTHS
-!        else if ( uppercase(calendar(1:11)) == 'NO_CALENDAR') then
-!            calendar_type = NO_CALENDAR
-!        else if (calendar(1:1) /= ' ') then
-!            call error_mesg ('program coupler',  &
-!                 'invalid namelist value for calendar', FATAL)
-!        else
-!            call error_mesg ('program coupler',  &
-!                 'no namelist value for calendar', FATAL)
-!        endif
 
     end if
 
@@ -471,81 +313,22 @@ contains
 16  format('  current date used = ', i4, 1x, a, 2i3, 2(':', i2.2), ' gmt')
 
 !-----------------------------------------------------------------------
-!------ initialize concurrent PEset management ------
+!------ initialize PEset management ------
 
 !pe information
     pe = mpp_pe()
     npes = mpp_npes()
-!   if( ice_npes.NE.0 ) &
-!        call mpp_error( WARNING, 'coupler_init: pelists not yet implemented for ice.' )
-!   if( land_npes.NE.0 ) &
-!        call mpp_error( WARNING, 'coupler_init: pelists not yet implemented for land.' )
 
-!   if( concurrent )then
-!atmos_npes + ocean_npes must equal npes
-!       if( atmos_npes.EQ.0 )atmos_npes = npes - ocean_npes
-!       if( ocean_npes.EQ.0 )ocean_npes = npes - atmos_npes
-!both must now be non-zero
-!       if( atmos_npes.EQ.0 .OR. ocean_npes.EQ.0 ) &
-!            call mpp_error( FATAL, 'coupler_init: atmos_npes or ocean_npes must be specified for concurrent coupling.' )
-!       if( atmos_npes+ocean_npes.NE.npes ) &
-!            call mpp_error( FATAL, 'coupler_init: atmos_npes+ocean_npes must equal npes for concurrent coupling.' )
-!       atmos_pe_start = 0
-!       atmos_pe_end = atmos_npes-1
-!       ocean_pe_start = atmos_npes
-!       ocean_pe_end = atmos_npes+ocean_npes-1
-!       if( .NOT.use_lag_fluxes )call mpp_error( WARNING, &
-!            'coupler_init: you have set both concurrent and use_lag_fluxes &
-!           & to TRUE in coupler_nml. When not using lag fluxes, components &
-!           & will synchronize at two points, and thus run serially.' )
-!   else                        !serial timestepping
     if (atmos_npes .eq. 0) atmos_npes = npes
     atmos_pe_start = 0
     atmos_pe_end = atmos_npes - 1
-!       if( ocean_npes.EQ.0 )ocean_npes = npes
-!       if( max(atmos_npes,ocean_npes).EQ.npes )then !overlapping pelists
-!           atmos_pe_start = 0
-!           atmos_pe_end = atmos_npes-1
-!           ocean_pe_start = 0
-!           ocean_pe_end = ocean_npes-1
-!       else                    !disjoint pelists
-!           if( atmos_npes+ocean_npes.NE.npes ) call mpp_error( FATAL,  &
-!                'coupler_init: atmos_npes+ocean_npes must equal npes for serial coupling on disjoint pelists.' )
-!           atmos_pe_start = 0
-!           atmos_pe_end = atmos_npes-1
-!           ocean_pe_start = atmos_npes
-!           ocean_pe_end = atmos_npes+ocean_npes-1
-!       end if
-!   end if
 !messages
     write (text, '(a,2i6)') 'Atmos PE range: ', atmos_pe_start, atmos_pe_end
     call mpp_error(NOTE, 'coupler_init: '//trim(text))
-!   write( text,'(a,2i6)' )'Ocean PE range: ', ocean_pe_start, ocean_pe_end
-    call mpp_error(NOTE, 'coupler_init: '//trim(text))
-!   if( concurrent )then
-!       call mpp_error( NOTE, 'coupler_init: Running with CONCURRENT coupling.' )
-!   else
-!       call mpp_error( NOTE, 'coupler_init: Running with SERIAL coupling.' )
-!   end if
-!   if( use_lag_fluxes )then
-!       call mpp_error( NOTE, 'coupler_init: Sending LAG fluxes to ocean.' )
-!   else
-!       call mpp_error( NOTE, 'coupler_init: Sending most recent fluxes to ocean.' )
-!   end if
     allocate (Atm%pelist(atmos_npes))
-!   allocate( Ocean%pelist(ocean_npes) )
     Atm%pelist = (/(i, i=atmos_pe_start, atmos_pe_end)/)
-!   Ocean%pelist = (/(i,i=ocean_pe_start,ocean_pe_end)/)
     Atm%pe = atmos_pe_start .le. pe .and. pe .le. atmos_pe_end
-!   Ocean%pe = ocean_pe_start.LE.pe .AND. pe.LE.ocean_pe_end
     call mpp_declare_pelist(Atm%pelist, '_atm')
-!   call mpp_declare_pelist( Ocean%pelist, '_ocn' )
-!   if( concurrent .AND. pe.EQ.mpp_root_pe() )then
-!       write( stdlog(),'(a)' )'Using concurrent coupling...'
-!       write( stdlog(),'(a,4i4)' ) &
-!        'atmos_pe_start, atmos_pe_end, ocean_pe_start, ocean_pe_end=', &
-!         atmos_pe_start, atmos_pe_end, ocean_pe_start, ocean_pe_end
-!   end if
 
 !-----------------------------------------------------------------------
 !------ initialize diagnostics manager ------
@@ -554,15 +337,11 @@ contains
 !    diag_manager_init. diag_manager_init or this section should be
 !    re-architected to guarantee this or remove this assumption.
 !    For instance, what follows assumes that get_base_date has the same
-!    time for both Atm and Ocean pes. While this should be the case, the
-!    possible error condition needs to be checked
+!    time for every pe.
 
     if (Atm%pe) then
       call mpp_set_current_pelist(Atm%pelist)
       if (atmos_npes /= npes) diag_model_subset = DIAG_OTHER  ! change diag_model_subset from DIAG_ALL
-!   elseif( Ocean%pe )then  ! Error check above for disjoint pelists should catch any problem
-!       call mpp_set_current_pelist(Ocean%pelist)
-!       if(ocean_npes /= npes)diag_model_subset = DIAG_OCEAN  ! change diag_model_subset from DIAG_ALL
     end if
     call field_manager_init(nfields)
     call diag_manager_init(DIAG_MODEL_SUBSET=diag_model_subset)   ! initialize diag_manager for processor subset output
@@ -618,15 +397,10 @@ contains
 !-----------------------------------------------------------------------
 !----- compute the time steps ------
 
-!   Time_step_cpld  = set_time (dt_cpld ,0)
-!   Time_step_ocean = set_time (dt_ocean,0)
     Time_step_atmos = set_time(dt_atmos, 0)
 
 !----- determine maximum number of iterations per loop ------
 
-!   num_cpld_calls  = Run_length      / Time_step_cpld
-!   num_ocean_calls = Time_step_cpld  / Time_step_ocean
-!   num_atmos_calls = Time_step_cpld  / Time_step_atmos
     num_atmos_calls = Run_length/Time_step_atmos
 
 !-----------------------------------------------------------------------
@@ -636,24 +410,6 @@ contains
 
     if (Time_init > Time) call error_mesg('program coupler', &
                                           'initial time is greater than current time', FATAL)
-
-!----- make sure run length is a multiple of ocean time step ------
-
-!   if ( num_cpld_calls * num_ocean_calls * Time_step_ocean /= Run_length )  &
-!        call error_mesg ('program coupler',  &
-!        'run length must be multiple of ocean time step', FATAL)
-
-! ---- make sure cpld time step is a multiple of atmos time step ----
-
-!   if ( num_atmos_calls * Time_step_atmos /= Time_step_cpld )  &
-!        call error_mesg ('program coupler',   &
-!        'atmos time step is not a multiple of the cpld time step', FATAL)
-
-! ---- make sure cpld time step is a multiple of ocean time step ----
-
-!   if ( num_ocean_calls * Time_step_ocean /= Time_step_cpld )  &
-!        call error_mesg ('program coupler',   &
-!        'cpld time step is not a multiple of the ocean time step', FATAL)
 
 !-----------------------------------------------------------------------
 !------ initialize component models ------
@@ -699,53 +455,10 @@ contains
       Land_ice_atmos_boundary%q_star = 0.0
       Land_ice_atmos_boundary%rough_mom = 0.0
 
-!---- land ----------
-!       call land_model_init( Atmos_land_boundary, Land, Time_init, Time, &
-!            Time_step_atmos, Time_step_cpld )
-!       call print_memuse_stats( 'land_model_init' )
-
-!---- ice -----------
-!       call ice_model_init( Ice, Time_init, Time, Time_step_atmos, Time_step_cpld )
-!       call print_memuse_stats( 'ice_model_init' )
-!       call data_override_init(Atm_domain_in = Atm%domain, Ice_domain_in = Ice%domain, Land_domain_in=Land%domain)
     end if
-!   if( Ocean%pe )then
-!       call mpp_set_current_pelist(Ocean%pelist)
-!---- ocean ---------
-!       call ocean_model_init( Ocean, Time_init, Time, Time_step_ocean )
-!       call print_memuse_stats( 'ocean_model_init' )
-!       call data_override_init(Ocean_domain_in = Ocean%domain )
-!   end if
     call mpp_set_current_pelist()
 
-!   call mpp_broadcast_domain(Ice%domain)
-!   call mpp_broadcast_domain(Ocean%domain)
-!-----------------------------------------------------------------------
-!---- initialize flux exchange module ----
-!   call flux_exchange_init ( Time, Atm, Land, Ice, Ocean, &
-!        atmos_ice_boundary, land_ice_atmos_boundary, &
-!        land_ice_boundary, ice_ocean_boundary, ocean_ice_boundary )
-
     Time_atmos = Time
-!   Time_ocean = Time
-
-!---- initialize Ice for ice_ocean_boundary update ----
-!  ! Only ocean PEs read ice_ocean_boundary; data in ice_ocean_boundary
-!  ! struct is ignored in non-concurrent mode since atmos
-!  ! model has run one iteration before ocean model is called.
-!    if( Ocean%pe )then
-!      call mpp_set_current_pelist(Ocean%pelist)
-!      if (force_date_from_namelist .or. .NOT.concurrent) then
-!        call init_default_ice_ocean_boundary(ice_ocean_boundary)
-!      else
-!        if( file_exists('INPUT/coupler_fluxes.res.nc') )then !Balaji
-!            call read_ice_ocean_boundary('INPUT/coupler_fluxes.res.nc', &
-!                                     ice_ocean_boundary,Ocean)
-!        else
-!            if( Time.NE.Time_init ) &
-!                 call mpp_error( FATAL, 'COUPLER_INIT: missing restart file INPUT/coupler_fluxes.res.nc.' )
-!        endif
-!    endif
 
     call mpp_set_current_pelist()
 
@@ -785,12 +498,6 @@ contains
                                           'final time does not match expected ending time', WARNING)
 
 !-----------------------------------------------------------------------
-!   if( Ocean%pe )then
-!       call mpp_set_current_pelist(Ocean%pelist)
-!        call write_ice_ocean_boundary('RESTART/coupler_fluxes.res.nc', &
-!                                      ice_ocean_boundary,Ocean)
-!       call ocean_model_end (Ocean)
-!   end if
     if (Atm%pe) then
       call mpp_set_current_pelist(Atm%pelist)
       call atmos_model_end(Atm)
@@ -799,9 +506,6 @@ contains
 !pjp    They are initialized to zero by atmos_model_init.
 !pjp    I don't think any action is necessary to make simple_surface_end compatable with Lima.
       call simple_surface_end(Atm)
-
-!       call  land_model_end (Atmos_land_boundary, Land)
-!       call   ice_model_end (Ice)
     end if
     call mpp_set_current_pelist()
 
