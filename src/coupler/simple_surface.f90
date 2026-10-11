@@ -42,7 +42,7 @@ module simple_surface_mod
 
   use time_manager_mod, only: time_type, get_time
 
-  use constants_mod, only: rdgas, rvgas, cp_air, hlv, hlf
+  use constants_mod, only: rdgas, rvgas, cp_air, hlv, hlf, grav
 
 ! mj know about surface topography
   use spectral_dynamics_mod, only: get_surf_geopotential
@@ -803,7 +803,7 @@ contains
     else if (trim(land_option) .eq. 'zsurf') then
       allocate (zsurf(size(Atm%t_bot, 1), size(Atm%t_bot, 2)))
       call get_surf_geopotential(zsurf)
-      where (zsurf > zsurf_cap_limit) land_sea_heat_capacity = land_capacity
+      where (zsurf/grav > zsurf_cap_limit) land_sea_heat_capacity = land_capacity
       ! mj land heat capacity given in inputfile
 ! mj land heat capacity given through ?landlon, ?landlat
     else if (trim(land_option) .eq. 'lonlat') then
