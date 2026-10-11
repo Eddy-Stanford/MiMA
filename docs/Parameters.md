@@ -406,8 +406,9 @@ Declared in [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_m
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `ocean_model` | character(len=32) | `'slab'` | `'slab'`: mixed layer with an interactive SST; `'prescribed'`: SST read from `sst_file` at every step (implies `sst_init = 'file'`); `'fixed'`: SST held at its initial value |
-| `sst_init` | character(len=32) | `'profile'` | initial SST on a cold start: `'profile'`: `Tm - deltaT*(3 sin^2(lat) - 1)/3`; `'uniform'`: `Tm` everywhere; `'ape_control_plus2'`, `'ape_control'`, `'ape_qobs'`, `'ape_qobs5'`: the Aqua-Planet Experiment profiles "control+2", "control", "qobs" and "qobs+5"; `'file'`: from `sst_file` |
+| `sst_init` | character(len=32) | `'profile'` | initial SST on a cold start: `'profile'`: `Tm - deltaT*(3 sin^2(lat) - 1)/3`; `'uniform'`: `Tm` everywhere; `'ape_control'`, `'ape_qobs'`: the Aqua-Planet Experiment profiles "control" and "qobs" (Neale and Hoskins, 2000); `'file'`: from `sst_file` |
 | `Tm` | real | `285.` | [K] mean initial SST of `'profile'`; the SST of `'uniform'` |
+| `sst_offset` | real | `0.` | [K] added to the cold-start SST of every `sst_init` (including `'file'`), and at every step to the SST of a prescribed ocean (`ocean_model = 'prescribed'`; e.g. for AMIP+4K experiments); a fixed ocean (`ocean_model = 'fixed'`) gets it through its initial SST. For the APE profiles it is added after the profile: `'ape_qobs'` with `sst_offset = 5.` is the "qobs+5" experiment |
 | `deltaT` | real | `40.` | [K] equator-to-pole difference of the initial SST of `'profile'` |
 | `sst_file` | character(len=256) | `''` | SST file name, without `.nc`, in `INPUT/` |
 | `sst_file_var` | character(len=256) | `''` | name of the SST variable in `sst_file` (empty: `sst_file`) |

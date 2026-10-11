@@ -283,8 +283,11 @@ Every variable of v1 `&simple_surface_nml` is listed. A variable that does not a
 | `surface_choice = 2` | `ocean_model = 'fixed'`, `land_model = 'fixed'` | the moist Held-Suarez configuration |
 | `do_sc_sst = .true.`, `sst_file` | `ocean_model = 'prescribed'`, `sst_file`. For the old land behaviour also `land_model = 'prescribed'` and `t_surf_file` = the same file | **the default land is now interactive**: in v1 the file SST was imposed on land points too; now land is a slab unless `land_model = 'prescribed'` |
 | `do_read_sst = .true.` | `sst_init = 'file'` | |
-| `Tm <= 0` | `sst_init = 'uniform'`, `Tm = -Tm_old` | the model stops if `sst_init = 'profile'` is combined with `Tm <= 0` or `Tm >= 399` |
-| `Tm >= 399`, `499`, `599`, `699` | `sst_init = 'ape_control_plus2'`, `'ape_control'`, `'ape_qobs'`, `'ape_qobs5'` | expressions unchanged |
+| `Tm <= 0` | `sst_init = 'uniform'`, `Tm = -Tm_old` | the model stops if `sst_init = 'profile'` is combined with `Tm <= 0` or `Tm >= 399` (the numbers that select the APE profiles) |
+| `399 <= Tm < 499` | **removed** | the APE "control+2" profile was not a standard APE experiment, and its zero is at about 64 degrees, so the 60-degree clamp made a 0.3 K jump in the SST. Use `sst_init = 'ape_control'` with `sst_offset`, or supply the SST as `sst_file`. The model stops with a message |
+| `499 <= Tm < 599` | `sst_init = 'ape_control'` | expression unchanged |
+| `599 <= Tm < 699` | `sst_init = 'ape_qobs'` | expression unchanged |
+| `699 <= Tm < 704` | `sst_init = 'ape_qobs'`, `sst_offset = 5.` | the v1 "qobs+5" profile: the offset is added after the profile as in v1, so the SST is the same. `sst_offset` [K] is new and is added to the cold-start SST of every `sst_init`, and to a prescribed SST at every step |
 | `Tm >= 704`, `709`, `714`; `Tm >= 800` (zonal-band table) | **removed** | supply the SST as `sst_file` with `sst_init = 'file'`. The file goes through the conservative regridder, so a zonal-band table is reproduced only approximately unless the file is on the model grid |
 | `Tm`, `deltaT` | same names in `&ocean_model_nml` | |
 | `heat_capacity`, `trop_capacity`, `trop_cap_limit`, `heat_cap_limit`, `np_cap_factor` | same names in `&ocean_model_nml` | `trop_capacity <= 0` still means `heat_capacity` |

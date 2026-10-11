@@ -79,13 +79,14 @@ The surface is made of an ocean and a land component, set in [`ocean_model_nml`]
 
 ### Slab ocean
 
-The default. Each ocean point is a slab of heat capacity `heat_capacity` [J/m2/K] that is heated by the net surface flux and by the Q-flux. The initial temperature is set by `sst_init` (`'profile'` by default: `Tm - deltaT*(3 sin^2(lat) - 1)/3`, which has the area mean `Tm` and an equator-to-pole difference `deltaT`), and a restart file always takes precedence. The heat capacity is `trop_capacity` equatorward of `trop_cap_limit`, `heat_capacity` poleward of `heat_cap_limit` and linear in latitude in between; in the Northern Hemisphere the `heat_capacity` end is multiplied by `np_cap_factor`. With `trop_capacity = heat_capacity` and `np_cap_factor = 1.` it is uniform. As a guide, `3.e8` J/m2/K is a water layer about 72 m deep and `1.e8` about 24 m. The land has its own `heat_capacity` in `&land_model_nml`.
+The default. Each ocean point is a slab of heat capacity `heat_capacity` [J/m2/K] that is heated by the net surface flux and by the Q-flux. The initial temperature is set by `sst_init` (`'profile'` by default: `Tm - deltaT*(3 sin^2(lat) - 1)/3`, which has the area mean `Tm` and an equator-to-pole difference `deltaT`), and a restart file always takes precedence. `sst_init` also takes `'uniform'` (`Tm` everywhere), `'file'` (from `sst_file`) and the Aqua-Planet Experiment profiles `'ape_control'` and `'ape_qobs'` ([Neale and Hoskins, 2000](https://doi.org/10.1006/asle.2000.0019)). `sst_offset` [K] (default 0) is added to the cold-start SST of every `sst_init`, for example `sst_init = 'ape_qobs'`, `sst_offset = 5.` is the "qobs+5" experiment. The heat capacity is `trop_capacity` equatorward of `trop_cap_limit`, `heat_capacity` poleward of `heat_cap_limit` and linear in latitude in between; in the Northern Hemisphere the `heat_capacity` end is multiplied by `np_cap_factor`. With `trop_capacity = heat_capacity` and `np_cap_factor = 1.` it is uniform. As a guide, `3.e8` J/m2/K is a water layer about 72 m deep and `1.e8` about 24 m. The land has its own `heat_capacity` in `&land_model_nml`.
 
 ```fortran
 &ocean_model_nml
     ocean_model   = 'slab',
     sst_init      = 'profile',
     Tm            = 285.,
+    sst_offset    = 0.,
     deltaT        = 40.,
     heat_capacity = 3.e08,
     trop_capacity = 1.e08,
@@ -127,6 +128,7 @@ An AMIP-style run: the SST over the ocean follows a file, while the land keeps i
 * **Units and variable.** Kelvin, a 2-D (lon, lat) field with a time axis. `sst_file_var` names the variable; the default is the file name, which is v1's convention. MiMA reads only that variable, so extra variables in the file (e.g. `time_bnds`) do no harm.
 * **Records.** One record is a constant SST. Two to twelve records are a climatology that repeats every year, whatever the year of the time axis. More than twelve records are a dated series, and the run must lie inside its time span. Time is read from the `time` axis (`units` as `days since 0001-01-01 00:00:00`).
 * **Calendars.** The model calendar is set by `calendar` in [`coupler_nml`](Parameters.md#coupler_nml) (`'thirty_day'` by default, `'julian'` or `'noleap'`), and the `calendar` attribute of the file's time axis must match it: `360_day` (or `360`) for `thirty_day`, `julian` for `julian`, `noleap` for `noleap`. A `julian` file is also converted for a `noleap` model, and a `noleap` file for a `julian` model; any other combination is a fatal error. A time axis with the base year 0000 (`days since 0000-01-01`) is a climatology for all years and has no calendar restriction. MiMA's own output files are `360_day` and can be used as they are in a `thirty_day` run.
+* `sst_offset` [K] is added to the file's SST at every step (and to the cold-start SST), for example `sst_offset = 4.` for an AMIP+4K experiment. The default 0 leaves the SST as in the file. The diagnostic `ocean/sst_interp` is the file's SST without the offset.
 * The temperature at a time step is set to the file's value; at start-up `sst_init` is forced to `'file'`, so a cold start begins from the file.
 * With the default `qflux_ocean_only = .true.` the Q-flux is not used in this configuration: the ocean temperature is imposed and the land receives none. (With `qflux_ocean_only = .false.` the land would be heated by it.)
 * The surface component writes `flux/t_surf` and, because the SST is imposed, [`ocean/qflux_implied`](#q-flux-from-a-file). No special treatment of sea ice: the SST file and the background albedo apply everywhere.
@@ -148,7 +150,7 @@ The surface temperature stays at its initial value. This is the surface of the m
     land_model = 'fixed' /
 ```
 
-The initial temperature of the land is the ocean's (`t_init = 'ocean'`), so there is no land-sea contrast unless you set `t_init` or `sst_init` otherwise. The surface fluxes are still computed; only the temperature is held. `sst_init` also takes the APE profiles (`'ape_control'`, `'ape_control_plus2'`, `'ape_qobs'`, `'ape_qobs5'`), `'uniform'` (temperature `Tm`) and `'file'`.
+The initial temperature of the land is the ocean's (`t_init = 'ocean'`), so there is no land-sea contrast unless you set `t_init` or `sst_init` otherwise. The surface fluxes are still computed; only the temperature is held. `sst_init` also takes the APE profiles (`'ape_control'`, `'ape_qobs'`), `'uniform'` (temperature `Tm`) and `'file'`, and `sst_offset` [K] is added to the initial temperature, which a fixed ocean keeps.
 
 ### Q-flux from a file
 

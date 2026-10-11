@@ -16,10 +16,11 @@
 !> atmosphere are those of the final SST (energy-consistent); for a prescribed or fixed SST as
 !> an increment `extra_heating*dt` of the SST. On a cold start
 !> the SST is set by `sst_init`: the profile `Tm - deltaT*(3 sin^2(lat) - 1)/3`, a uniform
-!> `Tm`, one of the Aqua-Planet Experiment profiles, or `sst_file`. The cold-start field and
+!> `Tm`, one of the Aqua-Planet Experiment profiles, or `sst_file`, plus `sst_offset`. The cold-start field and
 !> the heat-capacity profile are computed on all points, so that the land model can start
 !> from the same field. The state is saved in `RESTART/ocean_model.res.nc`, which takes
-!> precedence over `sst_init` when it exists in `INPUT/`.
+!> precedence over `sst_init` when it exists in `INPUT/`. The offset `sst_offset` is also added to
+!> a prescribed SST at every step.
 !>
 !> Namelist: `ocean_model_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#ocean_model_nml)).
@@ -66,10 +67,15 @@ module ocean_model_mod
   !! every step (implies `sst_init = 'file'`); `'fixed'`: SST held at its initial value
   character(len=32) :: sst_init = 'profile'
   !! initial SST on a cold start: `'profile'`: `Tm - deltaT*(3 sin^2(lat) - 1)/3`; `'uniform'`:
-  !! `Tm` everywhere; `'ape_control_plus2'`, `'ape_control'`, `'ape_qobs'`, `'ape_qobs5'`: the
-  !! Aqua-Planet Experiment profiles "control+2", "control", "qobs" and "qobs+5"; `'file'`:
-  !! from `sst_file`
+  !! `Tm` everywhere; `'ape_control'`, `'ape_qobs'`: the Aqua-Planet Experiment profiles
+  !! "control" and "qobs" (Neale and Hoskins, 2000); `'file'`: from `sst_file`
   real :: Tm = 285.  !! [K] mean initial SST of `'profile'`; the SST of `'uniform'`
+  real :: sst_offset = 0.
+  !! [K] added to the cold-start SST of every `sst_init` (including `'file'`), and at every step
+  !! to the SST of a prescribed ocean (`ocean_model = 'prescribed'`; e.g. for AMIP+4K
+  !! experiments); a fixed ocean (`ocean_model = 'fixed'`) gets it through its initial SST. For
+  !! the APE profiles it is added after the profile: `'ape_qobs'` with `sst_offset = 5.` is the
+  !! "qobs+5" experiment
   real :: deltaT = 40.  !! [K] equator-to-pole difference of the initial SST of `'profile'`
   character(len=256) :: sst_file = ''  !! SST file name, without `.nc`, in `INPUT/`
   character(len=256) :: sst_file_var = ''  !! name of the SST variable in `sst_file` (empty: `sst_file`)
@@ -83,7 +89,7 @@ module ocean_model_mod
   real :: heat_cap_limit = 60.  !! [deg] latitude of the extratropical heat capacity `heat_capacity`
   real :: np_cap_factor = 1.  !! factor on `heat_capacity` in the Northern Hemisphere
 
-  namelist /ocean_model_nml/ ocean_model, sst_init, Tm, deltaT, sst_file, sst_file_var, &
+  namelist /ocean_model_nml/ ocean_model, sst_init, Tm, sst_offset, deltaT, sst_file, sst_file_var, &
     rough_ocean, heat_capacity, trop_capacity, trop_cap_limit, heat_cap_limit, np_cap_factor
 
   type(interpolate_type), save :: sst_interp
@@ -130,19 +136,30 @@ contains
                       '"; use slab, prescribed or fixed', FATAL)
     end select
     select case (trim(sst_init))
-    case ('profile', 'uniform', 'ape_control_plus2', 'ape_control', 'ape_qobs', 'ape_qobs5')
+    case ('profile', 'uniform', 'ape_control', 'ape_qobs')
     case ('file')
       if (len_trim(sst_file) == 0) call error_mesg('ocean_model_init', &
                                                    "ocean_model = 'prescribed' and sst_init = 'file' need sst_file", FATAL)
     case default
-      call error_mesg('ocean_model_init', 'unknown sst_init = "'//trim(sst_init)//'"; use profile, '// &
-                      'uniform, ape_control_plus2, ape_control, ape_qobs, ape_qobs5 or file', FATAL)
+      select case (trim(sst_init))
+      case ('ape_qobs5')
+        call error_mesg('ocean_model_init', "unknown sst_init = 'ape_qobs5': it was removed; use "// &
+                        "sst_init = 'ape_qobs' with sst_offset = 5.", FATAL)
+      case ('ape_control_plus2')
+        call error_mesg('ocean_model_init', "unknown sst_init = 'ape_control_plus2': it was removed "// &
+                        "(it is not a standard APE profile); use sst_init = 'ape_control' with "// &
+                        "sst_offset, or supply the SST as sst_file", FATAL)
+      case default
+        call error_mesg('ocean_model_init', 'unknown sst_init = "'//trim(sst_init)//'"; use profile, '// &
+                        'uniform, ape_control, ape_qobs or file', FATAL)
+      end select
     end select
     if (trim(sst_init) == 'profile' .and. (Tm .le. 0. .or. Tm .ge. 399.)) &
       call error_mesg('ocean_model_init', "sst_init = 'profile' with Tm <= 0 or Tm >= 399: these "// &
                       "v1 magic values are no longer used. For a uniform SST set sst_init = 'uniform' "// &
-                      "and Tm to the (positive) SST; for Tm >= 399 use sst_init = 'ape_control_plus2', "// &
-                      "'ape_control', 'ape_qobs' or 'ape_qobs5' (see the table in Migration_v2.md)", FATAL)
+                      "and Tm to the (positive) SST; for the APE profiles use sst_init = 'ape_control' "// &
+                      "or 'ape_qobs', with sst_offset for a uniform shift of the SST (see the table "// &
+                      "in Migration_v2.md)", FATAL)
     if (heat_capacity .le. 0.) &
       call error_mesg('ocean_model_init', 'heat_capacity must be positive (it is the heat capacity '// &
                       'of the ocean mixed layer, and the default of the land)', FATAL)
@@ -180,11 +197,11 @@ contains
         end if
         if (abs(lat) < trop_cap_limit) then
           cap_all(:, j) = trop_capacity
-        elseif (abs(lat) < heat_cap_limit) then
+        else if (abs(lat) < heat_cap_limit) then
           cap_all(:, j) = trop_capacity*(1.-(abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)) &
                           + (abs(lat) - trop_cap_limit)/(heat_cap_limit - trop_cap_limit)*loc_cap
-        elseif (lat > heat_cap_limit) then
-          cap_all(:, j) = loc_cap
+        else
+          cap_all(:, j) = loc_cap  ! poleward of heat_cap_limit (in the Southern Hemisphere heat_capacity)
         end if
       end do
     end if
@@ -203,24 +220,12 @@ contains
         case ('uniform')
 ! mj equal temperature
           t_all(:, j) = Tm
-        case ('ape_control_plus2')
-! APE "control+2" experiment
-          t_all(:, j) = 273.15 + 29.0*(1.0 - sin(1.40369*lat)*sin(1.40369*lat))
-          if (abs(lat) .ge. pi/3.) t_all(:, j) = 273.15
-        case ('ape_control')
-! APE "control" experiment
-          t_all(:, j) = 273.15 + 27.0*(1.0 - sin(1.5*lat)*sin(1.5*lat))
-          if (abs(lat) .ge. pi/3.) t_all(:, j) = 273.15
-        case ('ape_qobs', 'ape_qobs5')
-! APE "qobs" experiment
-          t_all(:, j) = 273.15 + .5*27.*(1.-sin(1.5*lat)*sin(1.5*lat)) &
-                        + .5*27.*(1.-sin(1.5*lat)*sin(1.5*lat)*sin(1.5*lat)*sin(1.5*lat))
-          if (abs(lat) .ge. pi/3.) t_all(:, j) = 273.15
-! APE "qobs+5" experiment
-          if (trim(sst_init) == 'ape_qobs5') t_all(:, j) = t_all(:, j) + 5.
+        case ('ape_control', 'ape_qobs')
+          t_all(:, j) = ape_sst(lat, trim(sst_init))
         end select
       end do
     end if
+    t_all = t_all + sst_offset  ! 0 by default (exact)
 
     Ocean%cap = 0.0
     where (mask) Ocean%cap = cap_all
@@ -241,6 +246,38 @@ contains
                                           'SST interpolated from sst_file (prescribed ocean; debug)', 'K')
 
   end subroutine ocean_model_init
+
+!#######################################################################
+
+  !> The Aqua-Planet Experiment SST profile at a latitude [K].
+  !>
+  !> `'ape_control'`: `T0 + 27 (1 - sin^2(1.5 lat))`; `'ape_qobs'`: `T0 + 27/2 (1 - sin^2(1.5 lat))
+  !> + 27/2 (1 - sin^4(1.5 lat))`, both from the equator to 60 degrees and `T0` (0 deg C)
+  !> poleward of that. Neale and Hoskins (2000), "A standard test for AGCMs including their
+  !> physical parametrizations: I: the proposal", Atmos. Sci. Lett. 1, 101-107.
+  pure function ape_sst(lat, profile) result(sst)
+    real, intent(in) :: lat  !! latitude [rad]
+    character(len=*), intent(in) :: profile  !! `'ape_control'` or `'ape_qobs'`
+    real :: sst
+
+    real, parameter :: t_zero_c = 273.15  ! 0 deg C [K] (not constants_mod TFREEZE, 273.16)
+    real, parameter :: t_peak = 27.  ! equator-to-edge SST difference [K]
+    real, parameter :: shape_factor = 1.5  ! 90/60: the sin^2 reaches 1 at the 60 degree edge
+    real :: pi, edge
+
+    pi = 4.0*atan(1.)
+    edge = pi/3.  ! 60 degrees
+
+    select case (profile)
+    case ('ape_control')
+      sst = t_zero_c + t_peak*(1.0 - sin(shape_factor*lat)*sin(shape_factor*lat))
+    case default  ! 'ape_qobs'
+      sst = t_zero_c + .5*t_peak*(1.-sin(shape_factor*lat)*sin(shape_factor*lat)) &
+            + .5*t_peak*(1.-sin(shape_factor*lat)*sin(shape_factor*lat)*sin(shape_factor*lat)*sin(shape_factor*lat))
+    end select
+    if (abs(lat) .ge. edge) sst = t_zero_c
+
+  end function ape_sst
 
 !#######################################################################
 
@@ -280,7 +317,7 @@ contains
       call interpolator(sst_interp, Exch%Time, sst_new, trim(sst_var))
       if (id_sst_interp > 0) used = send_data(id_sst_interp, sst_new, Exch%Time)
       where (Ocean%mask)
-        Ocean%dt_t_surf = sst_new - Ocean%t_surf
+        Ocean%dt_t_surf = (sst_new + sst_offset) - Ocean%t_surf
       elsewhere
         Ocean%dt_t_surf = 0.0
       end where
