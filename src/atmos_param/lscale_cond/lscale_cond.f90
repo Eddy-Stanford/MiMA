@@ -4,8 +4,11 @@
 !> Where the specific humidity exceeds `hc` times the saturation value, the temperature
 !> and humidity are adjusted to saturation, releasing latent heat; the condensate falls
 !> out as precipitation. With `do_evap`, falling precipitation re-evaporates in
-!> sub-saturated layers below. All precipitation is returned as rain. Used with
-!> `do_lsc = .true.` in `moist_processes_nml`.
+!> sub-saturated layers below. In the columns where `coldT` is set (`precip_phase` of
+!> `moist_processes_nml`), the precipitation is snow and the condensation and re-evaporation
+!> use the latent heat of sublimation `hls` (as in the GFDL scheme), so that the fusion heat
+!> the surface takes to melt the snow has been released in the atmosphere; elsewhere it is
+!> rain, with `hlv`. Used with `do_lsc = .true.` in `moist_processes_nml`.
 !>
 !> Namelist: `lscale_cond_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#lscale_cond_nml)).
@@ -60,9 +63,10 @@ contains
     real, intent(in), dimension(:, :, :) :: tin, qin, pfull, phalf
     !! `tin`: temperature at full levels [K]; `qin`: specific humidity at full levels [kg/kg];
     !! `pfull`, `phalf`: pressure at full and half levels [Pa]
-    logical, intent(in), dimension(:, :):: coldT  !! whether precipitation should be snow (not used)
+    logical, intent(in), dimension(:, :):: coldT
+    !! columns where the precipitation is snow (latent heat `hls`); rain (`hlv`) elsewhere
     real, intent(out), dimension(:, :)   :: rain, snow
-    !! liquid and frozen precipitation [kg/m2]; `snow` is always zero
+    !! liquid and frozen precipitation [kg/m2]
     real, intent(out), dimension(:, :, :) :: tdel, qdel
     !! changes of temperature [K] and specific humidity [kg/kg] at full levels
     real, intent(in), dimension(:, :, :), optional :: mask  !! mask (0 or 1); no adjustment where it is 0
@@ -86,7 +90,11 @@ contains
     kx = size(tin, 3)
 
 !----- compute proper latent heat --------------------------------------
-    hlcp = HLv/Cp_Air
+    where (coldT)
+      hlcp = HLs/Cp_Air
+    elsewhere
+      hlcp = HLv/Cp_Air
+    end where
 
 !----- saturation vapor pressure (esat) & specific humidity (qsat) -----
 
@@ -161,9 +169,14 @@ contains
     end do
     precip(:, :) = max(precip(:, :), 0.0)
 
-    !assign precip to snow or rain
-    rain = precip
-    snow = 0.
+!----------- assign precip to snow or rain -----------------------------
+    where (coldT)
+      snow = precip
+      rain = 0.0
+    elsewhere
+      rain = precip
+      snow = 0.0
+    end where
 
 !-----------------------------------------------------------------------
 

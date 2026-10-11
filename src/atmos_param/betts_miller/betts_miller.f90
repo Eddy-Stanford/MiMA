@@ -5,8 +5,13 @@
 !> towards reference profiles: the parcel temperature, and a humidity of `rhbm` times
 !> saturation. The relaxation is corrected so that the scheme conserves enthalpy
 !> (deep convection); where it would give negative precipitation, a shallow-convection
-!> scheme is used instead (`do_shallower` or `do_changeqref`). All precipitation is
-!> returned as rain. Used with `do_bm = .true.` in `moist_processes_nml`.
+!> scheme is used instead (`do_shallower` or `do_changeqref`). The precipitation is rain,
+!> or snow in the columns where `coldT` is set (`precip_phase` of `moist_processes_nml`).
+!> The enthalpy correction uses `hlv`, so for snow the latent heat of fusion `hlf*snow` is
+!> then added to the column, as a uniform temperature change over the convecting layers
+!> (level of zero buoyancy to the surface, the same shape as the enthalpy correction), so that
+!> the fusion heat the surface takes to melt the snow has been released in the atmosphere.
+!> Used with `do_bm = .true.` in `moist_processes_nml`.
 !>
 !> Namelist: `betts_miller_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#betts_miller_nml)).
@@ -28,7 +33,7 @@ module betts_miller_mod
                      FATAL, write_version_number, stdlog
 
   use sat_vapor_pres_mod, only: escomp, descomp
-  use constants_mod, only: HLv, HLs, Cp_air, Grav, rdgas, rvgas, &
+  use constants_mod, only: HLv, HLs, HLf, Cp_air, Grav, rdgas, rvgas, &
                            kappa, es0
 
   implicit none
@@ -92,10 +97,11 @@ contains
     !! `tin`: temperature at full levels [K]; `qin`: specific humidity at full levels [kg/kg];
     !! `pfull`, `phalf`: pressure at full and half levels [Pa]
     real, intent(in)                    :: dt  !! time step [s]
-    logical, intent(in), dimension(:, :):: coldT  !! whether precipitation should be snow (not used)
+    logical, intent(in), dimension(:, :):: coldT
+    !! columns where the precipitation is snow (its fusion heat is added to the column)
     real, intent(out), dimension(:, :)   :: rain, snow, bmflag, klzbs, cape, &
                                             cin, invtau_bm_t, invtau_bm_q
-    !! `rain`, `snow`: liquid and frozen precipitation [kg/m2] (`snow` is always zero);
+    !! `rain`, `snow`: liquid and frozen precipitation [kg/m2];
     !! `bmflag`: 0 no convection, 1 shallow convection, 2 deep convection; `klzbs`: level of
     !! zero buoyancy (model level index); `cape`, `cin`: CAPE and convective inhibition before
     !! the adjustment [J/kg]; `invtau_bm_t`, `invtau_bm_q`: inverse relaxation times of
@@ -389,11 +395,26 @@ contains
           invtau_bm_t(i, j) = 0.
           invtau_bm_q(i, j) = 0.
         end if
+! Snow: the enthalpy correction above balanced the precipitation with hlv. Release the
+! fusion heat hlf*precip as well (hls in all), as a uniform temperature change over the
+! convecting layers klzb..kx, like the enthalpy correction (deltak); only deep convection
+! (bmflag = 2) precipitates.
+        if (coldT(i, j) .and. precip(i, j) > 0.) then
+          ktop = max(klzb, 1)
+          deltak = hlf*precip(i, j)*grav/(cp_air*(phalf(i, j, kx + 1) - phalf(i, j, ktop)))
+          tdel(i, j, ktop:kx) = tdel(i, j, ktop:kx) + deltak
+          t_ref(i, j, ktop:kx) = t_ref(i, j, ktop:kx) + deltak*tau_bm/dt
+        end if
       end do
     end do
 
-    rain = precip
-    snow = 0.
+    where (coldT)
+      snow = precip
+      rain = 0.0
+    elsewhere
+      rain = precip
+      snow = 0.0
+    end where
 
   end subroutine betts_miller
 

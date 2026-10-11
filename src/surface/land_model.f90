@@ -33,8 +33,9 @@
 !> exactly, apart from the diagnosed `water_clip`; it is verified for conservation over short
 !> runs, not validated for climate (in particular the soil water takes years to spin up).
 !> The buoyancy in `surface_flux_mod` still uses the saturated surface humidity, an
-!> approximation. Note that MiMA's moist physics returns all precipitation as rain (the frozen
-!> precipitation `fprec` is 0), so at present snow comes only from a restart or from frost.
+!> approximation. The snowfall comes from the moist physics (`precip_phase` of
+!> `moist_processes_nml`); with `precip_phase = 'liquid'` there is none, and snow then comes
+!> only from a restart or from frost.
 !> `W` and `S` are saved in `RESTART/land_model.res.nc`; points that were not land when the
 !> restart was written start dry.
 !>

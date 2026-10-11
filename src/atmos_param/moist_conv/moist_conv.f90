@@ -4,7 +4,9 @@
 !> In each column, layers that are saturated (humidity above `HC` times the saturation
 !> value at both levels) and unstable with respect to the moist adiabatic lapse rate are
 !> adjusted iteratively to the moist adiabat at saturation, conserving the integral of
-!> cp T + L q over the layers; the excess vapour falls out as rain. When `ITSMOD`
+!> cp T + L q over the layers; the excess vapour falls out as rain (`L = hlv`), or as snow
+!> (`L = hls`, as in the GFDL scheme) in the columns where `coldT` is set (`precip_phase` of
+!> `moist_processes_nml`). When `ITSMOD`
 !> iterations do not stabilize a column, the
 !> tolerance is doubled, from `TOLmin` up to `TOLmax`. Used with `do_mca = .true.` in
 !> `moist_processes_nml`.
@@ -100,11 +102,12 @@ contains
     !! temperature [K] and specific humidity [kg/kg] at full levels; on return, the adjusted
     !! values
     real, intent(IN), dimension(:, :, :)           :: Pfull, Phalf  !! pressure at full and half levels [Pa]
-    logical, intent(IN), dimension(:, :)             :: coldT  !! whether precipitation should be snow (not used)
+    logical, intent(IN), dimension(:, :)             :: coldT
+    !! columns where the precipitation is snow (latent heat `hls`); rain (`hlv`) elsewhere
     real, intent(OUT), dimension(:, :, :)           :: Tdel, Qdel
     !! tendencies of temperature [K/s] and specific humidity [kg/kg/s] at full levels
     real, intent(OUT), dimension(:, :)             :: Rain, Snow
-    !! liquid and frozen precipitation rates [kg/m2/s]; `Snow` is always zero
+    !! liquid and frozen precipitation rates [kg/m2/s]
     integer, intent(IN), dimension(:, :), optional :: Lbot
     !! index of the lowest model level in each column (at most `size(Tin,3)`)
     logical, intent(OUT), dimension(:, :, :), optional :: Conv
@@ -155,7 +158,11 @@ contains
     KX = size(Tin, 3)
 
 !------ compute Proper HL
-    HL = HLv
+    where (coldT)
+      HL = HLs
+    elsewhere
+      HL = HLv
+    end where
 
 !------ convert spec hum to mixing ratio ------
     Temp(:, :, :) = Tin(:, :, :)
@@ -430,7 +437,10 @@ contains
 
     end do
     Rain(:, :) = max(Rain(:, :), 0.0)
-    Snow(:, :) = max(Snow(:, :), 0.0)
+    where (coldT)
+      Snow(:, :) = Rain(:, :)
+      Rain(:, :) = 0.0
+    end where
 !-----------------------------------------------------------------------
 !-----------------   PRINT FORMATS   -----------------------------------
 

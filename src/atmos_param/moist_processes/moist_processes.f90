@@ -4,6 +4,11 @@
 !>
 !> Calls the convection scheme (`do_bm` or `do_mca`, not both) and then large-scale
 !> condensation (`do_lsc`), adds their tendencies, and returns the rain and snow rates.
+!> With `precip_phase = 'temperature'` the precipitation of a column is snow where the mean
+!> temperature of its lowest `pdepth` is at or below `tfreeze` (as in the GFDL moist
+!> processes), and the schemes then release the latent heat of sublimation (`hls = hlv +
+!> hlf`) for it, so that the energy is conserved when the surface melts the snow (taking
+!> `hlf`). With `'liquid'` (v1) all precipitation is rain.
 !> Also computes the convective gustiness (`do_gust_cv`), the wet deposition of tracers,
 !> and the diagnostics of the moist processes (precipitation, relative humidity, water
 !> vapour path, CAPE and CIN), and passes the precipitation to the radiation. Following
@@ -89,15 +94,21 @@ module moist_processes_mod
              !! `do_gust_cv`: convective gustiness
              do_bm = .true.  !! Betts-Miller convection (`betts_miller_nml`); not with `do_mca`
 
-  real :: pdepth = 150.e2  !! [Pa] boundary-layer depth used to decide between rain and snow
-  real :: tfreeze = 273.16  !! [K] freezing temperature for that decision
+  character(len=32) :: precip_phase = 'temperature'
+  !! phase of the precipitation: `'temperature'`: snow in the columns whose mean temperature
+  !! over the lowest `pdepth` is at or below `tfreeze`, rain elsewhere; `'liquid'`: all rain
+  !! (v1)
+  real :: pdepth = 150.e2
+  !! [Pa] with `precip_phase = 'temperature'`, depth of the lowest layer whose mean temperature
+  !! decides between rain and snow
+  real :: tfreeze = 273.16  !! [K] with `precip_phase = 'temperature'`, freezing temperature for that decision
   real :: gustmax = 3.             !! [m/s] maximum convective gustiness
   real :: gustconst = 10./86400.
   !! [kg/m2/s] precipitation rate at which convective gustiness starts to matter
   ! default: 1 cm/day = 10 mm/day
 
   namelist /moist_processes_nml/ do_mca, do_lsc, &
-    pdepth, tfreeze, &
+    precip_phase, pdepth, tfreeze, &
     use_tau, &
     do_gust_cv, &
     gustmax, gustconst, &
@@ -299,6 +310,7 @@ contains
     elsewhere
       coldT = .false.
     end where
+    if (trim(precip_phase) == 'liquid') coldT = .false.
 
     call mpp_clock_begin(convection_clock)
 
@@ -718,6 +730,12 @@ contains
     if (do_mca .and. do_bm) call error_mesg &
       ('moist_processes_init', &
        'both do_mca and do_bm cannot be specified', FATAL)
+    select case (trim(precip_phase))
+    case ('temperature', 'liquid')
+    case default
+      call error_mesg('moist_processes_init', 'unknown precip_phase = "'//trim(precip_phase)// &
+                      '"; use temperature or liquid', FATAL)
+    end select
 
 !------------ initialize various schemes ----------
     if (do_bm) call betts_miller_init()
