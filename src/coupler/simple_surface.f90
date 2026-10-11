@@ -358,7 +358,6 @@ contains
     elseif (albedo_choice .eq. 5) then
       do j = 1, size(Atm%t_bot, 2)
         lat = 0.5*(Atm%lat_bnd(j + 1) + Atm%lat_bnd(j))*180/pi
-        lat = abs(lat)
         albedo(:, j) = const_albedo + &
                        (higher_albedo - const_albedo)*0.5*(1 + tanh((lat - albedo_cntrNH)/albedo_wdth)) + &
                        (higher_albedo - const_albedo)*0.5*(1 - tanh((lat + albedo_cntrSH)/albedo_wdth))
