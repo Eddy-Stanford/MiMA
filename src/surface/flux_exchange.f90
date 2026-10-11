@@ -144,7 +144,8 @@ contains
 
     mask = .true.
     glacier = .false.
-    seawater = .false.
+    ! ocean points, where surface_flux uses the NCAR ocean fluxes if ncar_ocean_flux is set
+    seawater = Ocean%mask
 
     Boundary%rough_mom = rough_mom
     Boundary%albedo = albedo_bg
@@ -173,7 +174,7 @@ contains
                       Boundary%dtaudu, & ! returned to the coupler for the implicit zonal stress
                       Boundary%dtaudv, dt, & ! Required argument, intent(in). Looks like it should be .false. everywhere.
                       .not. mask, &
-                      seawater, & ! Required argument, intent(in). Looks like fudgefactor for salt water. Use .false.
+                      seawater, & ! ocean points (used only with ncar_ocean_flux)
                       mask) ! Required argument, intent(in). Looks like it should be .true. everywhere.
 
 ! intent(out):: flux_t, flux_q, flux_lw, flux_u, flux_v, cd_m, cd_t, cd_q, wind, u_star, b_star, q_star,
