@@ -54,6 +54,7 @@
     trop_cap_limit = 20.0,
     heat_cap_limit = 60.0,
     np_cap_factor = 1.0 /
+ ! the surface is not coupled; this only avoids reading land-mask files
  &land_model_nml
     land_model = 'simple',
     land_mask = 'none',

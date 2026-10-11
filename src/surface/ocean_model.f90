@@ -23,9 +23,8 @@ module ocean_model_mod
 
   use fms_mod, only: input_nml_file, check_nml_error, error_mesg, FATAL, NOTE, &
                      mpp_pe, mpp_root_pe, stdlog
-  use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
-                              close_restart, read_restart_field, write_restart_field, &
-                              restart_field_exists
+  use restart_file_mod, only: restart_file_type, open_restart_write, close_restart, &
+                              write_restart_field
   use diag_manager_mod, only: register_diag_field, send_data
   use time_manager_mod, only: time_type
   use constants_mod, only: hlf
@@ -86,11 +85,12 @@ contains
 
 !#######################################################################
 
-  !> Reads `ocean_model_nml`, sets up the heat capacity, the Q-flux and the initial SST (from
-  !> `INPUT/ocean_model.res.nc` if it exists), and registers the diagnostics.
+  !> Reads `ocean_model_nml`, sets up the heat capacity, the Q-flux and the cold-start SST,
+  !> and registers the diagnostics.
   !>
   !> The cold-start SST and the heat-capacity profile are also returned on all points, for
-  !> the land model.
+  !> the land model. A restart (`INPUT/ocean_model.res.nc`) is applied afterwards by
+  !> `flux_exchange_init`.
   subroutine ocean_model_init(Ocean, Time, grid, mask, t_all, cap_all, cap_default)
     type(ocean_data_type), intent(inout) :: Ocean  !! the ocean state
     type(time_type), intent(in) :: Time  !! current time
@@ -102,8 +102,6 @@ contains
 
     integer :: ierr, io, j
     real :: lat, pi, xx, loc_cap
-    real, dimension(size(mask, 1), size(mask, 2)) :: t_rst
-    type(restart_file_type) :: rst
 
     pi = 4.0*atan(1.)
 
@@ -131,6 +129,11 @@ contains
       call error_mesg('ocean_model_init', 'unknown sst_init = "'//trim(sst_init)//'"; use profile, '// &
                       'uniform, ape_control_plus2, ape_control, ape_qobs, ape_qobs5 or file', FATAL)
     end select
+    if (trim(sst_init) == 'profile' .and. (Tm .le. 0. .or. Tm .ge. 399.)) &
+      call error_mesg('ocean_model_init', "sst_init = 'profile' with Tm <= 0 or Tm >= 399: these "// &
+                      "v1 magic values are no longer used. For a uniform SST set sst_init = 'uniform' "// &
+                      "and Tm to the (positive) SST; for Tm >= 399 use sst_init = 'ape_control_plus2', "// &
+                      "'ape_control', 'ape_qobs' or 'ape_qobs5' (see the table in Migration_v2.md)", FATAL)
     if (trop_capacity .le. 0.) trop_capacity = heat_capacity
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=ocean_model_nml)
 
@@ -210,16 +213,6 @@ contains
     where (mask) Ocean%cap = cap_all
     Ocean%t_surf = 0.0
     where (mask) Ocean%t_surf = t_all
-
-! The restart file takes precedence over sst_init
-    if (open_restart_read(rst, 'INPUT/ocean_model.res.nc', grid%domain)) then
-      if (.not. restart_field_exists(rst, 't_surf')) &
-        call error_mesg('ocean_model_init', 'INPUT/ocean_model.res.nc has no field t_surf', FATAL)
-      call read_restart_field(rst, 't_surf', t_rst)
-      call close_restart(rst)
-      Ocean%t_surf = 0.0
-      where (mask) Ocean%t_surf = t_rst
-    end if
 
     call ocean_qflux_init(grid%lon_bnd, grid%lat_bnd, Ocean%qflux)
 

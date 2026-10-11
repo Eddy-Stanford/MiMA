@@ -36,6 +36,8 @@ module flux_exchange_mod
                      error_mesg, FATAL, mpp_pe, mpp_root_pe, &
                      write_version_number, stdlog
   use fms2_io_mod, only: file_exists
+  use restart_file_mod, only: restart_file_type, open_restart_read, close_restart, &
+                              read_restart_field, restart_field_exists
 
   use diag_manager_mod, only: register_diag_field, send_data
 
@@ -507,6 +509,7 @@ contains
     call ocean_model_init(Ocean, Time, grid, .not. Land%mask, t_all, cap_all, cap_default)
     call land_model_init_state(Land, Time, grid, t_all, cap_default)
     deallocate (t_all, cap_all)
+    if (ocean_rst) call read_surface_restarts(Ocean, Land)
 
 !------ albedo and roughness ------
 
@@ -591,6 +594,53 @@ contains
 
 !#######################################################################
 
+  ! Sets the ocean and land surface temperatures from INPUT/ocean_model.res.nc and
+  ! INPUT/land_model.res.nc, which take precedence over the cold-start fields. Each file
+  ! holds t_surf on the points of the component that wrote it (0 elsewhere), so the two are
+  ! combined (ocean file where it is positive, land file elsewhere) and each component then
+  ! takes the combined field on its current mask. This also accepts files converted from a
+  ! v1 restart (the same SST on all points in both), and stops if a point of the current
+  ! mask has no temperature in either file (the land mask has changed since the restart).
+  subroutine read_surface_restarts(Ocean, Land)
+    type(ocean_data_type), intent(inout) :: Ocean
+    type(land_data_type), intent(inout) :: Land
+
+    real, dimension(grid%nx, grid%ny) :: t_ocean, t_land, t_rst
+
+    call read_t_surf('INPUT/ocean_model.res.nc', t_ocean)
+    call read_t_surf('INPUT/land_model.res.nc', t_land)
+    where (t_ocean > 0.)
+      t_rst = t_ocean
+    elsewhere
+      t_rst = t_land
+    end where
+    if (any((Ocean%mask .or. Land%mask) .and. t_rst .le. 0.)) &
+      call error_mesg('flux_exchange_init', 'INPUT/ocean_model.res.nc and INPUT/land_model.res.nc '// &
+                      'have no surface temperature at some points: the land mask (land_mask) has '// &
+                      'probably changed since the restart was written. Cold-start the surface '// &
+                      '(remove both files), or restart from files written with the same land mask', FATAL)
+    where (Ocean%mask) Ocean%t_surf = t_rst
+    where (Land%mask) Land%t_surf = t_rst
+
+  end subroutine read_surface_restarts
+
+  ! Reads t_surf from a surface restart file.
+  subroutine read_t_surf(path, t_surf)
+    character(len=*), intent(in) :: path
+    real, intent(out) :: t_surf(:, :)
+    type(restart_file_type) :: rst
+
+    if (.not. open_restart_read(rst, path, grid%domain)) &
+      call error_mesg('flux_exchange_init', 'cannot open '//path, FATAL)
+    if (.not. restart_field_exists(rst, 't_surf')) &
+      call error_mesg('flux_exchange_init', path//' has no field t_surf', FATAL)
+    call read_restart_field(rst, 't_surf', t_surf)
+    call close_restart(rst)
+
+  end subroutine read_t_surf
+
+!#######################################################################
+
   ! Stops if the input files are still in the v1 format of the surface: unknown namelist
   ! groups and diagnostic modules are otherwise ignored without a message.
   subroutine check_v1_input
@@ -600,8 +650,7 @@ contains
 
     do i = 1, size(input_nml_file)
       line = adjustl(lowercase(input_nml_file(i)))
-      if (line(1:1) == '!' .or. line(1:1) == '#') cycle
-      if (index(line, 'simple_surface_nml') > 0) &
+      if (index(line, '&simple_surface_nml') == 1) &
         call error_mesg('flux_exchange_init', 'input.nml contains the v1 namelist simple_surface_nml, '// &
                         'which is no longer read; convert it to the v2 surface namelists '// &
                         '(see Migration_v2.md)', FATAL)

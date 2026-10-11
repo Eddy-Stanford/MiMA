@@ -242,7 +242,7 @@ contains
   !> diagnostics manager and the run length, and initializes the atmosphere and the surface.
   subroutine coupler_init
 
-    integer :: unit, ierr, io, id, jd, m, i
+    integer :: unit, ierr, io, m, i
     integer :: date(6)
     type(time_type) :: Run_length
     character(len=9) :: month

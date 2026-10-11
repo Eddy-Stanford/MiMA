@@ -24,9 +24,8 @@ module land_model_mod
   use fms_mod, only: input_nml_file, check_nml_error, error_mesg, FATAL, NOTE, &
                      mpp_pe, mpp_root_pe, stdlog
   use fms2_io_mod, only: FmsNetcdfFile_t, open_file, close_file, read_data
-  use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
-                              close_restart, read_restart_field, write_restart_field, &
-                              restart_field_exists, check_field_size
+  use restart_file_mod, only: restart_file_type, open_restart_write, close_restart, &
+                              write_restart_field, check_field_size
   use diag_manager_mod, only: register_static_field, send_data
   use time_manager_mod, only: time_type
   use constants_mod, only: hlf, grav
@@ -215,14 +214,13 @@ contains
                       '"; use none, navy, file, boxes or height', FATAL)
     end select
 
-    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=land_model_nml)
-
   end subroutine land_model_read_nml_and_mask
 
 !#######################################################################
 
-  !> Sets the land heat capacity and the initial land temperature (from
-  !> `INPUT/land_model.res.nc` if it exists), and registers the diagnostics.
+  !> Sets the land heat capacity and the cold-start land temperature, and registers the
+  !> diagnostics. A restart (`INPUT/land_model.res.nc`) is applied afterwards by
+  !> `flux_exchange_init`.
   subroutine land_model_init_state(Land, Time, grid, t_all, heat_capacity_ocean_default)
     type(land_data_type), intent(inout) :: Land  !! the land state
     type(time_type), intent(in) :: Time  !! current time
@@ -230,8 +228,7 @@ contains
     real, intent(in) :: t_all(:, :)  !! the ocean's cold-start SST on all points [K]
     real, intent(in) :: heat_capacity_ocean_default  !! the ocean `heat_capacity` [J/m2/K]
 
-    real, dimension(grid%nx, grid%ny) :: t_file, t_rst
-    type(restart_file_type) :: rst
+    real, dimension(grid%nx, grid%ny) :: t_file
     logical :: used
 
     allocate (Land%t_surf(grid%nx, grid%ny), Land%cap(grid%nx, grid%ny), &
@@ -239,6 +236,7 @@ contains
     Land%dt_t_surf = 0.0
 
     if (heat_capacity .le. 0.) heat_capacity = heat_capacity_ocean_default
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=land_model_nml)
     Land%cap = 0.0
     where (Land%mask) Land%cap = heat_capacity
 
@@ -254,16 +252,6 @@ contains
       where (Land%mask) Land%t_surf = t_file
     else
       where (Land%mask) Land%t_surf = t_all
-    end if
-
-! The restart file takes precedence over t_init
-    if (open_restart_read(rst, 'INPUT/land_model.res.nc', grid%domain)) then
-      if (.not. restart_field_exists(rst, 't_surf')) &
-        call error_mesg('land_model_init', 'INPUT/land_model.res.nc has no field t_surf', FATAL)
-      call read_restart_field(rst, 't_surf', t_rst)
-      call close_restart(rst)
-      Land%t_surf = 0.0
-      where (Land%mask) Land%t_surf = t_rst
     end if
 
     id_land_mask = register_static_field(mod_name, 'land_mask', grid%axes, &
