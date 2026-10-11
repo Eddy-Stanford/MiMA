@@ -145,6 +145,8 @@ changing a diagnostic, regenerate it with `python3 tools/mimadoc generate`;
 `python3 tools/mimadoc check` fails if it is out of date. Source files that CMake does
 not compile are left out.
 
+The surface diagnostics are in the modules `flux` (the merged ocean and land fields, with the same field names as the old `simple_surface` module), `ocean` and `land`. The `ocean/qflux` field was `simple_surface/oflx` (the output name `oflx` can be kept in the `diag_table`); the other fields kept their names. `ocean/qflux_implied` is registered only when `ocean_model` is `'prescribed'` or `'fixed'`, `ocean/sst_interp` only with `ocean_model = 'prescribed'`, the `land/` fields `water`, `beta`, `runoff` and `water_clip` only with `hydrology = 'bucket'`, and `snow`, `melt`, `sublimation` and `frost` only with `do_snow`. The `land/` fields are zero over the ocean. `land/f_net_final`, `land/extra_heating` and `ocean/sst_interp` are debug diagnostics used by the closure checks of the surface components. The `dims` column is empty for the `ocean` and `land` fields: they are all on the (lon, lat) grid, as the `flux` fields (`land/land_mask` is static). See [the migration guide](Migration_v2.md#names-in-the-diag_table) for renaming an old `diag_table`.
+
 <!-- mimadoc:diagnostics -->
 
 | module | fields | registered when | source |
@@ -154,13 +156,15 @@ not compile are left out.
 | [`damping`](#module-damping) | 14 | `do_damping` (physics_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
 | [`dynamics`](#module-dynamics) | 24 |  | [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) |
 | [`dynamics_every`](#module-dynamics_every) | 47 |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
+| [`flux`](#module-flux) | 30 |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
 | [`held_suarez`](#module-held_suarez) | 5 | `do_held_suarez` (physics_driver) | [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/) |
 | [`hinterp`](#module-hinterp) | 1 |  | [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/) |
+| [`land`](#module-land) | 11 |  | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
 | [`local_heating`](#module-local_heating) | 1 | `do_3d_heating` and `do_local_heating` (physics_driver) | [`local_heating_mod`](https://eddy-stanford.github.io/MiMA/api/local_heating_mod/) |
 | [`mca`](#module-mca) | 8 | `do_mca` (moist_processes) | [`moist_conv_mod`](https://eddy-stanford.github.io/MiMA/api/moist_conv_mod/) |
 | [`moist`](#module-moist) | 30 |  | [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/) |
+| [`ocean`](#module-ocean) | 4 |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/), [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
 | [`radiation`](#module-radiation) | 19 | `radiation_scheme` (radiation): gray, rrtm | [`gray_radiation_mod`](https://eddy-stanford.github.io/MiMA/api/gray_radiation_mod/), [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) |
-| [`simple_surface`](#module-simple_surface) | 31 |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
 | [`tracers`](#module-tracers) | 6 |  | [`atmos_carbon_aerosol_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_carbon_aerosol_mod/), [`atmos_sulfur_hex_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_sulfur_hex_mod/), [`atmos_tracer_utilities_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_tracer_utilities_mod/) |
 | [`vert_diff`](#module-vert_diff) | 10 |  | [`vert_diff_driver_mod`](https://eddy-stanford.github.io/MiMA/api/vert_diff_driver_mod/) |
 | [`vert_turb`](#module-vert_turb) | 8 |  | [`vert_turb_driver_mod`](https://eddy-stanford.github.io/MiMA/api/vert_turb_driver_mod/) |
@@ -295,6 +299,43 @@ Registered only when `do_damping` (physics_driver).
 | `wv` | lon, lat, pfull | Pa/s m/s | omega v |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `wvp` | lon, lat, pfull | Pa/s m/s | omega v, weighted by ps/p00 |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 
+<a id="module-flux"></a>
+
+### `flux`
+
+| field | dims | units | long_name | available with | source |
+|---|---|---|---|---|---|
+| `albedo` | lon, lat | 1 | surface albedo |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `b_star` | lon, lat | m/s2 | buoyancy scale |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `del_h` | lon, lat | 1 | Monin-Obukhov profile factor (T({z_ref_heat})-T_surf)/(T_atm-T_surf) |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `del_m` | lon, lat | 1 | Monin-Obukhov profile factor u({z_ref_mom})/u_atm |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `del_q` | lon, lat | 1 | Monin-Obukhov profile factor (q({z_ref_heat})-q_surf)/(q_atm-q_surf) |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `drag_heat` | lon, lat | 1 | drag coeff for heat |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `drag_moist` | lon, lat | 1 | drag coeff for moisture |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `drag_mom` | lon, lat | 1 | drag coeff for momentum |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `entrop_evap` | lon, lat | kg/m2/s/K | entropy source from evap |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `entrop_lwflx` | lon, lat | W/m2/K | entropy source from LW flux |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `entrop_shflx` | lon, lat | W/m2/K | entropy source from SH flux |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `evap` | lon, lat | kg/m2/s | evaporation rate |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `heat_capacity` | lon, lat | J/m2/K | mixed layer heat capacity |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `lwflx` | lon, lat | W/m2 | net (down-up) longwave flux |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `rh_ref` | lon, lat | percent | relative humidity at {z_ref_heat} (100 q/q_sat) |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `rough_heat` | lon, lat | m | surface roughness for heat |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `rough_moist` | lon, lat | m | surface roughness for moisture |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `rough_mom` | lon, lat | m | surface roughness for momentum |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `shflx` | lon, lat | W/m2 | sensible heat flux |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `t_atm` | lon, lat | K | temperature at btm level |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `t_ref` | lon, lat | K | air temperature at {z_ref_heat} |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `t_surf` | lon, lat | K | surface temperature |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `tau_x` | lon, lat | N/m2 | zonal surface stress on the atmosphere (positive eastward) |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `tau_y` | lon, lat | N/m2 | meridional surface stress on the atmosphere (positive northward) |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `u_atm` | lon, lat | m/s | u wind component at btm level |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `u_ref` | lon, lat | m/s | zonal wind at {z_ref_mom} |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `u_star` | lon, lat | m/s | friction velocity |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `v_atm` | lon, lat | m/s | v wind component at btm level |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `v_ref` | lon, lat | m/s | meridional wind at {z_ref_mom} |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `wind` | lon, lat | m/s | wind speed for flux calculations |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+
 <a id="module-held_suarez"></a>
 
 ### `held_suarez`
@@ -316,6 +357,24 @@ Registered only when `do_held_suarez` (physics_driver).
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
 | `{clim_type%field_name(i)}` | lon, lat | kg/m2 | column integral of {clim_type%field_name(i)} (interpolated to the model grid) |  | [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/) |
+
+<a id="module-land"></a>
+
+### `land`
+
+| field | dims | units | long_name | available with | source |
+|---|---|---|---|---|---|
+| `beta` |  | 1 | evaporation efficiency (fraction of the potential evaporation) | `hydrology = 'bucket'` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `extra_heating` |  | K/s | local surface heating over land (debug) |  | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `f_net_final` |  | W/m2 | net downward surface heat flux over land balanced by the implicit step, at the end of the step (debug) | `land_model = 'simple'` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `frost` |  | kg/m2/s | frost (deposition on snow) | `do_snow` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `land_mask` | ; static | 1 | land mask (1: land, 0: ocean) |  | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `melt` |  | kg/m2/s | snow melt | `do_snow` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `runoff` |  | kg/m2/s | runoff | `hydrology = 'bucket'` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `snow` |  | kg/m2 | snow | `do_snow` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `sublimation` |  | kg/m2/s | sublimation of snow | `do_snow` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `water` |  | kg/m2 | soil water | `hydrology = 'bucket'` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
+| `water_clip` |  | kg/m2/s | water added to keep the soil water non-negative | `hydrology = 'bucket'` (land_model) | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
 
 <a id="module-local_heating"></a>
 
@@ -381,6 +440,17 @@ Registered only when `do_mca` (moist_processes).
 | `tref` | lon, lat, pfull | K | Adjustment reference temperature profile | `do_bm` (moist_processes) | [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/) |
 | `WVP` | lon, lat | kg/m2 | Column integrated water vapor |  | [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/) |
 
+<a id="module-ocean"></a>
+
+### `ocean`
+
+| field | dims | units | long_name | available with | source |
+|---|---|---|---|---|---|
+| `heat_capacity_ocean` |  | J/m2/K | ocean mixed layer heat capacity (0 over land) |  | [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
+| `qflux` |  | W/m2 | prescribed ocean heat divergence |  | [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
+| `qflux_implied` |  | W/m2 | implied ocean heat flux convergence: the Q-flux a slab ocean needs to reproduce the SST change (0 over land) | `ocean%model = 'prescribed' or ocean%model = 'fixed'` | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
+| `sst_interp` |  | K | SST interpolated from sst_file (prescribed ocean; debug) | `ocean_model = 'prescribed'` (ocean_model) | [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
+
 <a id="module-radiation"></a>
 
 ### `radiation`
@@ -408,44 +478,6 @@ Which fields exist depends on `radiation_scheme` in `&radiation_nml`: **availabl
 | `tdt_rad` | lon, lat, pfull | K/s | Temperature tendency due to radiation | gray, rrtm | [`gray_radiation_mod`](https://eddy-stanford.github.io/MiMA/api/gray_radiation_mod/)<br>[`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) |
 | `tdt_sw` | lon, lat, pfull | K/s | Temperature tendency due to SW radiation | rrtm | [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) |
 | `thalf` | lon, lat, phalf | K | Temperature on half levels | rrtm | [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) |
-
-<a id="module-simple_surface"></a>
-
-### `simple_surface`
-
-| field | dims | units | long_name | available with | source |
-|---|---|---|---|---|---|
-| `albedo` | lon, lat | 1 | surface albedo |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `b_star` | lon, lat | m/s2 | buoyancy scale |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `del_h` | lon, lat | 1 | Monin-Obukhov profile factor (T({z_ref_heat})-T_surf)/(T_atm-T_surf) |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `del_m` | lon, lat | 1 | Monin-Obukhov profile factor u({z_ref_mom})/u_atm |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `del_q` | lon, lat | 1 | Monin-Obukhov profile factor (q({z_ref_heat})-q_surf)/(q_atm-q_surf) |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `drag_heat` | lon, lat | 1 | drag coeff for heat |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `drag_moist` | lon, lat | 1 | drag coeff for moisture |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `drag_mom` | lon, lat | 1 | drag coeff for momentum |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `entrop_evap` | lon, lat | kg/m2/s/K | entropy source from evap |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `entrop_lwflx` | lon, lat | W/m2/K | entropy source from LW flux |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `entrop_shflx` | lon, lat | W/m2/K | entropy source from SH flux |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `evap` | lon, lat | kg/m2/s | evaporation rate |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `heat_capacity` | lon, lat | J/m2/K | mixed layer heat capacity |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `lwflx` | lon, lat | W/m2 | net (down-up) longwave flux |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `oflx` | lon, lat | W/m2 | prescribed ocean heat divergence |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `rh_ref` | lon, lat | percent | relative humidity at {z_ref_heat} (100 q/q_sat) |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `rough_heat` | lon, lat | m | surface roughness for heat |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `rough_moist` | lon, lat | m | surface roughness for moisture |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `rough_mom` | lon, lat | m | surface roughness for momentum |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `shflx` | lon, lat | W/m2 | sensible heat flux |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `t_atm` | lon, lat | K | temperature at btm level |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `t_ref` | lon, lat | K | air temperature at {z_ref_heat} |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `t_surf` | lon, lat | K | surface temperature |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `tau_x` | lon, lat | N/m2 | zonal surface stress on the atmosphere (positive eastward) |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `tau_y` | lon, lat | N/m2 | meridional surface stress on the atmosphere (positive northward) |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `u_atm` | lon, lat | m/s | u wind component at btm level |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `u_ref` | lon, lat | m/s | zonal wind at {z_ref_mom} |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `u_star` | lon, lat | m/s | friction velocity |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `v_atm` | lon, lat | m/s | v wind component at btm level |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `v_ref` | lon, lat | m/s | meridional wind at {z_ref_mom} |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
-| `wind` | lon, lat | m/s | wind speed for flux calculations |  | [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) |
 
 <a id="module-tracers"></a>
 

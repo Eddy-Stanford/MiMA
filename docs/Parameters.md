@@ -6,7 +6,7 @@ All run-time parameters are set in namelists in `input.nml`. This page lists eve
 
 A few rules:
 
-* A variable that is not in a namelist group is a fatal error at start-up ("Unknown namelist, or mistyped namelist variable"). A namelist group that MiMA does not read is ignored.
+* A variable that is not in a namelist group is a fatal error at start-up ("Unknown namelist, or mistyped namelist variable"). A namelist group that MiMA does not read is ignored, **except** `&simple_surface_nml` of v1, which stops the model with a message (see [Migration to v2.0](Migration_v2.md#checks-for-old-settings)).
 * A group that is missing from `input.nml` takes all its defaults.
 * Every namelist is written, with the values actually used, to `logfile.000000.out`.
 * Array variables (e.g. `slandlon`, the [`local_heating_nml`](#local_heating_nml) variables) are given as comma-separated lists.
@@ -17,7 +17,7 @@ Contents:
 * [Dynamics](#dynamics): [`spectral_dynamics_nml`](#spectral_dynamics_nml), [`vert_coordinate_nml`](#vert_coordinate_nml), [`spectral_init_cond_nml`](#spectral_init_cond_nml), [`topog_regularization_nml`](#topog_regularization_nml), [`transforms_nml`](#transforms_nml)
 * [Physics driver](#physics-driver): [`physics_driver_nml`](#physics_driver_nml)
 * [Radiation](#radiation): [`radiation_nml`](#radiation_nml), [`rrtm_radiation_nml`](#rrtm_radiation_nml), [`astro_nml`](#astro_nml), [`gray_radiation_nml`](#gray_radiation_nml)
-* [Surface](#surface): [`simple_surface_nml`](#simple_surface_nml), [`qflux_nml`](#qflux_nml), [`surface_flux_nml`](#surface_flux_nml), [`monin_obukhov_nml`](#monin_obukhov_nml)
+* [Surface](#surface): [`flux_exchange_nml`](#flux_exchange_nml), [`surface_albedo_nml`](#surface_albedo_nml), [`ocean_model_nml`](#ocean_model_nml), [`qflux_nml`](#qflux_nml), [`land_model_nml`](#land_model_nml), [`surface_flux_nml`](#surface_flux_nml), [`monin_obukhov_nml`](#monin_obukhov_nml)
 * [Boundary layer](#boundary-layer): [`vert_turb_driver_nml`](#vert_turb_driver_nml), [`diffusivity_nml`](#diffusivity_nml), [`vert_diff_driver_nml`](#vert_diff_driver_nml)
 * [Moisture](#moisture): [`moist_processes_nml`](#moist_processes_nml), [`betts_miller_nml`](#betts_miller_nml), [`lscale_cond_nml`](#lscale_cond_nml), [`moist_conv_nml`](#moist_conv_nml)
 * [Damping and gravity-wave drag](#damping-and-gravity-wave-drag): [`damping_driver_nml`](#damping_driver_nml), [`cg_drag_nml`](#cg_drag_nml), [`mg_drag_nml`](#mg_drag_nml)
@@ -298,7 +298,7 @@ The other RRTMG inputs are not namelist variables. MiMA calls RRTMG without clou
  `o3vmr` | from `ozone_file`, or `o3_val`
  `co2vmr` | `co2ppmv`
  `ch4vmr`, `n2ovmr`, `o2vmr`, `cfc11vmr`, `cfc12vmr`, `cfc22vmr`, `ccl4vmr` | the `*_val` values if `include_secondary_gases`, else 0
- `asdir`, `asdif`, `aldir`, `aldif` | the surface albedo from [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) (modified by `do_precip_albedo`), the same in all four
+ `asdir`, `asdif`, `aldir`, `aldif` | the surface albedo from [`surface_albedo_mod`](https://eddy-stanford.github.io/MiMA/api/surface_albedo_mod/), with the snow on bucket land (modified by `do_precip_albedo`), the same in all four
  `emis` | 1 (black-body surface)
  `coszen` | computed from [`astro_nml`](#astro_nml), every radiation step
  `adjes` | `solrad`
@@ -355,61 +355,87 @@ Declared in [`gray_radiation_mod`](https://eddy-stanford.github.io/MiMA/api/gray
 
 ## Surface
 
-### `simple_surface_nml`
+The surface consists of an ocean model, a land model, a surface albedo and a flux exchange, each with its own namelist. See [Surface options](Configurations.md#surface-options) for how to combine them, and the [migration table](Migration_v2.md#old-to-new-namelist-mapping) for the old `&simple_surface_nml` variables.
 
-The mixed-layer ocean and surface properties.
+### `flux_exchange_nml`
 
-<!-- mimadoc:namelist simple_surface_nml -->
+The surface flux computation and the reference heights of the diagnostics.
 
-Declared in [`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/) (`src/coupler/simple_surface.f90`).
+<!-- mimadoc:namelist flux_exchange_nml -->
+
+Declared in [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) (`src/surface/flux_exchange.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `z_ref_heat` | real | `2.` | [m] reference height of the diagnostics `t_ref` and `rh_ref` |
 | `z_ref_mom` | real | `10.` | [m] reference height of the diagnostics `u_ref` and `v_ref` |
-| `surface_choice` | integer | `1` | 1: slab mixed layer (interactive SST); 2: SST fixed at its initial value |
+
+<!-- mimadoc:end -->
+
+### `surface_albedo_nml`
+
+The background surface albedo, the same on land and ocean. With `albedo_profile = 'step'` the albedo is high where the latitude is poleward of `step_lat_nh` or `step_lat_sh` (strict comparison, degrees). The desert boxes (Sahara, Gobi, Australia) exist only with `'tanh_desert'`. Snow on bucket land brightens the albedo of the land points, and the radiation sees it (see [`land_model_nml`](#land_model_nml)).
+
+<!-- mimadoc:namelist surface_albedo_nml -->
+
+Declared in [`surface_albedo_mod`](https://eddy-stanford.github.io/MiMA/api/surface_albedo_mod/) (`src/surface/surface_albedo.f90`).
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `albedo_profile` | character(len=32) | `'tanh_desert'` | latitude profile of the albedo: `'constant'`: `const_albedo`; `'step'`: `higher_albedo` where the latitude is above `step_lat_nh` or below `step_lat_sh`; `'power'`: increase as `(\|lat\|/90)^albedo_exp`; `'tanh'`: tanh increase centred at `albedo_cntrNH`, `-albedo_cntrSH` with width `albedo_wdth`; `'sin2'`: `sin^2(lat)` increase from equator to pole; `'tanh_desert'`: as `'tanh'`, plus `albedo_desert` over the Sahara, Gobi and Australian deserts |
+| `const_albedo` | real | `0.23` | surface albedo (the low-latitude value of the profiles) |
+| `higher_albedo` | real | `0.80` | high-latitude albedo of the profiles |
+| `albedo_exp` | real | `2.` | exponent of the `'power'` profile |
+| `albedo_cntrNH` | real | `68.` | [deg] centre latitude of the Northern Hemisphere albedo increase (`'tanh'`, `'tanh_desert'`) |
+| `albedo_cntrSH` | real | `64.` | [deg] centre latitude (positive) of the Southern Hemisphere albedo increase (`'tanh'`, `'tanh_desert'`) |
+| `albedo_wdth` | real | `5.` | [deg] width of the albedo increase (`'tanh'`, `'tanh_desert'`) |
+| `step_lat_nh` | real | `90.` | [deg] with `'step'`, `higher_albedo` where the latitude is above this value (90: none) |
+| `step_lat_sh` | real | `-90.` | [deg] with `'step'`, `higher_albedo` where the latitude is below this value (-90: none) |
+| `albedo_desert` | real | `0.20` | with `'tanh_desert'`, the albedo over the desert boxes is `const_albedo + albedo_desert` |
+
+<!-- mimadoc:end -->
+
+### `ocean_model_nml`
+
+The ocean: a slab (`'slab'`), a prescribed SST (`'prescribed'`) or a fixed temperature (`'fixed'`), its initial SST, its heat capacity and its roughness length. `sst_file` is read from `INPUT/<sst_file>.nc`; see [Prescribed SST with interactive land](Configurations.md#prescribed-sst-with-interactive-land) for the file conventions.
+
+<!-- mimadoc:namelist ocean_model_nml -->
+
+Declared in [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) (`src/surface/ocean_model.f90`).
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `ocean_model` | character(len=32) | `'slab'` | `'slab'`: mixed layer with an interactive SST; `'prescribed'`: SST read from `sst_file` at every step (implies `sst_init = 'file'`); `'fixed'`: SST held at its initial value |
+| `sst_init` | character(len=32) | `'profile'` | initial SST on a cold start: `'profile'`: `Tm - deltaT*(3 sin^2(lat) - 1)/3`; `'uniform'`: `Tm` everywhere; `'ape_control_plus2'`, `'ape_control'`, `'ape_qobs'`, `'ape_qobs5'`: the Aqua-Planet Experiment profiles "control+2", "control", "qobs" and "qobs+5"; `'file'`: from `sst_file` |
+| `Tm` | real | `285.` | [K] mean initial SST of `'profile'`; the SST of `'uniform'` |
+| `deltaT` | real | `40.` | [K] equator-to-pole difference of the initial SST of `'profile'` |
+| `sst_file` | character(len=256) | `''` | SST file name, without `.nc`, in `INPUT/` |
+| `sst_file_var` | character(len=256) | `''` | name of the SST variable in `sst_file` (empty: `sst_file`) |
+| `rough_ocean` | real | `3.21e-05` | [m] roughness length of the ocean (momentum, heat and moisture) |
 | `heat_capacity` | real | `3.e08` | [J/m2/K] mixed-layer heat capacity (poleward of `heat_cap_limit`) |
-| `land_capacity` | real | `1.e07` | [J/m2/K] heat capacity over land (as set by `land_option`); <= 0: `heat_capacity` |
 | `trop_capacity` | real | `1.e08` | [J/m2/K] heat capacity equatorward of `trop_cap_limit`, varying linearly to `heat_capacity` at `heat_cap_limit`; <= 0: `heat_capacity` |
 | `trop_cap_limit` | real | `20.` | [deg] latitude of the tropical heat capacity `trop_capacity` |
 | `heat_cap_limit` | real | `60.` | [deg] latitude of the extratropical heat capacity `heat_capacity` |
 | `np_cap_factor` | real | `1.` | factor on `heat_capacity` in the Northern Hemisphere |
-| `zsurf_cap_limit` | real | `10.` | [m] with `land_option = 'zsurf'`, points higher than this are land |
-| `roughness_choice` | integer | `4` | `1`: `const_roughness` everywhere; `3`: over land, momentum and moisture roughness multiplied by `mom_roughness_land` and `q_roughness_land`; `4`: as 3, with larger moisture roughness over tropical and midlatitude land than over subtropical land. 3 and 4 need `land_option = 'interpolated'` or `'oceanmaskpole'`. |
-| `const_roughness` | real | `3.21e-05` | [m] roughness length |
-| `albedo_choice` | integer | `7` | `1`: `const_albedo`; `2`: `higher_albedo` poleward of `lat_glacier` in one hemisphere (NH if `lat_glacier` > 0); `3`: `higher_albedo` poleward of `lat_glacier` in both hemispheres; `4`: increase as `(lat/90)^albedo_exp`; `5`: tanh increase centred at `albedo_cntrNH`, `albedo_cntrSH` with width `albedo_wdth`; `6`: sin^2 increase from equator to pole; `7`: as 5, plus `albedo_desert` over the Sahara, Gobi and Australian deserts |
-| `const_albedo` | real | `0.23` | surface albedo (low-latitude value for choices 2-7) |
-| `higher_albedo` | real | `0.80` | high-latitude albedo for choices 2-7 |
-| `lat_glacier` | real | `-70.` | [deg] latitude of the albedo step for choices 2 and 3 |
-| `Tm` | real | `285.` | [K] initial SST profile `Tm - deltaT*(3 sin^2(lat) - 1)/3`; if `Tm` <= 0, a uniform SST of `-Tm` |
-| `deltaT` | real | `40.` | [K] equator-to-pole difference of the initial SST |
-| `mom_roughness_land` | real | `5.e3` | factor for the land momentum roughness with `roughness_choice` = 3, 4 |
-| `q_roughness_land` | real | `1.e-12` | factor for the land moisture roughness with `roughness_choice` = 3, 4 |
-| `do_qflux` | logical | `.true.` | add the meridional ocean heat flux of `qflux_nml` |
-| `do_warmpool` | logical | `.true.` | add the zonally asymmetric ocean heat fluxes of `qflux_nml` |
-| `do_read_sst` | logical | `.false.` | take the initial SST from `sst_file` (cold start) |
-| `do_sc_sst` | logical | `.false.` | prescribe the SST from `sst_file` at every step (implies `do_read_sst`) |
-| `sst_file` | character(len=256) | unset | SST file name, without `.nc`, in `INPUT/` |
-| `land_option` | character(len=256) | `'interpolated'` | where the land is: `'none'`; `'interpolated'`: Navy land-sea mask (the `water_file` of `topography_nml`); `'oceanmaskpole'`: as `'interpolated'`, with the latitude-dependent ocean heat capacity; `'zsurf'`: surface height above `zsurf_cap_limit`; `'lonlat'`: the boxes `slandlon`..`elandlon`, `slandlat`..`elandlat`; `'input'`: land-sea mask file `INPUT/lmask.nc` |
-| `slandlon`, `slandlat`, `elandlon`, `elandlat` | real, dimension(10) | `0`, `0`, `-1`, `-1` | with `land_option = 'lonlat'`, start and end longitude and latitude [deg] of up to 10 land boxes |
-| `albedo_exp` | real | `2.` | exponent for choice 4 |
-| `albedo_cntrSH` | real | `64.` | [deg] centre latitude of the Southern Hemisphere albedo increase for choices 5 and 7 |
-| `albedo_cntrNH` | real | `68.` | [deg] centre latitude of the Northern Hemisphere albedo increase for choices 5 and 7 |
-| `albedo_wdth` | real | `5.` | [deg] width of the albedo increase for choices 5 and 7 |
-| `albedo_desert` | real | `0.20` | albedo added over the deserts for choice 7 |
 
 <!-- mimadoc:end -->
 
 ### `qflux_nml`
 
-Prescribed ocean heat fluxes (Q-fluxes), used with `do_qflux` and `do_warmpool` in [`simple_surface_nml`](#simple_surface_nml). The zonally asymmetric fluxes are those of [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1).
+Prescribed ocean heat flux convergence (Q-flux) of the slab ocean: analytic, with the zonally asymmetric fluxes of [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1), or read from a file ([Q-flux from a file](Configurations.md#q-flux-from-a-file)). With the defaults the Q-flux is zero over land and its area-weighted ocean mean is removed; both switches `.false.` give the Q-flux of MiMA v1.
 
 <!-- mimadoc:namelist qflux_nml -->
 
-Declared in [`qflux_mod`](https://eddy-stanford.github.io/MiMA/api/qflux_mod/) (`src/atmos_param/qflux/qflux.f90`).
+Declared in [`ocean_qflux_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_qflux_mod/) (`src/surface/ocean_qflux.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `qflux_source` | character(len=32) | `'analytic'` | `'analytic'`: the meridional Q-flux of Merlis et al. (2013) (`qflux_amp`, `qflux_width`); `'none'`: no meridional Q-flux; `'file'`: read from `qflux_file` and interpolated in time at every step (1 record: constant; 2 to 12 records: a climatology repeated every year; more: a dated time series) |
+| `do_warmpool` | logical | `.true.` | add the zonally asymmetric Q-fluxes (warm pool and regional patterns), whatever `qflux_source` |
+| `qflux_file` | character(len=256) | `''` | with `qflux_source = 'file'`, Q-flux file name, without `.nc`, in `INPUT/` |
+| `qflux_file_var` | character(len=256) | `'qflux'` | name of the Q-flux variable [W/m2] in `qflux_file` (empty: `qflux_file`); for the output of a prescribed-SST run, `'qflux_implied'` |
+| `qflux_ocean_only` | logical | `.true.` | apply the Q-flux over the ocean only (the default); `.false.`: also over land, as in v1 (set both `qflux_ocean_only` and `qflux_remove_mean` to `.false.` to reproduce v1) |
+| `qflux_remove_mean` | logical | `.true.` | subtract a constant from the Q-flux at the ocean points so that its global area integral is zero (the default): the constant is the area integral of the applied Q-flux over all points (land included with `qflux_ocean_only = .false.`) divided by the ocean area; with `qflux_ocean_only` it is the ocean mean (the global mean without land). `.false.`: no mean removed, as in v1 (set both `qflux_ocean_only` and `qflux_remove_mean` to `.false.` to reproduce v1) |
 | `qflux_amp` | real | `26.` | [W/m2] amplitude of the meridional Q-flux |
 | `qflux_width` | real | `16.` | [deg] half-width of the meridional Q-flux |
 | `warmpool_amp` | real | `18.` | [W/m2] amplitude of the warm pool |
@@ -417,7 +443,7 @@ Declared in [`qflux_mod`](https://eddy-stanford.github.io/MiMA/api/qflux_mod/) (
 | `warmpool_centr` | real | `0.` | [deg] central latitude of the warm pool |
 | `warmpool_k` | real | `1.66666` | zonal wave number of the warm pool |
 | `warmpool_phase` | real | `140.` | [deg] longitude phase of the warm pool |
-| `warmpool_localization_choice` | integer | `3` | `1`: cosine in longitude; `2`: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and tropical Atlantic terms; `3`: the localized patterns of Garfinkel et al. (2020). Which of the regional amplitudes below are used depends on this choice (see `qflux.f90`). |
+| `warmpool_localization_choice` | integer | `3` | `1`: cosine in longitude; `2`: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and tropical Atlantic terms; `3`: the localized patterns of Garfinkel et al. (2020). Which of the regional amplitudes below are used depends on this choice (see `ocean_qflux.f90`). |
 | `gulf_k` | integer | `4` | zonal wave number of the Gulf Stream perturbation (choice 2; with choice 3 only in a North Atlantic term near 67N) |
 | `gulf_phase` | real | `310.` | [deg] longitude phase of the Gulf Stream perturbation (choice 2; with choice 3 only in a North Atlantic term near 67N) |
 | `gulf_amp` | real | `70.` | [W/m2] Gulf Stream amplitude (choices 2 and 3; with choice 3 it scales a fixed, localized Gulf Stream pattern, and the tropical Atlantic term is only applied if `gulf_amp` > 0) |
@@ -432,13 +458,46 @@ Declared in [`qflux_mod`](https://eddy-stanford.github.io/MiMA/api/qflux_mod/) (
 
 <!-- mimadoc:end -->
 
+### `land_model_nml`
+
+The land: where it is (`land_mask`), what it is (`land_model`: slab, prescribed or fixed temperature), its heat capacity, roughness and, optionally, a bucket hydrology and snow. See [Land-sea mask](Configurations.md#land-sea-mask) and [Bucket land and snow](Configurations.md#bucket-land-and-snow). The bucket and snow are verified for conservation but not climate-validated. `hydrology = 'bucket'` requires `rough_moist_factor = 1.` and `rough_moist_profile = 'uniform'`, and `do_snow` requires the bucket and `land_model = 'simple'`.
+
+<!-- mimadoc:namelist land_model_nml -->
+
+Declared in [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) (`src/surface/land_model.f90`).
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `land_model` | character(len=32) | `'simple'` | `'simple'`: slab land surface with an interactive temperature; `'prescribed'`: temperature read from `t_surf_file` at every step; `'fixed'`: temperature held at its initial value |
+| `land_mask` | character(len=32) | `'navy'` | where the land is: `'none'`; `'navy'`: Navy land-sea mask (the `water_file` of `topography_nml`); `'file'`: land where the variable `land_mask_file` of `INPUT/<land_mask_file>.nc` (on the model grid) is positive; `'boxes'`: the boxes `slandlon`..`elandlon`, `slandlat`..`elandlat`; `'height'`: surface height above `land_height_limit` |
+| `land_mask_file` | character(len=256) | `'lmask'` | with `land_mask = 'file'`, name of the land-sea mask file (without `.nc`, in `INPUT/`) and of its variable |
+| `slandlon`, `slandlat`, `elandlon`, `elandlat` | real, dimension(10) | `0`, `0`, `-1`, `-1` | with `land_mask = 'boxes'`, start and end longitude and latitude [deg] of up to 10 land boxes |
+| `land_height_limit` | real | `10.` | [m] with `land_mask = 'height'`, points higher than this are land |
+| `heat_capacity` | real | `1.e07` | [J/m2/K] heat capacity of the land; <= 0: the ocean `heat_capacity` |
+| `t_init` | character(len=32) | `'ocean'` | initial land temperature on a cold start: `'ocean'`: the cold-start SST of `ocean_model_nml` (`sst_init`); `'file'`: from `t_surf_file`. `land_model = 'prescribed'` always starts from `t_surf_file` |
+| `t_surf_file` | character(len=256) | `''` | land temperature file name, without `.nc`, in `INPUT/` |
+| `t_surf_file_var` | character(len=256) | `''` | name of the temperature variable in `t_surf_file` (empty: `t_surf_file`) |
+| `rough_mom_factor` | real | `5.e3` | factor on the ocean roughness `rough_ocean` for the land momentum roughness |
+| `rough_moist_factor` | real | `1.e-12` | factor on `rough_ocean` for the land moisture roughness |
+| `rough_moist_profile` | character(len=32) | `'legacy_tropical'` | land moisture roughness: `'uniform'`: `rough_ocean*rough_moist_factor`; `'legacy_tropical'`: as `'uniform'`, plus a larger value over tropical land (legacy) |
+| `hydrology` | character(len=32) | `'saturated'` | land hydrology: `'saturated'`: the land surface is saturated, as the ocean; `'bucket'`: Manabe bucket, evaporation limited by the soil water (needs `rough_moist_factor = 1.` and `rough_moist_profile = 'uniform'`) |
+| `water_capacity` | real | `150.` | [kg/m2] with `hydrology = 'bucket'`, field capacity of the bucket; more water runs off |
+| `beta_frac` | real | `0.75` | with `hydrology = 'bucket'`, fraction of `water_capacity` above which the land evaporates at the potential rate (below it, in proportion to the water) |
+| `water_init_frac` | real | `1.0` | with `hydrology = 'bucket'`, initial soil water on a cold start, as a fraction of `water_capacity` |
+| `do_snow` | logical | `.false.` | snow on land: stored snowfall, sublimation, frost, melt and snow albedo (needs `hydrology = 'bucket'` and `land_model = 'simple'`) |
+| `albedo_snow` | real | `0.60` | with `do_snow`, albedo of deep snow (snow never lowers the albedo below the background) |
+| `snow_mask_depth` | real | `10.` | [kg/m2] with `do_snow`, snow at which the albedo is halfway between the background and `albedo_snow` |
+| `snow_max` | real | `1000.` | [kg/m2] with `do_snow`, maximum snow; more runs off (a crude glacier) |
+
+<!-- mimadoc:end -->
+
 ### `surface_flux_nml`
 
 Surface fluxes.
 
 <!-- mimadoc:namelist surface_flux_nml -->
 
-Declared in [`surface_flux_mod`](https://eddy-stanford.github.io/MiMA/api/surface_flux_mod/) (`src/coupler/surface_flux.f90`).
+Declared in [`surface_flux_mod`](https://eddy-stanford.github.io/MiMA/api/surface_flux_mod/) (`src/surface/surface_flux.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -533,6 +592,8 @@ Following [Frierson (2007)](https://doi.org/10.1175/JAS3935.1), MiMA uses large-
 
 ### `moist_processes_nml`
 
+**Precipitation phase.** With `precip_phase = 'temperature'` (the default) the precipitation of a column falls as snow where the mean temperature of its lowest `pdepth` (150 hPa) is at or below `tfreeze`, and as rain elsewhere (the GFDL test, reused unchanged). The schemes then release the latent heat of sublimation, `hls = hlv + hlf`, for the snow, so that the energy balances when the surface takes `hlf` to melt it: `lscale_cond` and `moist_conv` use `hls` in the cold columns (condensation, and the re-evaporation of falling snow in `lscale_cond`), and Betts-Miller adds `hlf` times the precipitation as a uniform temperature change over its convecting layers, on top of its enthalpy correction. `precip_phase = 'liquid'` makes all precipitation rain, as in v1 (bit for bit). The frozen precipitation is the `moist/snow_conv` and `moist/snow_ls` diagnostics, and it feeds the snow of [`land_model_nml`](#land_model_nml). Known limits: the saturation vapour pressure is still over liquid water everywhere (the simple table of `sat_vapor_pres_nml`), and the Betts-Miller parcel and CAPE calculation use `hlv`. See [Changes to the answers](Migration_v2.md#changes-to-the-answers) for the impact.
+
 <!-- mimadoc:namelist moist_processes_nml -->
 
 Declared in [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/) (`src/atmos_param/moist_processes/moist_processes.f90`).
@@ -540,8 +601,9 @@ Declared in [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moi
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `do_mca`, `do_lsc` | logical | `.false.`, `.true.` | `do_mca`: moist convective adjustment (`moist_conv_nml`); `do_lsc`: large-scale condensation (`lscale_cond_nml`) |
-| `pdepth` | real | `150.e2` | [Pa] boundary-layer depth used to decide between rain and snow |
-| `tfreeze` | real | `273.16` | [K] freezing temperature for that decision |
+| `precip_phase` | character(len=32) | `'temperature'` | phase of the precipitation: `'temperature'`: snow in the columns whose mean temperature over the lowest `pdepth` is at or below `tfreeze`, rain elsewhere; `'liquid'`: all rain (v1) |
+| `pdepth` | real | `150.e2` | [Pa] with `precip_phase = 'temperature'`, depth of the lowest layer whose mean temperature decides between rain and snow |
+| `tfreeze` | real | `273.16` | [K] with `precip_phase = 'temperature'`, freezing temperature for that decision |
 | `use_tau`, `do_gust_cv` | logical | `.false.`, `.false.` | `use_tau`: use the current time level (`.true.`) or the updated values (`.false.`); `do_gust_cv`: convective gustiness |
 | `gustmax` | real | `3.` | [m/s] maximum convective gustiness |
 | `gustconst` | real | `10./86400.` | [kg/m2/s] precipitation rate at which convective gustiness starts to matter |
