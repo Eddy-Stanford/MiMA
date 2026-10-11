@@ -17,7 +17,7 @@
  "dynamics",       "temp",      "temp",      "atmos_daily",   "all", .true.,  "none", 2,
  "dynamics",       "sphum",     "sphum",     "atmos_daily",   "all", .true.,  "none", 2,
  "dynamics",       "omega",     "omega",     "atmos_daily",   "all", .true.,  "none", 2,
- "simple_surface", "t_surf",    "t_surf",    "atmos_daily",   "all", .true.,  "none", 2,
+ "flux",           "t_surf",    "t_surf",    "atmos_daily",   "all", .true.,  "none", 2,
  "moist",          "precip",    "precip",    "atmos_daily",   "all", .true.,  "none", 2,
  "radiation",      "olr",       "olr",       "atmos_daily",   "all", .true.,  "none", 2,
 #
@@ -35,11 +35,11 @@
  "dynamics",       "height",    "height",    "atmos_monthly", "all", .true.,  "none", 2,
  "moist",          "rh",        "rh",        "atmos_monthly", "all", .true.,  "none", 2,
 # surface
- "simple_surface", "t_surf",    "t_surf",    "atmos_monthly", "all", .true.,  "none", 2,
- "simple_surface", "shflx",     "shflx",     "atmos_monthly", "all", .true.,  "none", 2,
- "simple_surface", "evap",      "evap",      "atmos_monthly", "all", .true.,  "none", 2,
- "simple_surface", "lwflx",     "lwflx",     "atmos_monthly", "all", .true.,  "none", 2,
- "simple_surface", "albedo",    "albedo",    "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "t_surf",    "t_surf",    "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "shflx",     "shflx",     "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "evap",      "evap",      "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "lwflx",     "lwflx",     "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "albedo",    "albedo",    "atmos_monthly", "all", .true.,  "none", 2,
 # precipitation and moist physics
  "moist",          "precip",    "precip",    "atmos_monthly", "all", .true.,  "none", 2,
  "moist",          "prec_conv", "prec_conv", "atmos_monthly", "all", .true.,  "none", 2,

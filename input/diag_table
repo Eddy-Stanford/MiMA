@@ -18,9 +18,9 @@
  "dynamics",        "temp",       "temp",           "atmos_avg",      "all", .true.,  "none", 2,
  "dynamics",        "sphum",      "sphum",          "atmos_avg",      "all", .true.,  "none", 2,
 # surface variables
- "simple_surface",  "t_surf",     "t_surf",         "atmos_davg",     "all", .true., "none", 2,
- "simple_surface",  "t_surf",     "t_surf_max",     "atmos_dext",     "all", "max",  "none", 2,
- "simple_surface",  "t_surf",     "t_surf_min",     "atmos_dext",     "all", "min",  "none", 2,
+ "flux",            "t_surf",     "t_surf",         "atmos_davg",     "all", .true., "none", 2,
+ "flux",            "t_surf",     "t_surf_max",     "atmos_dext",     "all", "max",  "none", 2,
+ "flux",            "t_surf",     "t_surf_min",     "atmos_dext",     "all", "min",  "none", 2,
 # moisture variables
   "moist",          "precip",     "precip",         "atmos_davg",     "all", .true., "none", 2,
   "moist",          "precip",     "precip_max",     "atmos_dext",     "all", "max",  "none", 2,
