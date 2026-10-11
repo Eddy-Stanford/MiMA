@@ -58,7 +58,8 @@ module flux_exchange_mod
   use surface_albedo_mod, only: surface_albedo_init
   use ocean_model_mod, only: ocean_data_type, ocean_model_init, ocean_model_end
   use land_model_mod, only: land_data_type, land_model_read_nml_and_mask, &
-                            land_model_init_state, land_model_roughness, land_model_end
+                            land_model_init_state, land_model_read_restart, &
+                            land_model_roughness, land_model_boundary, land_model_end
 
   implicit none
   private
@@ -117,14 +118,19 @@ contains
   !> diagnostics.
   !>
   !> The fluxes and derivatives needed by `flux_down_from_atmos` and `flux_up_to_atmos` are
-  !> kept in module storage.
+  !> kept in module storage. With the bucket hydrology, the land model first sets the
+  !> evaporation efficiency `beta` and the snow albedo (`land_model_boundary`), and on the
+  !> land points the evaporation, its derivatives and the moisture scale `q_star` are then
+  !> multiplied by `beta`; the surface humidity of the diagnostics becomes
+  !> `q_atm + beta*(q_surf - q_atm)`. The buoyancy in `surface_flux` still uses the saturated
+  !> surface humidity (an approximation).
   subroutine sfc_boundary_layer(dt, Time, Atm, Ocean, Land, Boundary)
 
     real, intent(in)  :: dt  !! time step [s]
     type(time_type), intent(in)  :: Time  !! current time
     type(atmos_data_type), intent(in)  :: Atm  !! atmospheric state at the lowest level
     type(ocean_data_type), intent(in) :: Ocean  !! the ocean state
-    type(land_data_type), intent(in) :: Land  !! the land state
+    type(land_data_type), intent(inout) :: Land  !! the land state (on return, with the bucket, `beta`)
     type(land_ice_atmos_boundary_type), intent(inout) :: Boundary
     !! surface fields for the atmosphere: on return the surface temperature, albedo and
     !! roughness, the surface stress and its derivatives, `u_star`, `b_star` and the land
@@ -155,6 +161,7 @@ contains
 
     Boundary%rough_mom = rough_mom
     Boundary%albedo = albedo_bg
+    if (Land%do_bucket) call land_model_boundary(Land, Boundary%albedo)
 
     cd_t = 0.0
     cd_m = 0.0
@@ -187,6 +194,17 @@ contains
 ! intent(out):: dhdt_surf, dedt_surf, dedq_surf, drdt_surf, dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm
 ! intent(inout) :: q_surf
 ! All others intent(in)
+
+! Bucket: the land evaporates beta times the potential (saturated) rate
+    if (Land%do_bucket) then
+      where (Land%mask)
+        flux_q = flux_q*Land%beta
+        dedt_surf = dedt_surf*Land%beta
+        dedq_atm = dedq_atm*Land%beta
+        q_star = q_star*Land%beta
+        q_surf = Atm%q_bot + Land%beta*(q_surf - Atm%q_bot)
+      end where
+    end if
 
     Boundary%u_flux = flux_u
     Boundary%v_flux = flux_v
@@ -528,7 +546,10 @@ contains
     call ocean_model_init(Ocean, Time, grid, .not. Land%mask, t_all, cap_all, cap_default)
     call land_model_init_state(Land, Time, grid, t_all, cap_default)
     deallocate (t_all, cap_all)
-    if (ocean_rst) call read_surface_restarts(Ocean, Land)
+    if (ocean_rst) then
+      call read_surface_restarts(Ocean, Land)
+      call land_model_read_restart(Land, grid)
+    end if
 
 ! The implied ocean heat flux: only where the SST is not stepped by the slab
     if (trim(Ocean%model) == 'prescribed' .or. trim(Ocean%model) == 'fixed') &
