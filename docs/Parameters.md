@@ -843,7 +843,7 @@ These groups belong to the [FMS library](https://github.com/NOAA-GFDL/FMS) and k
  Group | Variable | Value in `input.nml` | Meaning
  :--- | :--- | :---: | :---
  `sat_vapor_pres_nml` | `do_simple` | `.true.` | **required**: the simple saturation vapour pressure table (Clausius-Clapeyron with constant latent heat, no ice) that MiMA uses. The FMS default (`.false.`, Goff-Gratch) is rejected at start-up.
- `topography_nml` | `topog_file`, `water_file` | `'INPUT/navy_topography.data.nc'`, `'INPUT/navy_pctwater.data.nc'` | high-resolution topography and water fraction, used by `topography_option = 'interpolated'` and `land_option = 'interpolated'`
+ `topography_nml` | `topog_file`, `water_file` | `'INPUT/navy_topography.data.nc'`, `'INPUT/navy_pctwater.data.nc'` | high-resolution topography and water fraction, used by `topography_option = 'interpolated'` and `land_mask = 'navy'` of [`land_model_nml`](#land_model_nml)
  `fms_nml` | `domains_stack_size` | `600000` | stack size of the domain communication buffer; must be larger at higher resolution (the error message gives the size needed, e.g. about 1.2e6 at T255)
  `diag_manager_nml` | `do_diag_field_log` | not set | `.true.` writes the list of registered diagnostic fields to `diag_field_log.out.0`
 
