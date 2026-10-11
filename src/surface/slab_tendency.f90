@@ -3,9 +3,9 @@
 !>
 !> The change of the slab temperature over one step follows from the surface energy budget
 !> `cap*dT/dt = F + dF/dT*dT`, where `F` is the net downward flux (radiation, sensible and
-!> latent heat, the melting of snowfall and any extra heat flux) and `dF/dT` its derivative
-!> with respect to the surface temperature, so that the fluxes are taken at the end of the
-!> step (implicit in time).
+!> latent heat, the melting of snowfall and any extra heat flux, such as a Q-flux or the
+!> local surface heating) and `dF/dT` its derivative with respect to the surface temperature,
+!> so that the fluxes are taken at the end of the step (implicit in time).
 module slab_tendency_mod
 
   use constants_mod, only: hlv
@@ -29,7 +29,8 @@ contains
     real, intent(in) :: melt  !! heat used to melt the snowfall (`hlf*fprec`) [W/m2]
     real, intent(in) :: flux_t  !! upward sensible heat flux [W/m2]
     real, intent(in) :: flux_q  !! evaporation rate [kg/m2/s]
-    real, intent(in) :: q_extra  !! extra downward heat flux, such as a Q-flux [W/m2]
+    real, intent(in) :: q_extra
+    !! extra downward heat flux, such as a Q-flux and the local surface heating [W/m2]
     real, intent(in) :: dhdt  !! derivative of `flux_t` with respect to the surface temperature [W/m2/K]
     real, intent(in) :: dedt  !! derivative of `flux_q` with respect to the surface temperature [kg/m2/s/K]
     real, intent(in) :: drdt

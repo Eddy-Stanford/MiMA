@@ -11,7 +11,10 @@
 !>   diagnostic `ocean/sst_interp`);
 !> * `'fixed'`: held at its initial value.
 !>
-!> In every mode the local surface heating of `local_heating_nml` is added. On a cold start
+!> In every mode the local surface heating of `local_heating_nml` is added: for the slab as
+!> the heat flux `cap*extra_heating` in the implicit step, so that the fluxes returned to the
+!> atmosphere are those of the final SST (energy-consistent); for a prescribed or fixed SST as
+!> an increment `extra_heating*dt` of the SST. On a cold start
 !> the SST is set by `sst_init`: the profile `Tm - deltaT*(3 sin^2(lat) - 1)/3`, a uniform
 !> `Tm`, one of the Aqua-Planet Experiment profiles, or `sst_file`. The cold-start field and
 !> the heat-capacity profile are computed on all points, so that the land model can start
@@ -236,8 +239,9 @@ contains
   !> Steps the ocean surface temperature over one atmospheric time step.
   !>
   !> `'slab'`: implicit surface energy budget; `'prescribed'`: change to the SST of
-  !> `sst_file`; `'fixed'`: no change. The local surface heating is then added in every
-  !> mode. A Q-flux read from a file is first updated to the time of the step (also over
+  !> `sst_file`; `'fixed'`: no change. The local surface heating is a heat flux
+  !> `cap*extra_heating` in the implicit step of the slab, and is added as `extra_heating*dt` to
+  !> the change in the other modes. A Q-flux read from a file is first updated to the time of the step (also over
   !> land in `Exch%qflux_land` when `qflux_ocean_only = .false.`). Sends the ocean
   !> diagnostics.
   subroutine update_ocean_model_fast(Exch, Ocean)
@@ -258,7 +262,8 @@ contains
     case ('slab')
       where (Ocean%mask)
         Ocean%dt_t_surf = slab_dt(Exch%flux_lw, Exch%flux_sw, hlf*Exch%fprec, Exch%flux_t, &
-                                  Exch%flux_q, Ocean%qflux, Exch%dhdt_surf, Exch%dedt_surf, &
+                                  Exch%flux_q, Ocean%qflux + Ocean%cap*Exch%extra_heating, &
+                                  Exch%dhdt_surf, Exch%dedt_surf, &
                                   Exch%drdt_surf, Exch%dt, Ocean%cap)
       elsewhere
         Ocean%dt_t_surf = 0.0
@@ -275,10 +280,11 @@ contains
       Ocean%dt_t_surf = 0.0
     end select
 
-    where (Ocean%mask)
-      Ocean%dt_t_surf = Ocean%dt_t_surf + Exch%extra_heating*Exch%dt
-      Ocean%t_surf = Ocean%t_surf + Ocean%dt_t_surf
-    end where
+! The slab has the local surface heating in its implicit step; the other modes add it here
+    if (trim(ocean_model) /= 'slab') then
+      where (Ocean%mask) Ocean%dt_t_surf = Ocean%dt_t_surf + Exch%extra_heating*Exch%dt
+    end if
+    where (Ocean%mask) Ocean%t_surf = Ocean%t_surf + Ocean%dt_t_surf
 
     if (id_qflux > 0) used = send_data(id_qflux, Ocean%qflux, Exch%Time)
     if (id_heat > 0) used = send_data(id_heat, Ocean%cap, Exch%Time)

@@ -13,7 +13,10 @@
 !> * `'prescribed'`: read from `t_surf_file` at every step;
 !> * `'fixed'`: held at its initial value.
 !>
-!> In every mode the local surface heating of `local_heating_nml` is added. On a cold start
+!> In every mode the local surface heating of `local_heating_nml` is added: for `'simple'` as
+!> the heat flux `cap*extra_heating` in the implicit step, so that the fluxes returned to the
+!> atmosphere are those of the final temperature (energy-consistent); otherwise as an
+!> increment `extra_heating*dt` of the temperature. On a cold start
 !> the land takes the ocean's cold-start SST (`t_init = 'ocean'`) or `t_surf_file`. The state
 !> is saved in `RESTART/land_model.res.nc`, which takes precedence when it exists in `INPUT/`.
 !>
@@ -472,11 +475,13 @@ contains
   !> step.
   !>
   !> `'simple'`: implicit surface energy budget; `'prescribed'`: change to the temperature of
-  !> `t_surf_file`; `'fixed'`: no change. The local surface heating is then added in every
-  !> mode. Without snow the snowfall melts on arrival, taking its latent heat of fusion in
+  !> `t_surf_file`; `'fixed'`: no change. The local surface heating is a heat flux
+  !> `cap*extra_heating` in the implicit step of `'simple'`, and is added as
+  !> `extra_heating*dt` to the change in the other modes. Without snow the snowfall melts on arrival, taking its latent heat of fusion in
   !> the implicit step; with snow it is stored and the implicit step has no melt term. With
   !> the bucket, the water and snow are then updated (`bucket_step`). `Land%dt_t_surf` is the
-  !> change before the snow adjustments of the surface temperature.
+  !> change before the snow adjustments of the surface temperature (the change from which the
+  !> fluxes returned to the atmosphere are completed).
   subroutine update_land_model_fast(Exch, Land)
     type(surface_exchange_type), intent(in) :: Exch  !! fluxes and derivatives from the flux exchange
     type(land_data_type), intent(inout) :: Land  !! the land state
@@ -494,13 +499,13 @@ contains
       end if
       where (Land%mask)
         Land%dt_t_surf = slab_dt(Exch%flux_lw, Exch%flux_sw, melt_heat, Exch%flux_t, &
-                                 Exch%flux_q, Exch%qflux_land, Exch%dhdt_surf, Exch%dedt_surf, &
-                                 Exch%drdt_surf, Exch%dt, Land%cap)
+                                 Exch%flux_q, Exch%qflux_land + Land%cap*Exch%extra_heating, &
+                                 Exch%dhdt_surf, Exch%dedt_surf, Exch%drdt_surf, Exch%dt, Land%cap)
       elsewhere
         Land%dt_t_surf = 0.0
       end where
-! Debug: the net downward heat flux at the end of the step that the implicit step balances,
-! cap*dt_t/dt (before the local surface heating), from the fluxes
+! Debug: the net downward heat flux at the end of the step, from the fluxes; the implicit
+! step balances cap*dt_t/dt = f_net_final + cap*extra_heating
       if (id_f_net_final > 0) then
         field = 0.0
         where (Land%mask) field = Exch%flux_lw + Exch%flux_sw - melt_heat &
@@ -519,10 +524,11 @@ contains
       Land%dt_t_surf = 0.0
     end select
 
-    where (Land%mask)
-      Land%dt_t_surf = Land%dt_t_surf + Exch%extra_heating*Exch%dt
-      Land%t_surf = Land%t_surf + Land%dt_t_surf
-    end where
+! 'simple' has the local surface heating in its implicit step; the other modes add it here
+    if (trim(land_model) /= 'simple') then
+      where (Land%mask) Land%dt_t_surf = Land%dt_t_surf + Exch%extra_heating*Exch%dt
+    end if
+    where (Land%mask) Land%t_surf = Land%t_surf + Land%dt_t_surf
 
     if (Land%do_bucket) call bucket_step(Exch, Land)
 
