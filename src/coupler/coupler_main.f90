@@ -21,10 +21,11 @@ end module coupler_mod
 !> calls that correspond to the down and up sweeps of the tridiagonal elimination. Each
 !> time step calls
 !>
-!> 1. `compute_flux`: surface fluxes at the current surface temperature;
+!> 1. `sfc_boundary_layer`: surface fluxes at the current surface temperature;
 !> 2. `update_atmos_model_down`: radiation and vertical diffusion down to the surface;
-!> 3. `update_simple_surface`: new surface temperature (skipped without a boundary layer,
-!>    see `surface_is_coupled`);
+!> 3. `flux_down_from_atmos`, `update_ocean_model_fast`, `update_land_model_fast` and
+!>    `flux_up_to_atmos`: new ocean and land surface temperatures and the updated fluxes
+!>    (skipped without a boundary layer, see `surface_is_coupled`);
 !> 4. `update_atmos_model_up`: vertical diffusion up from the surface, moist processes and
 !>    dynamics.
 !>
@@ -79,10 +80,13 @@ program coupler_main
                              atmos_data_type, &
                              land_ice_atmos_boundary_type
 
-  use simple_surface_mod, only: simple_surface_init, &
-                                compute_flux, &
-                                update_simple_surface, &
-                                simple_surface_end
+  use surface_types_mod, only: surface_exchange_type
+  use flux_exchange_mod, only: flux_exchange_init, sfc_boundary_layer, &
+                               flux_down_from_atmos, flux_up_to_atmos, &
+                               flux_exchange_end
+  use ocean_model_mod, only: ocean_data_type, update_ocean_model_fast, &
+                             update_ocean_model_slow
+  use land_model_mod, only: land_data_type, update_land_model_fast
 
   use physics_driver_mod, only: surface_is_coupled
 
@@ -107,6 +111,9 @@ program coupler_main
 
   type(atmos_data_type) :: Atm
   type(land_ice_atmos_boundary_type) :: Land_ice_atmos_boundary
+  type(ocean_data_type) :: Ocean
+  type(land_data_type) :: Land
+  type(surface_exchange_type) :: Exch
 
 !-----------------------------------------------------------------------
 ! ----- coupled model time -----
@@ -181,17 +188,8 @@ program coupler_main
 
       Time_atmos = Time_atmos + Time_step_atmos
 
-      call compute_flux(float(dt_atmos), Time_atmos, Atm, &
-                        Land_ice_atmos_boundary%land_frac, &
-                        Land_ice_atmos_boundary%t, &
-                        Land_ice_atmos_boundary%albedo, &
-                        Land_ice_atmos_boundary%rough_mom, &
-                        Land_ice_atmos_boundary%u_flux, &
-                        Land_ice_atmos_boundary%v_flux, &
-                        Land_ice_atmos_boundary%dtaudu, &
-                        Land_ice_atmos_boundary%dtaudv, &
-                        Land_ice_atmos_boundary%u_star, &
-                        Land_ice_atmos_boundary%b_star)
+      call sfc_boundary_layer(float(dt_atmos), Time_atmos, Atm, Ocean, Land, &
+                              Land_ice_atmos_boundary)
 
 !      ---- atmosphere down ----
 
@@ -200,15 +198,19 @@ program coupler_main
 
       ! without a boundary layer (e.g. dry Held-Suarez) the surface
       ! state is left unchanged
-      if (surface_is_coupled()) &
-        call update_simple_surface(float(dt_atmos), Time_atmos, Atm, &
-                                   Land_ice_atmos_boundary%dt_t, &
-                                   Land_ice_atmos_boundary%dt_q)
+      if (surface_is_coupled()) then
+        call flux_down_from_atmos(Time_atmos, Atm, Exch)
+        call update_ocean_model_fast(Exch, Ocean)
+        call update_land_model_fast(Exch, Land)
+        call flux_up_to_atmos(Time_atmos, Atm, Ocean, Land, Exch, Land_ice_atmos_boundary)
+      end if
 
 !      ---- atmosphere up ----
 
       if (do_atmos) &
         call update_atmos_model_up(Land_ice_atmos_boundary, Atm)
+
+      call update_ocean_model_slow(Time_atmos, Ocean)
 
     end do
 
@@ -421,39 +423,8 @@ contains
       call atmos_model_init(Atm, Time_init, Time, Time_step_atmos)
       call print_memuse_stats('atmos_model_init')
 
-!pjp    Lima Atm contains fields in addition to what df is using.
-!pjp    They are initialized to zero by atmos_model_init.
-!pjp    I don't think any action is necessary to make simple_surface_init compatable with Lima.
-      call simple_surface_init(Time, Atm)
-      id = size(Atm%t_bot, 1)
-      jd = size(Atm%t_bot, 2)
-      allocate (Land_ice_atmos_boundary%t(id, jd), &
-                Land_ice_atmos_boundary%albedo(id, jd), &
-                Land_ice_atmos_boundary%land_frac(id, jd), &
-                Land_ice_atmos_boundary%dtaudu(id, jd), &
-                Land_ice_atmos_boundary%dtaudv(id, jd), &
-                Land_ice_atmos_boundary%dt_t(id, jd), &
-                Land_ice_atmos_boundary%dt_q(id, jd), &
-                Land_ice_atmos_boundary%u_flux(id, jd), &
-                Land_ice_atmos_boundary%v_flux(id, jd), &
-                Land_ice_atmos_boundary%u_star(id, jd), &
-                Land_ice_atmos_boundary%b_star(id, jd), &
-                Land_ice_atmos_boundary%q_star(id, jd), &
-                Land_ice_atmos_boundary%rough_mom(id, jd))
-
-      Land_ice_atmos_boundary%t = 0.0
-      Land_ice_atmos_boundary%albedo = 0.0
-      Land_ice_atmos_boundary%land_frac = 0.0
-      Land_ice_atmos_boundary%dtaudu = 0.0
-      Land_ice_atmos_boundary%dtaudv = 0.0
-      Land_ice_atmos_boundary%dt_t = 0.0
-      Land_ice_atmos_boundary%dt_q = 0.0
-      Land_ice_atmos_boundary%u_flux = 0.0
-      Land_ice_atmos_boundary%v_flux = 0.0
-      Land_ice_atmos_boundary%u_star = 0.0
-      Land_ice_atmos_boundary%b_star = 0.0
-      Land_ice_atmos_boundary%q_star = 0.0
-      Land_ice_atmos_boundary%rough_mom = 0.0
+!---- surface: flux exchange, ocean and land ----
+      call flux_exchange_init(Time, Atm, Ocean, Land, Land_ice_atmos_boundary, Exch)
 
     end if
     call mpp_set_current_pelist()
@@ -502,10 +473,7 @@ contains
       call mpp_set_current_pelist(Atm%pelist)
       call atmos_model_end(Atm)
 
-!pjp    Lima Atm contains fields in addition to what df is using.
-!pjp    They are initialized to zero by atmos_model_init.
-!pjp    I don't think any action is necessary to make simple_surface_end compatable with Lima.
-      call simple_surface_end(Atm)
+      call flux_exchange_end(Ocean, Land)
     end if
     call mpp_set_current_pelist()
 

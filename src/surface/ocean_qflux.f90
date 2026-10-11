@@ -1,11 +1,13 @@
 
 !> Prescribed ocean heat fluxes (Q-fluxes) for the slab ocean.
 !>
-!> `qflux` adds the zonally symmetric meridional Q-flux of Merlis et al. (2013,
-!> Part II); `warmpool` adds zonally asymmetric fluxes: a tropical warm pool and, depending
-!> on `warmpool_localization_choice`, regional patterns such as the Gulf Stream, the
-!> Kuroshio and the tropical Atlantic, following Garfinkel et al. (2020). Both are called
-!> by `simple_surface` with `do_qflux` and `do_warmpool` in `simple_surface_nml`.
+!> The Q-flux is the sum of the sources selected in `qflux_nml`: with
+!> `qflux_source = 'analytic'`, the zonally symmetric meridional Q-flux of Merlis et al.
+!> (2013, Part II); with `do_warmpool`, zonally asymmetric fluxes: a tropical warm pool and,
+!> depending on `warmpool_localization_choice`, regional patterns such as the Gulf Stream,
+!> the Kuroshio and the tropical Atlantic, following Garfinkel et al. (2020). The analytic
+!> and warm-pool fluxes do not change in time; they are computed once by
+!> `ocean_qflux_init`, which is called by `ocean_model_mod`.
 !>
 !> Namelist: `qflux_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#qflux_nml)).
@@ -18,11 +20,11 @@
 !> * Garfinkel, C. I., I. White, E. P. Gerber, M. Jucker, and M. Erez, 2020:
 !>   The building blocks of Northern Hemisphere wintertime stationary waves.
 !>   J. Climate, 33, 5611-5633, https://doi.org/10.1175/JCLI-D-19-0181.1.
-module qflux_mod
+module ocean_qflux_mod
 
   use constants_mod, only: pi
   use fms_mod, only: input_nml_file, check_nml_error, &
-                     error_mesg, FATAL
+                     error_mesg, FATAL, mpp_pe, mpp_root_pe, stdlog
 
   implicit none
 
@@ -51,13 +53,22 @@ module qflux_mod
           Sampeextra = 0., & !! [W/m2] extra flux off South America (choice 3 only)
           Hawaiiextra = 30.0 !! [W/m2] extra flux near Hawaii (choice 3 only)
 
+  character(len=32) :: qflux_source = 'analytic'
+  !! `'analytic'`: the meridional Q-flux of Merlis et al. (2013) (`qflux_amp`, `qflux_width`);
+  !! `'none'`: no meridional Q-flux; `'file'`: read from `qflux_file` (not yet available)
+  logical :: do_warmpool = .true.
+  !! add the zonally asymmetric Q-fluxes (warm pool and regional patterns), whatever `qflux_source`
+  character(len=256) :: qflux_file = ''  !! with `qflux_source = 'file'`, Q-flux file name, without `.nc`, in `INPUT/`
+  character(len=256) :: qflux_file_var = 'qflux'  !! name of the Q-flux variable in `qflux_file`
+
   integer :: warmpool_localization_choice = 3
   !! `1`: cosine in longitude; `2`: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and
   !! tropical Atlantic terms; `3`: the localized patterns of Garfinkel et al. (2020). Which of the
-  !! regional amplitudes below are used depends on this choice (see `qflux.f90`).
+  !! regional amplitudes below are used depends on this choice (see `ocean_qflux.f90`).
   logical :: qflux_initialized = .false.
 
-  namelist /qflux_nml/ qflux_amp, qflux_width, &
+  namelist /qflux_nml/ qflux_source, do_warmpool, qflux_file, qflux_file_var, &
+    qflux_amp, qflux_width, &
     warmpool_amp, warmpool_width, warmpool_centr, &
     warmpool_k, warmpool_phase, warmpool_localization_choice, &
     gulf_k, gulf_phase, gulf_amp, kuroshio_amp, trop_atlantic_amp, &
@@ -66,22 +77,46 @@ module qflux_mod
 
   private
 
-  public :: qflux_init, qflux, warmpool
+  public :: ocean_qflux_init
 
 contains
 
 !########################################################
-  !> Reads `qflux_nml`.
-  subroutine qflux_init
+  !> Reads `qflux_nml` and returns the Q-flux on this PE's grid.
+  !>
+  !> The Q-flux is the sum of the meridional Q-flux (`qflux_source = 'analytic'`) and the
+  !> zonally asymmetric fluxes (`do_warmpool`); it is zero if neither is selected.
+  subroutine ocean_qflux_init(lonb, latb, flux)
     implicit none
-    integer :: unit, ierr, io
+    real, dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell boundaries [rad]
+    real, dimension(:, :), intent(out) :: flux  !! Q-flux (ocean heat flux convergence) [W/m2]
+    integer :: ierr, io
 
     read (input_nml_file, nml=qflux_nml, iostat=io)
     ierr = check_nml_error(io, 'qflux_nml')
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=qflux_nml)
+
+    select case (trim(qflux_source))
+    case ('analytic', 'none')
+    case ('file')
+      if (len_trim(qflux_file) == 0) &
+        call error_mesg('ocean_qflux_init', "qflux_source = 'file' needs qflux_file", FATAL)
+      call error_mesg('ocean_qflux_init', "qflux_source = 'file' is not implemented yet "// &
+                      '(available from stage S5a)', FATAL)
+    case default
+      call error_mesg('ocean_qflux_init', 'unknown qflux_source = "'//trim(qflux_source)// &
+                      '"; use analytic, none or file', FATAL)
+    end select
 
     qflux_initialized = .true.
 
-  end subroutine qflux_init
+    flux = 0.
+!mj q-flux as in Merlis et al (2013) [Part II]
+    if (trim(qflux_source) == 'analytic') call qflux(latb, flux)
+!mj q-flux to create a tropical temperature perturbation
+    if (do_warmpool) call warmpool(lonb, latb, flux)
+
+  end subroutine ocean_qflux_init
 !########################################################
 
   !> Subtracts the meridional Q-flux of Merlis et al. (2013, Part II) from `flux`.
@@ -423,5 +458,5 @@ contains
 
 !########################################################
 
-end module qflux_mod
+end module ocean_qflux_mod
 

@@ -78,6 +78,7 @@ endif()
 
 # Add various subdirectories with long lists of source files
 add_subdirectory( src/coupler )
+add_subdirectory( src/surface )
 add_subdirectory( src/atmos_coupled )
 add_subdirectory( src/atmos_param )
 

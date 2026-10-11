@@ -96,7 +96,7 @@ module atmos_model_mod
     !! [kg/m2/s]
     real, dimension(:, :), pointer :: u_star => null() !! friction velocity [m/s]
     real, dimension(:, :), pointer :: b_star => null() !! buoyancy scale [m/s2]
-    real, dimension(:, :), pointer :: q_star => null() !! moisture scale [kg/kg] (not set by `simple_surface_mod`)
+    real, dimension(:, :), pointer :: q_star => null() !! moisture scale [kg/kg] (not set by `flux_exchange_mod`)
     real, dimension(:, :), pointer :: rough_mom => null() !! roughness length for momentum [m]
     real, dimension(:, :, :), pointer :: data => null() !! collective field for the named fields above (not used)
     integer                         :: xtype                   !! `REGRID`, `REDIST` or `DIRECT` (not used)

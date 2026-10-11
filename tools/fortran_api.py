@@ -39,7 +39,7 @@ GROUPS = [
     ("Dynamical core", ("src/atmos_spectral/",)),
     ("Radiation", ("src/atmos_param/radiation/",)),
     ("Physics", ("src/atmos_param/",)),
-    ("Coupler and surface", ("src/coupler/", "src/atmos_coupled/")),
+    ("Coupler and surface", ("src/coupler/", "src/surface/", "src/atmos_coupled/")),
     ("Shared", ("src/atmos_shared/", "src/mima_shared/")),
 ]
 

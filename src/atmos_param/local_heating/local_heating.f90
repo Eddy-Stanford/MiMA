@@ -3,7 +3,7 @@
 !> Each source is Gaussian in longitude, latitude, log-pressure and time, and can move
 !> in longitude, latitude and pressure. Sources with `pcenter` > 0 heat the atmosphere
 !> (`local_heating`, called by the physics driver); sources with `pcenter` < 0 heat the
-!> surface (`horizontal_heating`, called by `simple_surface`). Used with
+!> surface (`horizontal_heating`, called by `flux_exchange`). Used with
 !> `do_local_heating = .true.` in `physics_driver_nml`.
 !>
 !> Namelist: `local_heating_nml`
@@ -147,7 +147,7 @@ contains
 
     tdt = 0.
     ! if local heating is 2D only it is done via horizontal_heating
-    !  within simple_surface.f90
+    !  within flux_exchange.f90
     if (do_3d_heating) then
       ! horizontal heating first
       call horizontal_heating(Time, lon, lat, horiz_tdt, tcenter)
@@ -190,7 +190,7 @@ contains
 
   !> Returns the horizontal and temporal part of the heating, summed over the sources.
   !>
-  !> Without `tcenter` (the call from `simple_surface`) it sums the surface sources
+  !> Without `tcenter` (the call from `flux_exchange`) it sums the surface sources
   !> (`pcenter` < 0); with `tcenter` it sums the atmospheric sources (`pcenter` > 0) and
   !> returns their current centres.
   subroutine horizontal_heating(Time, lon, lat, horiz_tdt, tcenter)
@@ -227,7 +227,7 @@ contains
           if (pcenter(n) .gt. 0.0) then
             do_horiz = .true.
           end if
-        elseif (pcenter(n) .lt. 0.0) then ! calling from simple_surface
+        elseif (pcenter(n) .lt. 0.0) then ! calling from flux_exchange
           do_horiz = .true.
         end if
       end if
