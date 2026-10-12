@@ -17,7 +17,8 @@ rundir/
 *.bkp
 *~
 .DS_Store
-.vscode
+.vscode/*
+!.vscode/*.example.json
 
 # Python and the documentation site
 __pycache__/

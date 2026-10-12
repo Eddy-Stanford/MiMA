@@ -1,0 +1,28 @@
+{
+    // Template for the Modern Fortran extension (fortran-lang.linter-gfortran).
+    // Copy it to .vscode/settings.json (which git ignores) and adapt the paths.
+    // The first two include paths exist after a build with the downloaded FMS
+    // (cmake -S . -B build); with an installed FMS, use <FMS prefix>/include instead.
+    "fortran.linter.includePaths": [
+        "${workspaceFolder}/build",
+        "${workspaceFolder}/build/_deps/fms-build/include_r8",
+        "${workspaceFolder}/build/vscode_mods",
+        // The directories with netcdf.mod (`nf-config --includedir`) and the MPI modules
+        // (Open MPI: `mpif90 --showme:incdirs`). macOS Homebrew: /opt/homebrew/include
+        // (/usr/local/include on Intel Macs) holds both.
+        "/opt/homebrew/include"
+    ],
+    // The gfortran flags of the MiMA build (CMakeLists.txt, target_compile_options)
+    "fortran.linter.extraArgs": [
+        "-cpp",
+        "-fallow-argument-mismatch",
+        "-fdefault-real-8",
+        "-fdefault-double-8",
+        "-fno-range-check",
+        "-ffree-line-length-none"
+    ],
+    // Keep the linter's .mod files out of the source tree (build/ is ignored by git)
+    "fortran.linter.modOutput": "${workspaceFolder}/build/vscode_mods",
+    // Path to the fortls language server (`pip install fortls`); `which fortls`
+    "fortran.fortls.path": "fortls"
+}

@@ -1,0 +1,30 @@
+{
+  // Template for debugging MiMA. Copy it to .vscode/launch.json (which git ignores).
+  // Build with -DCMAKE_BUILD_TYPE=Debug -DINSTALL_EXEC=ON and `cmake --install build`, so that
+  // exec/ holds the executable and a complete run directory (input.nml, INPUT/, RESTART/).
+  // This runs one process; set `days = 0, hours = 10` (or less) in &coupler_nml.
+  // MiMA needs a large stack: start VS Code from a shell after `ulimit -s unlimited`
+  // (macOS: `ulimit -s hard`).
+  "configurations": [
+    {
+      "name": "Debug MiMA",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/exec/mima",
+      "cwd": "${workspaceFolder}/exec",
+      "args": [],
+      "environment": [],
+      "stopAtEntry": false,
+      "externalConsole": false,
+      // Linux: gdb. macOS has no gdb by default: use "lldb" (and drop setupCommands).
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ]
+}
