@@ -62,7 +62,9 @@ target_link_libraries( mima PRIVATE ${MIMA_FMS_TARGET} )
 if(CMAKE_Fortran_COMPILER_ID  MATCHES "Intel|IntelLLVM")
     message(STATUS "Configuring for Intel Fortran")
     target_compile_options( mima PRIVATE -i4 -r8 -fpp -fPIC )
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -xHost ${CMAKE_Fortran_FLAGS_RELEASE} ")
+    # Release: -O3 tuned for the build machine. (CMake appended its own -O3 to the
+    # earlier "-O2 -xHost", so this is what Release builds have always used.)
+    set(CMAKE_Fortran_FLAGS_RELEASE "-O3 -xHost")
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
     message(STATUS "Configuring for GNU Fortran")
     target_compile_options( mima PRIVATE -cpp -fallow-argument-mismatch -fbacktrace -fdefault-real-8 -fdefault-double-8 -fno-range-check -ffree-line-length-none )
@@ -70,7 +72,9 @@ elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
         # -fopenmp implies -frecursive (local arrays on the stack); keep that without OpenMP
         target_compile_options( mima PRIVATE -frecursive )
     endif()
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -march=native ${CMAKE_Fortran_FLAGS_RELEASE}")
+    # Release: -O3 tuned for the build machine. (CMake appended its own -O3 to the
+    # earlier "-O2 -march=native", so this is what Release builds have always used.)
+    set(CMAKE_Fortran_FLAGS_RELEASE "-O3 -march=native")
 endif()
 
 # Add various subdirectories with long lists of source files
