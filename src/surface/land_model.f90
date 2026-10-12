@@ -447,10 +447,10 @@ contains
       !cig: more evaporation over tropics and midlatitudes as compared to subtropics
       do j = 1, size(rough_moist, 2)
         lat = 0.5*(grid%lat_bnd(j + 1) + grid%lat_bnd(j))*180./pi
-        where (Land%mask(:, j)) rough_moist(:, j) = rough_ocean*rough_moist_factor + &
-                    &         +(1.e-7)*exp(-abs(lat - 0.)**3./(2*15.)) &
-                    &         + (1.e-25)*exp(-abs(lat - 45.)**3./(2*30.)) &
-                    &         + (1.e-25)*exp(-abs(lat + 45.)**3./(2*30.))
+        where (Land%mask(:, j)) rough_moist(:, j) = rough_ocean*rough_moist_factor &
+                                                    + (1.e-7)*exp(-abs(lat - 0.)**3./(2*15.)) &
+                                                    + (1.e-25)*exp(-abs(lat - 45.)**3./(2*30.)) &
+                                                    + (1.e-25)*exp(-abs(lat + 45.)**3./(2*30.))
       end do
     end select
 
