@@ -27,6 +27,7 @@ module mg_drag_mod
   use fms_mod, only: mpp_npes, write_version_number, stdlog, &
                      mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, &
                      input_nml_file, check_nml_error, mpp_error
+  use mpp_mod, only: mpp_max
   use mpp_domains_mod, only: domain2d
   use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
                               close_restart, read_restart_field, write_restart_field
@@ -75,7 +76,9 @@ module mg_drag_mod
     !! fraction of the atmosphere (from the bottom) used for the base flux, where no wave
     !! breaking is allowed
 
-  real  ::  flux_cut_level = 0.0  !! [Pa] above this level the flux divergence is set to zero
+  real  ::  flux_cut_level = 0.0
+  !! [Pa] if > 0, the flux divergence is set to zero above the first half level, counted from
+  !! the top, whose pressure is at least `flux_cut_level` in every column of the global domain
 
   logical :: do_conserve_energy = .false.  !! heat the air by the dissipated kinetic energy
   character(len=128) :: source_of_sgsmtn = 'input'
@@ -663,10 +666,14 @@ contains
 !        tausat(:,:,1) = 0.             ! use all forcing
 !         Instead,  let remaining flux escape above flux_cut_level
     if (flux_cut_level > 0.0) then
+      ! first half level at or below flux_cut_level in every column of the global domain (so
+      ! that it does not depend on the domain decomposition); at most the surface
       kcut = 1
-      do while (phalf(1, 1, kcut) < flux_cut_level)
+      do while (kcut < kdimp1)
+        if (all(phalf(:, :, kcut) >= flux_cut_level)) exit
         kcut = kcut + 1
       end do
+      call mpp_max(kcut)
 
       do k = 1, kcut - 1
         taus(:, :, k) = taus(:, :, kcut)
