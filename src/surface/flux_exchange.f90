@@ -166,6 +166,8 @@ contains
     cd_t = 0.0
     cd_m = 0.0
     cd_q = 0.0
+! surface_flux reads q_surf only at its land points (there are none here, see below)
+    q_surf = 0.0
 
     where (Land%mask)
       Boundary%t = Land%t_surf
