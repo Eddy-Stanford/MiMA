@@ -648,6 +648,7 @@ contains
     real, dimension(size(flux, 1), size(flux, 2)) :: ocean, land_q
     real :: area_total, area_ocean, area_land_q, mean_ocean, mean_land_q, removed
 
+    call check_removed_keys()
     read (input_nml_file, nml=qflux_nml, iostat=io)
     ierr = check_nml_error(io, 'qflux_nml')
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=qflux_nml)
@@ -736,6 +737,39 @@ contains
     end if
 
   end subroutine ocean_qflux_init
+!########################################################
+
+  !> Stops with a migration message if `input.nml` still sets a `qflux_nml` key that was
+  !> removed in v2.0 (the namelist read would otherwise only report an unknown variable).
+  subroutine check_removed_keys()
+    integer :: i
+    character(len=len(input_nml_file)) :: line
+
+    do i = 1, size(input_nml_file)
+      line = adjustl(input_nml_file(i))
+      call to_lower(line)
+      if (line(1:1) == '!') cycle
+      if (index(line, 'warmpool_localization_choice') > 0) &
+        call error_mesg('ocean_qflux_init', 'qflux_nml: warmpool_localization_choice was replaced '// &
+                        "by warmpool_pattern ('garfinkel2020' for choice 3, 'warm_pool' for choice 1; "// &
+                        'choice 2 was removed); see Migration_v2.md', FATAL)
+      if (index(line, 'north_sea_heat') > 0) &
+        call error_mesg('ocean_qflux_init', 'qflux_nml: north_sea_heat was removed with '// &
+                        'warmpool_localization_choice = 2; delete it (see Migration_v2.md)', FATAL)
+    end do
+
+  contains
+
+    subroutine to_lower(s)
+      character(len=*), intent(inout) :: s
+      integer :: k, c
+      do k = 1, len_trim(s)
+        c = iachar(s(k:k))
+        if (c >= iachar('A') .and. c <= iachar('Z')) s(k:k) = achar(c + 32)
+      end do
+    end subroutine to_lower
+
+  end subroutine check_removed_keys
 !########################################################
 
   !> Recomputes the Q-flux at `Time` when it is read from a file (`qflux_source = 'file'`);

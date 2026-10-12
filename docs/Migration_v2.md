@@ -124,6 +124,7 @@ Delete these from your `input.nml`. Variables marked with * were set in the v1 `
 | `spectral_dynamics_nml vert_coord_option` | `'mcm'`, `'v197'` | fatal error; use `'even_sigma'`, `'uneven_sigma'`, `'hybrid'` or `'input'` |
 | `spectral_dynamics_nml vert_difference_option` | `'mcm'` | fatal error; `'simmons_and_burridge'` is the only option |
 | `simple_surface_nml roughness_choice` | `2` (`ocean_rough`) | not available (v1 left the roughness lengths unset); use the `rough_*` settings of [`land_model_nml`](Parameters.md#land_model_nml) as in the [mapping table](#old-to-new-namelist-mapping) |
+| `qflux_nml warmpool_localization_choice` | `2` (the 2018 draft of the regional patterns), with its only knob `north_sea_heat` | fatal error (the key is replaced by `warmpool_pattern`); use `warmpool_pattern = 'garfinkel2020'`, the published version of the same patterns. Choice 1 is `'warm_pool'`, choice 3 `'garfinkel2020'` |
 | field_table `convection` method | `"ras"`, `"donner_and_ras"` | the tracer is not transported by convection (`"mca"`, `"mca_and_ras"`, `"donner_and_mca"`, `"all"` still mean MCA) |
 
 ### Removed namelist groups
@@ -202,7 +203,7 @@ The code defaults were changed to the values in the shipped `input/input.nml` (B
 | | `qflux_amp` | 30. | 26. |
 | | `warmpool_amp`, `warmpool_width` | 5., 20. | 18., 35. |
 | | `warmpool_k`, `warmpool_phase` | 1, 0. | 1.66666, 140. |
-| | `warmpool_localization_choice` | 1 | 3 |
+| | `warmpool_pattern` (was `warmpool_localization_choice`) | 1 (now `'warm_pool'`) | `'garfinkel2020'` (was 3) |
 | | `gulf_phase`, `gulf_amp` | 140., 0. | 310., 70. |
 | | `kuroshio_amp`, `trop_atlantic_amp`, `Hawaiiextra` | 0., 0., 0. | 40., 50., 30. |
 | [`betts_miller_nml`](Parameters.md#betts_miller_nml) | `rhbm` | 0.8 | 0.7 |
@@ -403,6 +404,7 @@ The other fatal errors each have a message that says what to change:
 * `hydrology = 'bucket'` with `rough_moist_factor /= 1` or `rough_moist_profile /= 'uniform'` (the bucket would be throttled twice); `do_snow` without `hydrology = 'bucket'` or with `land_model /= 'simple'`; and out-of-range bucket and snow parameters;
 * only one of `ocean_model.res.nc` and `land_model.res.nc` in `INPUT/`, or a restart with no surface temperature at some points (not after a change of the land mask, which is accepted: see [Surface restart files](#surface-restart-files));
 * an initial surface temperature outside 150-400 K at an ocean or land point, from a cold start or a restart (for example an `sst_file` with fill values over land, which the land takes on a cold start with `t_init = 'ocean'`);
+* `warmpool_localization_choice` or `north_sea_heat` in `&qflux_nml` (replaced by `warmpool_pattern`, and removed);
 * a `heat_capacity` of the ocean that is not positive, or a land `heat_capacity <= 0` that the ocean value does not make positive.
 
 ## field_table changes
@@ -598,6 +600,8 @@ v2.0 does not reproduce v1. The fixes below change the results of the shipped co
 | **Q-flux over the ocean only, with its mean removed**: the analytic, warm-pool and file Q-fluxes are set to zero over land and their area-weighted mean over the ocean is subtracted, so they no longer add or remove heat. v1 added the Q-flux at every point, land included (where the small heat capacity makes the land temperature respond strongly), and the sum of the analytic and warm-pool Q-fluxes did not integrate to zero | `qflux_source /= 'none'` or `do_warmpool` (the default configuration) | 0.66 (4.1) | 0.23 (1.8) | initial response, see below |
 | **Precipitation phase (BUG-121)**: precipitation falls as snow in cold columns, with the latent heat of sublimation released in the atmosphere and the heat of fusion taken at the surface (v1: all rain) | moist physics with cold columns (the default configuration); `precip_phase = 'liquid'` restores v1 | 1.1 (6.6) | 0.37 (2.5) | initial response, see below |
 | **Surface heating (BUG-120)**: the local surface heating enters the implicit surface step, so that the surface and the atmosphere see the same fluxes | `local_heating_nml` with `pcenter < 0` only | not measured | not measured | the default configuration is bit for bit unchanged |
+| **Warm-pool patterns as a table** (`warmpool_pattern = 'garfinkel2020'`): the regional Q-flux terms of Garfinkel et al. (2020) are evaluated from a table of 79 components instead of one long expression; the pattern agrees with v1 to 7e-14 W/m2 | `do_warmpool` | round-off only | round-off only | re-baselined; not a physical change |
+| **`warmpool_pattern = 'warm_pool'`** (was choice 1): the warm-pool cosine is restricted to one wavelength, `[warmpool_phase - 90/k, warmpool_phase + 270/k]` degrees, so it is continuous for any `warmpool_k` (with the default k = 5/3 the v1 cosine jumped at 0E) | choice 1 only | not measured | not measured | |
 | **BUG-95**: `albedo_choice = 5` (now `albedo_profile = 'tanh'`) used the absolute latitude, so the southern hemisphere had the northern profile | `albedo_choice = 5` only | not measured | not measured | the default configuration is bit for bit unchanged |
 | **BUG-96**: `zsurf_cap_limit` was compared with the surface geopotential (m2/s2), not the height; it is now `land_height_limit`, in metres | `land_option = 'zsurf'` only | not measured | not measured | the v1 default was 10, compared with the geopotential, so the effective limit was about 1 m; the number stays 10 but is now in metres (land is higher terrain only) |
 | **Land roughness for every land-mask source**: `mom_roughness_land` and `q_roughness_land` (now `rough_mom_factor`, `rough_moist_factor`) were applied only with `land_option = 'interpolated'`; the other sources, with `roughness_choice = 3` or `4`, left the land with the ocean roughness (and `'oceanmaskpole'` read an unallocated array, BUG-46/70) | `roughness_choice = 3` or `4` with a land mask other than `'navy'` | not measured | not measured | the Navy land (the default) is bit for bit unchanged |

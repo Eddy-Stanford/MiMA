@@ -432,30 +432,29 @@ Declared in [`ocean_qflux_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_q
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `qflux_source` | character(len=32) | `'analytic'` | `'analytic'`: the meridional Q-flux of Merlis et al. (2013) (`qflux_amp`, `qflux_width`); `'none'`: no meridional Q-flux; `'file'`: read from `qflux_file` and interpolated in time at every step (1 record: constant; 2 to 12 records: a climatology repeated every year; more: a dated time series) |
-| `do_warmpool` | logical | `.true.` | add the zonally asymmetric Q-fluxes (warm pool and regional patterns), whatever `qflux_source` |
+| `do_warmpool` | logical | `.true.` | add the zonally asymmetric Q-flux `warmpool_pattern`, whatever `qflux_source` |
 | `qflux_file` | character(len=256) | `''` | with `qflux_source = 'file'`, Q-flux file name, without `.nc`, in `INPUT/` |
 | `qflux_file_var` | character(len=256) | `'qflux'` | name of the Q-flux variable [W/m2] in `qflux_file` (empty: `qflux_file`); for the output of a prescribed-SST run, `'qflux_implied'` |
 | `qflux_ocean_only` | logical | `.true.` | apply the Q-flux over the ocean only (the default); `.false.`: also over land, as in v1 (set both `qflux_ocean_only` and `qflux_remove_mean` to `.false.` to reproduce v1) |
 | `qflux_remove_mean` | logical | `.true.` | subtract a constant from the Q-flux at the ocean points so that its global area integral is zero (the default): the constant is the area integral of the applied Q-flux over all points (land included with `qflux_ocean_only = .false.`) divided by the ocean area; with `qflux_ocean_only` it is the ocean mean (the global mean without land). `.false.`: no mean removed, as in v1 (set both `qflux_ocean_only` and `qflux_remove_mean` to `.false.` to reproduce v1) |
-| `qflux_amp` | real | `26.` | [W/m2] amplitude of the meridional Q-flux |
+| `qflux_amp` | real | `26.` | [W/m2] amplitude of the meridional Q-flux; with `warmpool_pattern = 'garfinkel2020'` it also scales several regional terms (Caribbean and South America, the West African coast, the Barents Sea and, with `warmpool_amp`, Australia and the Indian Ocean), even with `qflux_source = 'none'` |
 | `qflux_width` | real | `16.` | [deg] half-width of the meridional Q-flux |
-| `warmpool_amp` | real | `18.` | [W/m2] amplitude of the warm pool |
-| `warmpool_width` | real | `35.` | [deg] latitudinal width of the warm pool |
-| `warmpool_centr` | real | `0.` | [deg] central latitude of the warm pool |
-| `warmpool_k` | real | `1.66666` | zonal wave number of the warm pool |
-| `warmpool_phase` | real | `140.` | [deg] longitude phase of the warm pool |
-| `warmpool_localization_choice` | integer | `3` | `1`: cosine in longitude; `2`: cosine restricted to the Indo-Pacific, plus Gulf Stream, Kuroshio and tropical Atlantic terms; `3`: the localized patterns of Garfinkel et al. (2020). Which of the regional amplitudes below are used depends on this choice (see `ocean_qflux.f90`). |
-| `gulf_k` | integer | `4` | zonal wave number of the Gulf Stream perturbation (choice 2; with choice 3 only in a North Atlantic term near 67N) |
-| `gulf_phase` | real | `310.` | [deg] longitude phase of the Gulf Stream perturbation (choice 2; with choice 3 only in a North Atlantic term near 67N) |
-| `gulf_amp` | real | `70.` | [W/m2] Gulf Stream amplitude (choices 2 and 3; with choice 3 it scales a fixed, localized Gulf Stream pattern, and the tropical Atlantic term is only applied if `gulf_amp` > 0) |
-| `kuroshio_amp` | real | `40.` | [W/m2] Kuroshio amplitude (choices 2 and 3) |
-| `trop_atlantic_amp` | real | `50.` | [W/m2] tropical Atlantic amplitude (choices 2 and 3) |
-| `north_sea_heat` | real | `0.` | [1] factor on `gulf_amp` for moving heat from Canada to the North Sea (choice 2 only) |
-| `Pac_ITCZextra` | real | `0.` | [W/m2] extra flux in the tropical South Pacific (strengthens the local ITCZ; choice 3 only) |
-| `Sampeextra` | real | `0.` | [W/m2] extra flux off South America (choice 3 only) |
-| `Pac_SPCZextra` | real | `0.` | [W/m2] extra flux in the subtropical Pacific (modulates the SPCZ; choice 3 only) |
-| `Africaextra` | real | `0.` | [W/m2] extra flux near the Agulhas current (choice 3 only) |
-| `Hawaiiextra` | real | `30.0` | [W/m2] extra flux near Hawaii (choice 3 only) |
+| `warmpool_pattern` | character(len=32) | `'garfinkel2020'` | the zonally asymmetric Q-flux added with `do_warmpool`: `'garfinkel2020'`: the warm pool and the regional patterns of Garfinkel et al. (2020) (v1's `warmpool_localization_choice = 3`); `'warm_pool'`: the warm pool alone, one wavelength in longitude (v1's choice 1, which went round the whole latitude band). v1's choice 2 was removed. See `ocean_qflux.f90`. |
+| `warmpool_amp` | real | `18.` | [W/m2] amplitude of the warm pool; with `'garfinkel2020'`, also of its wave-8 eastern edge, and the West Pacific, Pacific, Hawaii and Australian terms are only applied if `warmpool_amp` > 0.001 (the Australian ones scale with `qflux_amp + warmpool_amp`) |
+| `warmpool_width` | real | `35.` | [deg] latitudinal half-width of the warm pool (and, with `'garfinkel2020'`, of its eastern edge and of the Africa wave) |
+| `warmpool_centr` | real | `0.` | [deg] central latitude of the warm pool (and, with `'garfinkel2020'`, of its eastern edge and of the Africa wave) |
+| `warmpool_k` | real | `1.66666` | zonal wave number of the warm pool; with `'warm_pool'` it sets the window (one wavelength); `'garfinkel2020'` uses the fixed window [`warmpool_phase` - 54, `warmpool_phase` + 162], which assumes `warmpool_k` = 5/3 |
+| `warmpool_phase` | real | `140.` | [deg] longitude of the warm-pool maximum; with `'garfinkel2020'` it also moves the longitude windows (not the centres) of the warm-pool edge, Africa, Kuroshio and Gulf Stream terms |
+| `gulf_k` | integer | `4` | with `'garfinkel2020'`, the zonal wave number plus 1 of the heating near 67N between 318E and 18E (the default gives wave number 3) |
+| `gulf_phase` | real | `310.` | [deg] with `'garfinkel2020'`, the phase of the heating near 67N: its maximum is at `gulf_phase` + 38 |
+| `gulf_amp` | real | `70.` | [W/m2] with `'garfinkel2020'`, the Gulf Stream amplitude; the Atlantic terms (tropical Atlantic, Caribbean and South America, near 67N, West African coast, Barents Sea) are only applied if `gulf_amp` > 0.001 and `trop_atlantic_amp` > 0.001 |
+| `kuroshio_amp` | real | `40.` | [W/m2] with `'garfinkel2020'`, the Kuroshio amplitude; with `kuroshio_amp` <= 0.001, a reduced set of West Pacific terms is used |
+| `trop_atlantic_amp` | real | `50.` | [W/m2] with `'garfinkel2020'`, the tropical Atlantic amplitude, also of the heating near 67N; half of it scales the Africa wave and switches the Agulhas terms on (if > 0.001); the Arctic terms are only applied if it is > 0.001 |
+| `Pac_ITCZextra` | real | `0.` | [W/m2] extra cooling in the subtropical South-East Pacific and zonal heating near 55S (`'garfinkel2020'` only) |
+| `Sampeextra` | real | `0.` | [W/m2] zonal dipole near 40S and 48S (`'garfinkel2020'` only) |
+| `Pac_SPCZextra` | real | `0.` | [W/m2] extra flux in the SPCZ and South Pacific, which modulates the SPCZ (`'garfinkel2020'` only) |
+| `Africaextra` | real | `0.` | [W/m2] extra flux near the Agulhas current (`'garfinkel2020'` only) |
+| `Hawaiiextra` | real | `30.0` | [W/m2] heating in the western North Pacific near 16N, which also changes many Pacific and Indian Ocean terms (`'garfinkel2020'` only; see the table) |
 
 <!-- mimadoc:end -->
 

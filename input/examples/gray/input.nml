@@ -94,7 +94,7 @@
 
 &qflux_nml
      qflux_amp        = 26.,
-      warmpool_localization_choice = 3,
+      warmpool_pattern = 'garfinkel2020',
      warmpool_k       = 1.66666, 
      warmpool_amp     = 18., 
      warmpool_width   = 35.,
@@ -108,7 +108,6 @@
      gulf_phase   = 310., 
      Hawaiiextra = 30.0,
       Pac_ITCZextra = -0.0,
-     north_sea_heat =0.0
     qflux_source = 'analytic',
     do_warmpool = .true. /
 
