@@ -403,8 +403,6 @@ contains
 
 !---------Maximum iterations reached: Increase tolerance (ALTOL)--------
         ALTOL = 2.0*ALTOL
-!del  WRITE (*,9902) I,ALTOL
-        call error_mesg('moist_conv', 'Tolerence (ALTOL) doubled', NOTE)
         if (ALTOL <= TOLmax) GO TO 1450
 
 !     WRITE (*,9903)

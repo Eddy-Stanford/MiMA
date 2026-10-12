@@ -1041,7 +1041,6 @@ contains
         if (plcl .lt. p(1)) then
           plcl = p(1)
           tlcl = theta0*(plcl/pstar)**kappa
-          write (*, *) 'hi lcl'
         end if
         k = kx
       else
