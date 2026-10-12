@@ -799,6 +799,15 @@ contains
 
       call separate_stabilities(ns, nu, stab, unstab, mo_length_inv, avail1)
 
+! very stable points (mo_length_inv >= 1e10, in neither set) get the stable phi = 1 + zeta
+! too; the loops below overwrite the others with the same or their own values
+      do k = 1, size(z, 2)
+        where (avail1)
+          phi_m(:, k) = 1.0 + zeta(:, k)
+          phi_h(:, k) = 1.0 + zeta(:, k)
+        end where
+      end do
+
       if (nu > 0) then
 
 !    allocate(zeta1 (nu))
