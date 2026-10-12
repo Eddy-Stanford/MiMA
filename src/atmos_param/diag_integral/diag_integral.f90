@@ -12,13 +12,6 @@
 !> Original authors: Fei Liu.
 module mima_diag_integral_mod
 
-! TODO: (ROB KING)
-! So not to throw too much shade but i think this module is a bit poop
-! The way it is written right now is highly likely to result in wacky overflows and the integral accuracy is going to tank hard if
-! the output_interval is not set.
-! If one wanted to do this properly then ideally every timestep the integrals should be calculated rather than let them accumulate.
-! thoughts... How is AM4 doing this?
-!
 !  shared modules:
 
   use time_manager_mod, only: time_type, get_time, set_time, &
@@ -54,17 +47,10 @@ module mima_diag_integral_mod
     sum_diag_integral_field, diag_integral_output, &
     diag_integral_end
 
-  !> Adds the area-weighted values of a field to a registered integral.
-  !>
-  !> `call sum_diag_integral_field (name, data, is, js)` with 2d or 3d `data` (3d data are
-  !> summed in the vertical), `call sum_diag_integral_field (name, data, wt, is, js)` with
-  !> 3d `data` and a vertical weight `wt`, or `call sum_diag_integral_field (name, data, is,
-  !> ie, js, je)` for a hemispheric integral.
+  !> Adds the area-weighted values of a 2d field to a registered integral:
+  !> `call sum_diag_integral_field (name, data, is, js)`.
   interface sum_diag_integral_field
-    module procedure sum_field_2d, &
-      sum_field_2d_hemi, &
-      sum_field_3d, &
-      sum_field_wght_3d
+    module procedure sum_field_2d
   end interface
 
   private &
@@ -78,9 +64,7 @@ module mima_diag_integral_mod
     format_text_init, format_data_init, &
     get_axis_time, &
     !   from diag_integral_output:
-    diag_integral_alarm, &
-    !   from sum_diag_integral_field:
-    vert_diag_integral
+    diag_integral_alarm
 
 !---------------------------------------------------------------------
 !------ namelist -------
@@ -164,12 +148,10 @@ module mima_diag_integral_mod
 !    variables defining output formats.
 !       format_text       format statement for header
 !       format_data       format statement for data output
-!       do_format_data    a data format needs to be generated ?
 !       nd                number of characters in data format statement
 !       nt                number of characters in text format statement
 !---------------------------------------------------------------------
   character(len=160) :: format_text, format_data
-  logical            :: do_format_data = .true.
   integer            :: nd, nt
 
 !--------------------------------------------------------------------
@@ -210,7 +192,7 @@ contains
     real, dimension(:), allocatable :: slat
     real    :: r2
     real    :: rsize
-    integer :: unit, io, ierr, seconds, nc, i, j
+    integer :: io, ierr, nc, i, j
     integer :: field_size_local
     real    :: sum_area_local
 
@@ -220,10 +202,8 @@ contains
 !       slat
 !       r2
 !       rsize
-!       unit
 !       io
 !       ierr
-!       seconds
 !       nc
 !       i,j
 !
@@ -327,7 +307,6 @@ contains
       Zero_time = set_time(0, 0)
       if (output_interval >= -0.01) then
         Alarm_interval = set_axis_time(output_interval, time_units)
-        Next_alarm_time = Time + Alarm_interval
       else
         Alarm_interval = Zero_time
       end if
@@ -468,208 +447,6 @@ contains
 !--------------------------------------------------------------------
 
   end subroutine sum_field_2d
-
-!#######################################################################
-  !> Adds the area-weighted sum of the vertical sum of a 3d field to an integral.
-  subroutine sum_field_3d(name, data, is, js)
-
-    character(len=*), intent(in) :: name  !! name of the integral
-    real, intent(in) :: data(:, :, :)  !! field to be summed
-    integer, optional, intent(in) :: is, js  !! starting i,j indices of `data` on this processor (default 1)
-
-!---------------------------------------------------------------------
-! local variables:
-
-    real, dimension(size(data, 1), &
-                    size(data, 2)) :: data2
-
-    integer :: field
-    integer :: i1, j1, i2, j2
-
-!---------------------------------------------------------------------
-! local variables:
-!
-!     data2
-!     field           ! index of desired integral
-!     i1, j1, i2, j2  ! location indices of current data in
-!                       processor-global coordinates
-!
-!--------------------------------------------------------------------
-
-!----------------------------------------------------------------------
-!    be sure module has been initialized.
-!---------------------------------------------------------------------
-    if (.not. module_is_initialized) then
-      call error_mesg('mima_diag_integral_mod', &
-                      'module has not been initialized', FATAL)
-    end if
-
-!---------------------------------------------------------------------
-!    obtain the index of the current integral. make certain it is valid.
-!---------------------------------------------------------------------
-    field = get_field_index(name)
-    if (field == 0) then
-      call error_mesg('mima_diag_integral_mod', &
-                      'field does not exist', FATAL)
-    end if
-
-!---------------------------------------------------------------------
-!   define the processor-global indices of the current data. use the
-!   value 1 for the initial grid points, if is and js are not input.
-!---------------------------------------------------------------------
-    i1 = 1; if (present(is)) i1 = is
-    j1 = 1; if (present(js)) j1 = js
-    i2 = i1 + size(data, 1) - 1
-    j2 = j1 + size(data, 2) - 1
-
-!---------------------------------------------------------------------
-!    increment the count of points toward this integral. sum first
-!    in the vertical and then add the values at this set of grid points
-!    to the accumulation array.
-!---------------------------------------------------------------------
-    field_count(field) = field_count(field) + &
-                         size(data, 1)*size(data, 2)
-    data2 = sum(data, 3)
-    field_sum(field) = field_sum(field) + &
-                       sum(data2*area(i1:i2, j1:j2))
-
-!---------------------------------------------------------------------
-
-  end subroutine sum_field_3d
-
-!#######################################################################
-  !> Adds the area-weighted sum of the weighted vertical average of a 3d field to an
-  !> integral.
-  subroutine sum_field_wght_3d(name, data, wt, is, js)
-
-    character(len=*), intent(in) :: name  !! name of the integral
-    real, intent(in) :: data(:, :, :), wt(:, :, :)  !! field to be summed and its vertical weights
-    integer, optional, intent(in) :: is, js  !! starting i,j indices of `data` on this processor (default 1)
-
-!---------------------------------------------------------------------
-! local variables:
-
-    real, dimension(size(data, 1), size(data, 2)) :: data2
-    integer :: field, i1, j1, i2, j2
-
-!---------------------------------------------------------------------
-! local variables:
-!
-!     data2
-!     field           ! index of desired integral
-!     i1, j1, i2, j2  ! location indices of current data in
-!                       processor-global coordinates
-!
-!--------------------------------------------------------------------
-
-!----------------------------------------------------------------------
-!    be sure module has been initialized.
-!---------------------------------------------------------------------
-    if (.not. module_is_initialized) then
-      call error_mesg('mima_diag_integral_mod', &
-                      'module has not been initialized', FATAL)
-    end if
-
-!---------------------------------------------------------------------
-!    obtain the index of the current integral. make certain it is valid.
-!---------------------------------------------------------------------
-    field = get_field_index(name)
-    if (field == 0) then
-      call error_mesg('mima_diag_integral_mod', &
-                      'field does not exist', FATAL)
-    end if
-
-!---------------------------------------------------------------------
-!   define the processor-global indices of the current data. use the
-!   value 1 for the initial grid points, if is and js are not input.
-!---------------------------------------------------------------------
-    i1 = 1; if (present(is)) i1 = is
-    j1 = 1; if (present(js)) j1 = js
-    i2 = i1 + size(data, 1) - 1
-    j2 = j1 + size(data, 2) - 1
-
-!---------------------------------------------------------------------
-!    increment the count of points toward this integral. sum first
-!    in the vertical (including a vertical weighting factor) and then
-!    add the values at this set of grid points to the accumulation
-!    array.
-!---------------------------------------------------------------------
-    field_count(field) = field_count(field) + &
-                         size(data, 1)*size(data, 2)
-    data2 = vert_diag_integral(data, wt)
-    field_sum(field) = field_sum(field) + &
-                       sum(data2*area(i1:i2, j1:j2))
-
-!----------------------------------------------------------------------
-
-  end subroutine sum_field_wght_3d
-
-!#######################################################################
-  !> Adds the area-weighted sum of one latitude row of a 2d field to a hemispheric
-  !> integral.
-  subroutine sum_field_2d_hemi(name, data, is, ie, js, je)
-
-    character(len=*), intent(in) :: name  !! name of the integral
-    real, intent(in) :: data(:, :)  !! field to be summed
-    integer, intent(in) :: is, js, ie, je  !! starting and ending i,j indices of the data on this processor
-
-!---------------------------------------------------------------------
-! local variables:
-    integer :: field, i1, j1, i2, j2
-
-!---------------------------------------------------------------------
-! local variables:
-!
-!     field           ! index of desired integral
-!     i1, j1, i2, j2  ! location indices of current data in
-!                       processor-global coordinates
-!
-!--------------------------------------------------------------------
-
-!----------------------------------------------------------------------
-!    be sure module has been initialized.
-!---------------------------------------------------------------------
-    if (.not. module_is_initialized) then
-      call error_mesg('mima_diag_integral_mod', &
-                      'module has not been initialized', FATAL)
-    end if
-
-!---------------------------------------------------------------------
-!    obtain the index of the current integral. make certain it is valid.
-!---------------------------------------------------------------------
-    field = get_field_index(name)
-    if (field == 0) then
-      call error_mesg('mima_diag_integral_mod', &
-                      'field does not exist', FATAL)
-    end if
-
-!----------------------------------------------------------------------
-!    define the processor-global indices of the current data. this form
-!    is needed to handle case of 2d domain decomposition with physics
-!    window smaller than processor domain size.
-!----------------------------------------------------------------------
-    i1 = mod((is - 1), size(data, 1)) + 1
-    i2 = i1 + size(data, 1) - 1
-
-!--------------------------------------------------------------------
-!    for a hemispheric sum, sum one jrow at a time in case a processor
-!    has data from both hemispheres.
-!--------------------------------------------------------------------
-    j1 = mod((js - 1), size(data, 2)) + 1
-    j2 = j1
-
-!----------------------------------------------------------------------
-!    increment the count of points toward this integral. include hemi-
-!    spheric factor of 2 in field_count. add the data values at this
-!    set of grid points to the accumulation array.
-!----------------------------------------------------------------------
-    field_count(field) = field_count(field) + 2*(i2 - i1 + 1)*(j2 - j1 + 1)
-    field_sum(field) = field_sum(field) + &
-                       sum(data(i1:i2, j1:j2)*area(is:ie, js:je))
-
-!---------------------------------------------------------------------
-
-  end subroutine sum_field_2d_hemi
 
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 !
@@ -837,7 +614,6 @@ contains
 !---------------------------------------------------------------------
 !   local variables:
 
-    character(len=max_len_name) :: fname
     integer :: nc
     integer :: i
 
@@ -1242,52 +1018,6 @@ contains
 !--------------------------------------------------------------------
 
   end function diag_integral_alarm
-
-!#######################################################################
-  !> Returns the weighted vertical average of a 3d field.
-  function vert_diag_integral(data, wt) result(data2)
-
-!----------------------------------------------------------------------
-!
-!----------------------------------------------------------------------
-
-    real, dimension(:, :, :), intent(in) :: data, wt
-    real, dimension(size(data, 1), size(data, 2)) :: data2
-
-!---------------------------------------------------------------------
-!  intent(in) variables;
-!
-!      data
-!      wt
-!
-!  result:
-!      data2
-!
-!---------------------------------------------------------------------
-
-!---------------------------------------------------------------------
-!  local variables:
-
-    real, dimension(size(data, 1), size(data, 2)) :: wt2
-
-!---------------------------------------------------------------------
-!  local variables:
-!
-!       wt2
-!
-!---------------------------------------------------------------------
-
-!--------------------------------------------------------------------
-    wt2 = sum(wt, 3)
-    if (count(wt2 == 0.) > 0) then
-      call error_mesg('mima_diag_integral_mod', &
-                      'vert sum of weights equals zero', FATAL)
-    end if
-    data2 = sum(data*wt, 3)/wt2
-
-!---------------------------------------------------------------------
-
-  end function vert_diag_integral
 
 !#######################################################################
 
