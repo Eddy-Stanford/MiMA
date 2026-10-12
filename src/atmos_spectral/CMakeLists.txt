@@ -22,6 +22,7 @@ init/vert_coordinate.f90
 init/spectral_initialize_fields.f90
 init/spectral_init_cond.f90
 init/topog_regularization.f90
+init/initial_noise.f90
 transforms/spec_mpp.f90
 transforms/gauss_and_legendre.f90
 transforms/transforms.f90
