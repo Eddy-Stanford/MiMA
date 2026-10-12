@@ -27,7 +27,7 @@ url: 'https://eddy-stanford.github.io/MiMA/'
 keywords:
   - GCM
   - Model of an Idealized Moist Atmosphere
-license: GPL-3.0
+license: GPL-3.0-only
 version: 2.0.0
 doi: 10.5281/zenodo.597136
 preferred-citation:
