@@ -69,7 +69,8 @@ module betts_miller_mod
   logical :: do_changeqref = .false.  !! shallow convection: change both q and T so that precipitation is zero
   logical :: do_envsat = .false.
   !! reference humidity relative to the environment (`.true.`) or the parcel (`.false.`)
-  logical :: do_taucape = .false.  !! make `tau_bm` proportional to `CAPE**(-1/2)`
+  logical :: do_taucape = .false.
+  !! make the relaxation time of each convecting column `tau_bm*sqrt(capetaubm/CAPE)`, at least `tau_min`
   real    :: capetaubm = 900.  !! [J/kg] CAPE at which the relaxation time is `tau_bm` (with `do_taucape`)
   real    :: tau_min = 2400.  !! [s] minimum relaxation time (with `do_taucape`)
   real    :: buoyancy_kick = 0.  !! [K] temperature added to the parcel at the lowest level
@@ -126,6 +127,7 @@ contains
     real                                                :: &
       cape1, cin1, tot, deltak, deltaq, qrefint, deltaqfrac, deltaqfrac2, &
       ptopfrac, es, plzb, plcl, cape2, small
+    real :: tau  ! relaxation time of the current column [s]
     integer i, j, k, ix, jx, kx, klzb, ktop, klzb2
 !-----------------------------------------------------------------------
 !     computation of precipitation by betts-miller scheme
@@ -165,6 +167,7 @@ contains
         cape(i, j) = cape1
         cin(i, j) = cin1
         klzbs(i, j) = klzb
+        tau = tau_bm
         if (cape1 .gt. 0.) then
 !             if((tot.gt.0.).and.(cape1.gt.0.)) then
           bmflag(i, j) = 1.
@@ -200,16 +203,12 @@ contains
 ! initialize p to zero for the loop
           precip(i, j) = 0.
           precip_t(i, j) = 0.
-! makes t_bm prop to (CAPE)**-.5.  Gives a relaxation time of tau_bm when
-! CAPE = sqrt(capetaubm)
-          if (do_taucape) then
-            tau_bm = sqrt(capetaubm)*tau_bm/sqrt(cape1)
-            if (tau_bm .lt. tau_min) tau_bm = tau_min
-          end if
+! makes tau proportional to CAPE**(-1/2): tau = tau_bm when CAPE = capetaubm
+          if (do_taucape) tau = max(sqrt(capetaubm)*tau_bm/sqrt(cape1), tau_min)
           do k = klzb, kx
 ! relax to reference profiles
-            tdel(i, j, k) = -(tin(i, j, k) - t_ref(i, j, k))/tau_bm*dt
-            qdel(i, j, k) = -(qin(i, j, k) - q_ref(i, j, k))/tau_bm*dt
+            tdel(i, j, k) = -(tin(i, j, k) - t_ref(i, j, k))/tau*dt
+            qdel(i, j, k) = -(qin(i, j, k) - q_ref(i, j, k))/tau*dt
 ! Precipitation can be calculated already, based on the change in q on the
 ! way up (this isn't altered in the energy conservation scheme).
             precip(i, j) = precip(i, j) - qdel(i, j, k)*(phalf(i, j, k + 1) - &
@@ -223,20 +222,20 @@ contains
             if (precip(i, j) .gt. precip_t(i, j)) then
 ! if the q precip is greater, then lengthen the relaxation timescale on q to
 ! conserve energy.  qdel is therefore changed.
-              invtau_bm_q(i, j) = precip_t(i, j)/precip(i, j)/tau_bm
-              qdel(i, j, klzb:kx) = tau_bm*invtau_bm_q(i, j)* &
+              invtau_bm_q(i, j) = precip_t(i, j)/precip(i, j)/tau
+              qdel(i, j, klzb:kx) = tau*invtau_bm_q(i, j)* &
                                     qdel(i, j, klzb:kx)
               precip(i, j) = precip_t(i, j)
-              invtau_bm_t(i, j) = 1./tau_bm
+              invtau_bm_t(i, j) = 1./tau
             else
               if (do_simp) then
 ! simple scheme:
 ! if the t precip is greater, then lengthen the relaxation timescale on t to
 ! conserve energy.  tdel is therefore changed.
-                invtau_bm_t(i, j) = precip(i, j)/precip_t(i, j)/tau_bm
-                tdel(i, j, klzb:kx) = tau_bm*invtau_bm_t(i, j)* &
+                invtau_bm_t(i, j) = precip(i, j)/precip_t(i, j)/tau
+                tdel(i, j, klzb:kx) = tau*invtau_bm_t(i, j)* &
                                       tdel(i, j, klzb:kx)
-                invtau_bm_q(i, j) = 1./tau_bm
+                invtau_bm_q(i, j) = 1./tau
 !                      else if(do_enadjusttemp)
               else
 ! not simple scheme: shift the reference profile of temperature
@@ -254,10 +253,10 @@ contains
 ! Adjust the reference profile (uniformly with height), and correspondingly
 ! the temperature change.
                 t_ref(i, j, klzb:kx) = t_ref(i, j, klzb:kx) + &
-                                       deltak*tau_bm/dt
+                                       deltak*tau/dt
                 tdel(i, j, klzb:kx) = tdel(i, j, klzb:kx) + deltak
-                invtau_bm_t(i, j) = 1./tau_bm
-                invtau_bm_q(i, j) = 1./tau_bm
+                invtau_bm_t(i, j) = 1./tau
+                invtau_bm_q(i, j) = 1./tau
               end if
             end if
           else if (precip_t(i, j) .gt. 0.) then
@@ -298,8 +297,8 @@ contains
                 qdel(i, j, ktop) = ptopfrac*qdel(i, j, ktop)
 ! Set precip to zero
                 precip(i, j) = 0.
-                invtau_bm_t(i, j) = 1./tau_bm
-                invtau_bm_q(i, j) = 1./tau_bm
+                invtau_bm_t(i, j) = 1./tau
+                invtau_bm_q(i, j) = 1./tau
 ! Now change the reference temperature in such a way to make the net
 ! heating zero.
 ! Reduce tdel in the top layer
@@ -317,7 +316,7 @@ contains
 ! t_ref.
                 do k = ktop, kx
                   tdel(i, j, k) = tdel(i, j, k) + deltak
-                  t_ref(i, j, k) = t_ref(i, j, k) + deltak*tau_bm/dt
+                  t_ref(i, j, k) = t_ref(i, j, k) + deltak*tau/dt
                 end do
               else
                 precip(i, j) = 0.
@@ -335,7 +334,7 @@ contains
 ! quantity deltaq).  Then the fractional change in q_ref at each level (the
 ! quantity deltaqfrac) is 1-deltaq/intqref.  (have to multiply q_ref by
 ! 1-deltaq/intqref at every level)  Then the change in qdel is
-! -deltaq/intqref*q_ref*dt/tau_bm.
+! -deltaq/intqref*q_ref*dt/tau.
 ! Change the reference profile of T by a uniform amount so that precip is zero.
               deltak = 0.
               deltaq = 0.
@@ -343,8 +342,8 @@ contains
               do k = klzb, kx
 ! deltaq = a positive quantity (since int qdel is positive).  It's how
 ! much q_ref must be changed by, in an integrated sense.  The requisite
-! change in qdel is this without the factors of tau_bm and dt.
-                deltaq = deltaq - qdel(i, j, k)*tau_bm/dt* &
+! change in qdel is this without the factors of tau and dt.
+                deltaq = deltaq - qdel(i, j, k)*tau/dt* &
                          (phalf(i, j, k) - phalf(i, j, k + 1))
 ! deltak = the amount tdel needs to be changed
                 deltak = deltak + tdel(i, j, k)* &
@@ -357,16 +356,16 @@ contains
               deltak = deltak/(phalf(i, j, kx + 1) - phalf(i, j, klzb))
 ! multiplying factor for q_ref is 1 + the ratio
               deltaqfrac = 1.-deltaq/qrefint
-! multiplying factor for qdel adds dt/tau_bm
-              deltaqfrac2 = -deltaq/qrefint*dt/tau_bm
+! multiplying factor for qdel adds dt/tau
+              deltaqfrac2 = -deltaq/qrefint*dt/tau
               precip(i, j) = 0.0
-              invtau_bm_t(i, j) = 1./tau_bm
-              invtau_bm_q(i, j) = 1./tau_bm
+              invtau_bm_t(i, j) = 1./tau
+              invtau_bm_q(i, j) = 1./tau
               do k = klzb, kx
                 qdel(i, j, k) = qdel(i, j, k) + deltaqfrac2*q_ref(i, j, k)
                 q_ref(i, j, k) = deltaqfrac*q_ref(i, j, k)
                 tdel(i, j, k) = tdel(i, j, k) + deltak
-                t_ref(i, j, k) = t_ref(i, j, k) + deltak*tau_bm/dt
+                t_ref(i, j, k) = t_ref(i, j, k) + deltak*tau/dt
               end do
             else
               precip(i, j) = 0.
@@ -403,7 +402,7 @@ contains
           ktop = max(klzb, 1)
           deltak = hlf*precip(i, j)*grav/(cp_air*(phalf(i, j, kx + 1) - phalf(i, j, ktop)))
           tdel(i, j, ktop:kx) = tdel(i, j, ktop:kx) + deltak
-          t_ref(i, j, ktop:kx) = t_ref(i, j, ktop:kx) + deltak*tau_bm/dt
+          t_ref(i, j, ktop:kx) = t_ref(i, j, ktop:kx) + deltak*tau/dt
         end if
       end do
     end do
