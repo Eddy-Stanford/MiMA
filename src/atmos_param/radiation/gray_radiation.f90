@@ -19,16 +19,6 @@
 !>   https://doi.org/10.1175/JAS3753.1.
 module gray_radiation_mod
 
-! ==================================================================================
-! ==================================================================================
-
-!  use utilities_mod,         only: error_mesg, open_file, file_exist, &
-!                                   check_nml_error, FATAL, get_my_pe, &
-!                                   close_file, set_domain, get_num_pes, &
-!                                   read_data, write_data, &
-!                                   check_system_clock, NOTE, &
-!                                   get_domain_decomp, check_system_clock
-
   use fms_mod, only: input_nml_file, check_nml_error, &
                      mpp_pe, mpp_root_pe, &
                      write_version_number, stdlog
@@ -37,9 +27,7 @@ module gray_radiation_mod
 
   use diag_manager_mod, only: register_diag_field, send_data
 
-  use time_manager_mod, only: time_type, set_date, set_time, &
-                              get_time, operator(+), &
-                              operator(-), operator(/=), get_date
+  use time_manager_mod, only: time_type
 
 !==================================================================================
   implicit none
@@ -62,7 +50,6 @@ module gray_radiation_mod
 !==================================================================================
 
 ! module variables
-  logical :: initialized = .false.
   real, parameter :: p00 = 1000.e2
 
   real    :: solar_constant = 1360.0  !! [W/m2] solar constant
@@ -84,7 +71,7 @@ module gray_radiation_mod
   real    :: del_lon = 90.0  !! [deg] longitudinal half-width of the localized (Walker-type) insolation perturbation
   real    :: fcng_pert = 0.0  !! [W/m2] amplitude of a localized (Walker-type) insolation perturbation
 
-  real, save :: pi, deg_to_rad, rad_to_deg
+  real, save :: pi, rad_to_deg
 
   namelist /gray_radiation_nml/ solar_constant, del_sol, &
     ir_tau_eq, ir_tau_pole, atm_abs, sw_diff, long_pert, del_long, &
@@ -116,7 +103,7 @@ contains
     type(time_type), intent(in)       :: Time  !! current time
 !-------------------------------------------------------------------------------------
     integer, dimension(3) :: half = (/1, 2, 4/)
-    integer :: ierr, io, unit
+    integer :: ierr, io
 !-----------------------------------------------------------------------------------------
 ! read namelist and copy to logfile
 
@@ -129,16 +116,7 @@ contains
     end if
 
     pi = 4.0*atan(1.)
-    deg_to_rad = 2.*pi/360.
     rad_to_deg = 360.0/2./pi
-
-    initialized = .true.
-
-!-----------------------------------------------------------------------
-!------- initialize quantities for integral package -------
-
-!       call diag_integral_field_init ('olr',    'f8.3')
-!       call diag_integral_field_init ('abs_sw', 'f8.3')
 
 !-----------------------------------------------------------------------
 !------------ initialize diagnostic fields ---------------
@@ -222,7 +200,7 @@ contains
     real, intent(out), dimension(:, :)   :: net_surf_sw_down, surf_lw_down
     !! net downward shortwave and downward longwave flux at the surface [W/m2]
 
-    real, dimension(size(t, 2)) :: ss, ss2, ss4, ss6, ss8, solar, tau_0, solar_tau_0, p2
+    real, dimension(size(t, 2)) :: ss, solar, tau_0, solar_tau_0, p2
     real, dimension(size(t, 1), size(t, 2))              :: b_surf
     real, dimension(size(t, 1), size(t, 2), size(t, 3))   :: b, tdt_rad, entrop_rad
     real, dimension(size(t, 1), size(t, 2), size(t, 3) + 1) :: up, down, net, solar_down, flux_rad, flux_sw
@@ -233,7 +211,6 @@ contains
 
     integer :: i, j, k, n
 
-    real :: surf_albedo
     real :: dist
     logical :: used
 
@@ -268,7 +245,6 @@ contains
     end if
 
     ss = sin(lat(1, :))
-    ss2 = ss*ss
     p2 = (1.-3.*ss*ss)/4.
 
     solar = 0.25*solar_constant*(1.0 + del_sol*p2 + del_sw*ss)
