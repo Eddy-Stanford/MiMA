@@ -68,6 +68,10 @@ module rrtm_radiation
     module procedure read_saved_2d, read_saved_3d
   end interface
 
+  interface zonal_mean
+    module procedure zonal_mean_2d, zonal_mean_3d
+  end interface
+
   logical                                    :: rrtm_init = .false.    ! has radiation been initialized?
   type(interpolate_type), save                :: o3_interp            ! use external file for ozone
   integer(kind=im)                           :: ncols_rrt, nlay_rrt   ! RRTM field sizes
@@ -561,11 +565,21 @@ contains
     else
       if (store_intermediate_rad) then
         tdt = tdt + tdt_rad
-        flux_sw = sw_flux
-        flux_lw = lw_flux
+        if (present(flux_sw)) flux_sw = sw_flux
+        if (present(flux_lw)) flux_lw = lw_flux
       else
-        flux_sw = 0.
-        flux_lw = 0.
+        if (present(flux_sw)) flux_sw = 0.
+        if (present(flux_lw)) flux_lw = 0.
+        ! no radiation is applied between the radiation steps, so the diagnostics are zero too
+        if (allocated(tdt_rad)) tdt_rad = 0.
+        if (allocated(sw_flux)) sw_flux = 0.
+        if (allocated(lw_flux)) lw_flux = 0.
+        if (allocated(tdt_sw_rad)) tdt_sw_rad = 0.
+        if (allocated(tdt_lw_rad)) tdt_lw_rad = 0.
+        if (allocated(olr)) olr = 0.
+        if (allocated(isr)) isr = 0.
+        if (allocated(swdn_toa)) swdn_toa = 0.
+        if (allocated(lwup_sfc)) lwup_sfc = 0.
       end if
       call write_diag_rrtm(Time_diag, is, js)
       return !not time yet
@@ -746,6 +760,15 @@ contains
         if (id_lwup_sfc .gt. 0) lwup_sfc(ij1, :) = di*lwupsfcijk(i1, :) + (1.-di)*lwupsfcijk(i, :)
       end do
     end do
+    if (do_zm_rad) then
+      ! the diagnostics are zonal means too
+      if (id_tdt_sw > 0) call zonal_mean(swijk, tdt_sw_rad)
+      if (id_tdt_lw > 0) call zonal_mean(lwijk, tdt_lw_rad)
+      if (id_olr > 0) call zonal_mean(olrijk, olr)
+      if (id_isr > 0) call zonal_mean(isrijk, isr)
+      if (id_swdn_toa > 0) call zonal_mean(swdntoaijk, swdn_toa)
+      if (id_lwup_sfc > 0) call zonal_mean(lwupsfcijk, lwup_sfc)
+    end if
     tdt = tdt + tdt_rrtm
     ! store radiation between radiation time steps
     if (store_intermediate_rad .or. id_tdt_rad > 0) tdt_rad = tdt_rrtm
@@ -784,23 +807,15 @@ contains
         if (id_flux_sw > 0) sw_flux = flux_sw
         if (id_flux_lw > 0) lw_flux = flux_lw
       end if
-      if (id_coszen > 0) zencos = coszen
     end if
+    if (id_coszen > 0) zencos = coszen
 
     ! check if we want surface albedo as a function of precipitation
     !  call diagnostics accordingly
     if (id_ozone > 0) then
-      if (do_precip_albedo) then
-        call write_diag_rrtm(Time_diag, is, js, o3f, t_half, albedo_loc)
-      else
-        call write_diag_rrtm(Time_diag, is, js, o3f, t_half)
-      end if
+      call write_diag_rrtm(Time_diag, is, js, o3f, t_half, albedo_loc)
     else
-      if (do_precip_albedo) then
-        call write_diag_rrtm(Time_diag, is, js, thalf=t_half, albedo_loc=albedo_loc)
-      else
-        call write_diag_rrtm(Time_diag, is, js, thalf=t_half)
-      end if
+      call write_diag_rrtm(Time_diag, is, js, thalf=t_half, albedo_loc=albedo_loc)
     end if
   end subroutine run_rrtmg
 
@@ -981,8 +996,40 @@ contains
   end subroutine sw_balanced
 
 !*****************************************************************************************
+  !> Sets every longitude of `dst` to the zonal mean of `src` (for `do_zm_rad`).
+  subroutine zonal_mean_2d(src, dst)
+    implicit none
+    real(kind=rb), dimension(:, :), intent(in)  :: src
+    real(kind=rb), dimension(:, :), intent(out) :: dst
+    real(kind=rb), dimension(size(src, 2)) :: zm
+    integer :: i
+
+    zm = sum(src, 1)/size(src, 1)
+    do i = 1, size(dst, 1)
+      dst(i, :) = zm
+    end do
+  end subroutine zonal_mean_2d
+
+  !> Sets every longitude of `dst` to the zonal mean of `src` (for `do_zm_rad`).
+  subroutine zonal_mean_3d(src, dst)
+    implicit none
+    real(kind=rb), dimension(:, :, :), intent(in)  :: src
+    real(kind=rb), dimension(:, :, :), intent(out) :: dst
+    real(kind=rb), dimension(size(src, 2), size(src, 3)) :: zm
+    integer :: i
+
+    zm = sum(src, 1)/size(src, 1)
+    do i = 1, size(dst, 1)
+      dst(i, :, :) = zm
+    end do
+  end subroutine zonal_mean_3d
+
 !*****************************************************************************************
   !> Sends the diagnostics.
+  !>
+  !> The heating rates and fluxes are sent on every step (between radiation steps, the
+  !> stored ones, or zero with `store_intermediate_rad = .false.`); the ozone, the half-level
+  !> temperature and the albedo (the optional arguments) only on radiation steps.
   subroutine write_diag_rrtm(Time, is, js, ozone, thalf, albedo_loc)
 ! Modules
     use diag_manager_mod, only: register_diag_field, send_data
@@ -1036,8 +1083,8 @@ contains
     if (id_olr > 0) then
       used = send_data(id_olr, olr, Time, is, js)
     end if
-!------- Interactive albedo                    ------------
-    if (present(albedo_loc)) then
+!------- Surface albedo seen by the radiation  ------------
+    if (present(albedo_loc) .and. id_albedo > 0) then
       used = send_data(id_albedo, albedo_loc, Time, is, js)
     end if
 !------- Ozone                                 ------------
