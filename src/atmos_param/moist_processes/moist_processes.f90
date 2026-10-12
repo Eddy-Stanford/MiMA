@@ -56,11 +56,6 @@ module moist_processes_mod
                      mpp_clock_end, CLOCK_MODULE, &
                      MPP_CLOCK_SYNC
 
-! start chemistry modules
-!use    chem_interface, only : id_wet
-!use           mo_hook, only : moz_hook
-! end chemistry modules
-!
 !------------------mj pass precipitation to rrtm for albedo-------------
   use radiation_mod, only: radiation_precip_accum
   implicit none
@@ -77,7 +72,6 @@ module moist_processes_mod
   real, parameter :: epst = 200.
 
   real, parameter :: d622 = RDGAS/RVGAS
-  real, parameter :: d378 = 1.-d622
 
 !--------------------- version number ----------------------------------
   character(len=128) :: version = '$Id: moist_processes.f90,v 12.0.4.3 2005/05/21 02:02:03 pjp Exp $'
@@ -134,7 +128,6 @@ module moist_processes_mod
   real :: missing_value = -999.
   integer :: convection_clock, largescale_clock
 
-  logical :: do_tracers_in_mca = .false.
   logical, dimension(:), allocatable :: tracers_in_mca
   integer :: num_mca_tracers = 0
   integer :: num_tracers = 0
@@ -168,12 +161,13 @@ contains
     !! `phalf`, `pfull`: pressure at half and full levels [Pa]; `zhalf`, `zfull`, `omega`,
     !! `diff_t`: not used; `t`, `q`, `u`, `v`: temperature [K], specific humidity [kg/kg] and
     !! zonal and meridional wind [m/s] at the current time level; `tm`, `qm`, `um`, `vm`: the
-    !! same at the previous time level
+    !! same at the previous time level (the winds are not used)
     real, intent(in), dimension(:, :, :, :) :: r, rm
     !! tracers at the current and previous time levels
     real, intent(inout), dimension(:, :, :)  :: tdt, qdt, udt, vdt
     !! tendencies of temperature [K/s], specific humidity [kg/kg/s] and zonal and meridional
-    !! wind [m/s2]; the tendencies of the moist processes are added to `tdt` and `qdt`
+    !! wind [m/s2]; the tendencies of the moist processes are added to `tdt` and `qdt` (`udt`
+    !! and `vdt` are not used)
     real, intent(inout), dimension(:, :, :, :):: rdt  !! tracer tendencies (wet deposition is subtracted)
     real, intent(out), dimension(:, :)     :: lprec, fprec, gust_cv
     !! `lprec`, `fprec`: rain and snow rates [kg/m2/s]; `gust_cv`: convective gustiness [m/s]
@@ -185,36 +179,20 @@ contains
     integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
 !-----------------------------------------------------------------------
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tin, qin, ttnd, qtnd, &
-                                                           rlin, riin, rnew, rlnew, rinew, qnew, qinew, qlnew, &
-                                                           rltnd, ritnd, rin, rtnd, ahuco, qrat, entrop_ls
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: ttnd_save, qtnd_save, &
-                                                           qitnd_save, &
-                                                           qltnd_save, qatnd_save
+    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tin, qin, ttnd, qtnd, rin, entrop_ls
     real, dimension(size(t, 1), size(t, 2))           :: tsnow, snow
-    real, dimension(size(t, 1), size(t, 2))           :: snow_save, rain_save
     logical, dimension(size(t, 1), size(t, 2))         :: coldT
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: utnd, vtnd, uin, vin
-
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: qltnd, qitnd, qatnd, &
-                                                           qlin, qiin, qain
     real, dimension(size(r, 1), size(r, 2), size(r, 3), size(r, 4)) :: tracer, tracertnd
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: RH, pmass, wetdeptnd, q_ref, t_ref
     real, dimension(size(t, 1), size(t, 2))           :: rain, precip, cape, cin
     real, dimension(size(t, 1), size(t, 2))           :: wvp
     real, dimension(size(t, 1), size(t, 2))           :: tempdiag, bmflag, &
                                                          klzbs, invtaubmt, invtaubmq
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tempdiag1
     integer n
 
-    integer :: i, j, k, ix, jx, kx, nt, ip, tr
+    integer :: i, j, k, ix, jx, kx, tr
     real    :: dtinv
     logical :: use_mask, used
-
-    real, dimension(size(t, 1), size(t, 2), size(t, 3) + 1) :: press
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tin_in
-
-    real :: tinsave
 
 ! tracer code:
     integer :: nn
@@ -224,8 +202,6 @@ contains
     logical :: alpha, alphc
 
 ! end tracer code
-
-    real, dimension(size(rdt, 1), size(rdt, 2), size(rdt, 3), size(rdt, 4)) :: wet_data
 !-----------------------------------------------------------------------
 
     if (.not. module_is_initialized) call error_mesg('moist_processes', &
@@ -233,7 +209,7 @@ contains
 
 !-------- input array size and position in global storage --------------
 
-    ix = size(t, 1); jx = size(t, 2); kx = size(t, 3); nt = size(rdt, 4)
+    ix = size(t, 1); jx = size(t, 2); kx = size(t, 3)
 
 !-----------------------------------------------------------------------
 
@@ -250,20 +226,14 @@ contains
     if (use_tau) then
       tin(:, :, :) = t(:, :, :)
       qin(:, :, :) = q(:, :, :)
-      uin(:, :, :) = u(:, :, :)
-      vin(:, :, :) = v(:, :, :)
     else
       tin(:, :, :) = tm(:, :, :) + tdt(:, :, :)*dt
       qin(:, :, :) = qm(:, :, :) + qdt(:, :, :)*dt
-      uin(:, :, :) = um(:, :, :) + udt(:, :, :)*dt
-      vin(:, :, :) = vm(:, :, :) + vdt(:, :, :)*dt
     end if
 
     if (use_mask) then
       tin(:, :, :) = mask(:, :, :)*tin(:, :, :) + (1.0 - mask(:, :, :))*epst
       qin(:, :, :) = mask(:, :, :)*qin(:, :, :)
-      uin(:, :, :) = mask(:, :, :)*uin(:, :, :)
-      vin(:, :, :) = mask(:, :, :)*vin(:, :, :)
     end if
 
 ! Make local copies of all the tracers
@@ -282,11 +252,6 @@ contains
         tracer(:, :, :, tr) = mask(:, :, :)*tracer(:, :, :, tr)
       end do
     end if
-
-!   initialize qrat and ahuco
-
-    qrat = 1.0
-    ahuco = 0.0
 
 !---compute mass in each layer if needed by any of the diagnostics -----
 
@@ -404,7 +369,6 @@ contains
 ! Do wet deposition for the convective routine here (prognostic tracers only: rdt has
 ! no diagnostic tracers)
 ! qdt should give the vertical distribution here
-    wet_data = 0.0
     do n = 1, size(rdt, 4)
       wetdeptnd = 0.0
       call wet_deposition(n, t, pfull, phalf, rain, snow, qtnd, tracer(:, :, :, n), &
@@ -413,7 +377,6 @@ contains
 !RSH9-11-03
 ! added here, previously effect not added to rdt
       rdt(:, :, :, n) = rdt(:, :, :, n) - wetdeptnd
-      wet_data(:, :, :, n) = wetdeptnd
     end do
 
 !-----------------------------------------------------------------------
@@ -561,14 +524,6 @@ contains
 !RSH9-11-03
 ! added here, previously effect not added to rdt
         rdt(:, :, :, n) = rdt(:, :, :, n) - wetdeptnd
-        wet_data(:, :, :, n) = wet_data(:, :, :, n) + wetdeptnd
-
-! start chemistry
-!if (id_wet(n) /= 0 ) then
-! --------send wet deposition data to diag ----------
-!used = send_data(id_wet(n), wet_data(:,:,:,n), Time,is_in=is,js_in=js)
-!endif
-! end chemistry
       end do
     end if
 
@@ -691,9 +646,6 @@ contains
 
     call sum_diag_integral_field('prec', precip*86400., is, js)
 
-!-----------------------------------------------------------------------
-!    print *, ' end moist_processes             ', mpp_pe()
-
   end subroutine moist_processes
 
 !#######################################################################
@@ -701,22 +653,13 @@ contains
   !> Initializes the module: reads `moist_processes_nml`, initializes the selected schemes,
   !> finds the tracers transported by moist convective adjustment and registers the
   !> diagnostics.
-  subroutine moist_processes_init(id, jd, kd, lonb, latb, pref, &
-                                  !                                 axes, Time, doing_strat)
-                                  axes, Time)
+  subroutine moist_processes_init(axes, Time)
 
 !-----------------------------------------------------------------------
-    integer, intent(in) :: id, jd, kd, axes(4)
-    !! `id`, `jd`: number of grid points in the global fields along x and y (not used); `kd`:
-    !! number of vertical levels (not used); `axes`: diagnostic axes (lon, lat, pfull, phalf)
-    real, dimension(:), intent(in) :: lonb, latb, pref
-    !! longitudes and latitudes of the cell boundaries [rad] and reference pressures [Pa]
-    !! (not used)
+    integer, intent(in) :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
     type(time_type), intent(in) :: Time  !! current time
-!logical,         intent(out) :: doing_strat
 
-    integer :: unit, io, ierr, n, nt, ntprog
-    character(len=32) :: tracer_units, tracer_name
+    integer :: io, ierr, n
     character(len=80)  :: scheme
 !-----------------------------------------------------------------------
 
@@ -760,8 +703,6 @@ contains
       mpp_clock_id('   Physics_up: Moist Proc: LS', &
                    grain=CLOCK_MODULE, flags=MPP_CLOCK_SYNC)
 
-!  doing_strat = do_strat
-
 !---------------------------------------------------------------------
 !    retrieve the number of registered tracers in order to determine
 !    which tracers are to be convectively transported.
@@ -797,16 +738,6 @@ contains
         end select
       end if
     end do
-
-!--------------------------------------------------------------------
-!    set a logical indicating if any tracers are to be transported by
-!    each of the available convection parameterizations.
-!--------------------------------------------------------------------
-    if (num_mca_tracers > 0) then
-      do_tracers_in_mca = .true.
-    else
-      do_tracers_in_mca = .false.
-    end if
 
 !--------------------------------------------------------------------
 !    initialize the convection scheme modules.
@@ -988,12 +919,11 @@ contains
     real, intent(in)                       :: rdgas, rvgas, hlv, kappa, cp
     real, intent(out)                      :: cape, cin
 
-    integer            :: k, klcl, klfc, klzb, klcl2
+    integer            :: k, klcl, klfc, klzb
     logical            :: nocape
-    real, dimension(kx)   :: theta, tp, rp
+    real, dimension(kx)   :: tp, rp
     real                  :: t0, r0, es, rs, theta0, pstar, value, tlcl, &
-                             a, b, dtdlnp, d2tdlnp2, thetam, rm, tlcl2, &
-                             plcl2, plcl, plzb
+                             a, b, dtdlnp, plcl, plzb
 
     pstar = 1.e5
 
@@ -1260,8 +1190,7 @@ contains
 
     character(len=32) :: tracer_units, tracer_name
     character(len=128) :: diaglname
-    integer, dimension(3) :: half = (/1, 2, 4/)
-    integer   :: n, nn
+    integer   :: n
 
 !------------ initializes diagnostic fields in this module -------------
 

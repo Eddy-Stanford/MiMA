@@ -304,8 +304,7 @@ contains
                             num_prog=ntp)
 
 !-----------------------------------------------------------------------
-    call moist_processes_init(id, jd, kd, lonb, latb, pref(:, 1), &
-                              axes, Time)
+    call moist_processes_init(axes, Time)
 
 !-----------------------------------------------------------------------
 !    initialize damping_driver_mod.
