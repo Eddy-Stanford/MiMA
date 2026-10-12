@@ -43,6 +43,13 @@ RRTM
 * [Iacono et al., JGR (2008)](https://doi.org/10.1029/2008JD009944)
 * [Clough et al., JQSRT (2005)](https://doi.org/10.1016/j.jqsrt.2004.05.058)
 
+GFDL technical notes on parts of the model (PDF)
+
+* [The spectral dynamical core](references/gfdl_spectral_core.pdf)
+* [The vertical diffusion module](references/gfdl_vert_diff.pdf) (`vert_diff_mod`)
+* [The diffusivity module](references/gfdl_diffusivity.pdf) (`diffusivity_mod`)
+* [The Monin-Obukhov module](references/gfdl_monin_obukhov.pdf) (`monin_obukhov_mod`, now `mima_monin_obukhov_mod`)
+
 Isca framework (which contains MiMA)
 
 * [Vallis et al., GMD (2018)](https://doi.org/10.5194/gmd-11-843-2018)
