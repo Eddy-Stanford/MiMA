@@ -27,6 +27,7 @@ module mima_monin_obukhov_mod
 
 ! public interfaces
 !=======================================================================
+  public monin_obukhov_init
   public mo_drag
   public mo_profile
   public mo_diff
@@ -86,10 +87,14 @@ contains
 
 !=======================================================================
 
-  !> Reads and checks `monin_obukhov_nml` and sets the derived constants.
+  !> Reads and checks `monin_obukhov_nml` and sets the derived constants. Called at
+  !> start-up by `physics_driver_init` and `flux_exchange_init` (and, if neither has, by the
+  !> first `mo_drag`, `mo_profile` or `mo_diff`). Later calls do nothing.
   subroutine monin_obukhov_init
 
     integer :: ierr, io
+
+    if (init) return
 
 !------------------- read namelist input -------------------------------
 

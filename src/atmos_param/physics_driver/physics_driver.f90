@@ -72,6 +72,7 @@ module physics_driver_mod
   use held_suarez_mod, only: held_suarez_init, held_suarez_forcing, held_suarez_end
 
   use local_heating_mod, only: local_heating_init, local_heating
+  use mima_monin_obukhov_mod, only: monin_obukhov_init
 
 !-----------------------------------------------------------------
 
@@ -266,6 +267,13 @@ contains
 !    initialize vert_turb_driver_mod.
 !-----------------------------------------------------------------------
     call vert_turb_driver_init(axes, Time)
+
+!-----------------------------------------------------------------------
+!    read monin_obukhov_nml at start-up (mo_diff is used by the boundary
+!    layer, mo_drag and mo_profile by the surface fluxes), so that it is checked
+!    in every configuration.
+!-----------------------------------------------------------------------
+    call monin_obukhov_init
 
 !-----------------------------------------------------------------------
 !    initialize vert_diff_driver_mod.
