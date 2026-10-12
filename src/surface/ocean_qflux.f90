@@ -100,7 +100,8 @@ module ocean_qflux_mod
   use mpp_domains_mod, only: domain2d, mpp_global_sum, BITWISE_EXACT_SUM
   use time_manager_mod, only: time_type
   use mima_interpolator_mod, only: interpolate_type, interpolator_init, CONSTANT, interpolator
-  use surface_types_mod, only: surface_grid_type, nml_sets
+  use surface_types_mod, only: surface_grid_type
+  use namelist_check_mod, only: nml_sets
 
   implicit none
   private

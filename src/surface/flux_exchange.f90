@@ -55,7 +55,8 @@ module flux_exchange_mod
   use physics_driver_mod, only: do_local_heating, surface_is_coupled
   use local_heating_mod, only: horizontal_heating, ngauss, hamp, pcenter
 
-  use surface_types_mod, only: surface_grid_type, surface_exchange_type, nml_has_group
+  use surface_types_mod, only: surface_grid_type, surface_exchange_type
+  use namelist_check_mod, only: nml_has_group
   use surface_albedo_mod, only: surface_albedo_init
   use ocean_model_mod, only: ocean_data_type, ocean_model_init, ocean_model_end
   use land_model_mod, only: land_data_type, land_model_read_nml_and_mask, &
