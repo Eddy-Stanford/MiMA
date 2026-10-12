@@ -75,12 +75,11 @@ module rrtm_radiation
   logical                                    :: rrtm_init = .false.    ! has radiation been initialized?
   type(interpolate_type), save                :: o3_interp            ! use external file for ozone
   integer(kind=im)                           :: ncols_rrt, nlay_rrt   ! RRTM field sizes
-  ! ncols_rrt = (size(lon)/lonstep*
-  !             size(lat)
-  ! nlay_rrt  = size(pfull)
+  ! ncols_rrt = number of longitudes/lonstep * number of latitudes (on this processor)
+  ! nlay_rrt  = number of levels
   ! gas volume mixing ratios, dimensions (ncols_rrt,nlay=nlevels)
   ! vmr = mass mixing ratio [mmr,kg/kg] scaled with molecular weight [g/mol]
-  ! any modification of the units must be accounted for in rrtm_xw_rad.nomica.f90, where x=(s,l)
+  ! any modification of the units must be accounted for in rrtmg_[sl]w_rad.nomcica.f90
   real(kind=rb), allocatable, dimension(:, :)   :: h2o                  ! specific humidity [kg/kg]
   ! dimension (ncols_rrt x nlay_rrt)
   real(kind=rb), allocatable, dimension(:, :)   :: o3                   ! ozone [mmr]
@@ -159,7 +158,7 @@ module rrtm_radiation
 !  the field to be read within the file needs to have the same name as the file
   logical            :: do_read_ozone = .true.           !! read ozone from `ozone_file` (the only way to have
                                                          !! non-constant ozone)
-  character(len=256) :: ozone_file = 'ozone_1990'              !! ozone file (in `input/INPUT/`)
+  character(len=256) :: ozone_file = 'ozone_1990'              !! ozone file in `INPUT/`, without `.nc`
   real(kind=rb)      :: scale_ozone = 1.0               !! factor applied to the ozone from the file
   real(kind=rb)      :: o3_val = 0.0                    !! constant ozone used if `do_read_ozone = .false.`
 ! secondary gases (CH4,N2O,O2,CFC11,CFC12,CFC22,CCL4)
@@ -237,13 +236,11 @@ contains
     use rrtm_astro, only: astro_init, solday
     use parrrtm, only: nbndlw
     use parrrsw, only: nbndsw
-    use diag_manager_mod, only: register_diag_field, send_data
-    use mima_interpolator_mod, only: interpolate_type, interpolator_init, &
-                                &CONSTANT, ZERO, INTERP_WEIGHTED_P
-    use fms_mod, only: input_nml_file, check_nml_error,  &
-                                &mpp_pe, mpp_root_pe, &
-                                &write_version_number, stdlog, &
-                                &error_mesg, NOTE, WARNING, FATAL
+    use diag_manager_mod, only: register_diag_field
+    use mima_interpolator_mod, only: interpolator_init, ZERO
+    use fms_mod, only: input_nml_file, check_nml_error, &
+                       mpp_pe, mpp_root_pe, stdlog, &
+                       error_mesg, NOTE, FATAL
     use time_manager_mod, only: time_type
 ! Local variables
     implicit none
@@ -255,15 +252,12 @@ contains
     real(kind=rb), dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
     type(domain2d), intent(in)         :: domain_in   !! domain decomposition of the model grid
 
-    integer :: i, k, seconds
-
-    integer :: ierr, io, unit
+    integer :: ierr, io
 
 ! read namelist and copy to logfile
     read (input_nml_file, nml=rrtm_radiation_nml, iostat=io)
     ierr = check_nml_error(io, 'rrtm_radiation_nml')
 
-    !call write_version_number ( version, tagname )
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=rrtm_radiation_nml)
     end if
@@ -322,20 +316,6 @@ contains
       register_diag_field(mod_name, 'thalf', (/axes(1), axes(2), axes(4)/), Time, &
                           'Temperature on half levels', &
                           'K', missing_value=missing_value)
-!
-!------------ make sure namelist choices are consistent -------
-! this does not work at the moment, as dt_atmos from coupler_mod induces a circular dependency at compilation
-!          if(dt_rad .le. dt_atmos .and. store_intermediate_rad)then
-!             call error_mesg ( 'rrtm_gases_init', &
-!                  ' dt_rad <= dt_atmos, for conserving memory, I am setting store_intermediate_rad=.false.', &
-!                  WARNING)
-!             store_intermediate_rad = .false.
-!          endif
-!          if(dt_rad .gt. dt_atmos .and. .not.store_intermediate_rad)then
-!             call error_mesg( 'rrtm_gases_init', &
-!                  ' dt_rad > dt_atmos, but store_intermediate_rad=.false. might cause time steps with zero radiative forcing!', &
-!                  WARNING)
-!          endif
 
 !------------ set some constants and parameters -------
 
@@ -352,9 +332,9 @@ contains
     ncols_rrt = ncols/lonstep
     nlay_rrt = nlay
 
-    if (dt_rad_avg .eq. 0.0) then
+    if (dt_rad_avg == 0) then
       do_rad_time_avg = .false.
-    else if (dt_rad_avg .lt. 0) then
+    else if (dt_rad_avg < 0) then
       dt_rad_avg = dt_rad
     end if
 
@@ -419,12 +399,12 @@ contains
     if (do_precip_albedo) allocate (rrtm_precip(size(lonb, 1) - 1, size(latb, 1) - 1))
     if (store_intermediate_rad .or. id_tdt_rad > 0) &
       allocate (tdt_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
-    if (id_tdt_sw .gt. 0) allocate (tdt_sw_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
-    if (id_tdt_lw .gt. 0) allocate (tdt_lw_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
-    if (id_isr .gt. 0) allocate (isr(size(lonb, 1) - 1, size(latb, 1) - 1))
-    if (id_olr .gt. 0) allocate (olr(size(lonb, 1) - 1, size(latb, 1) - 1))
-    if (id_swdn_toa .gt. 0) allocate (swdn_toa(size(lonb, 1) - 1, size(latb, 1) - 1))
-    if (id_lwup_sfc .gt. 0) allocate (lwup_sfc(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (id_tdt_sw > 0) allocate (tdt_sw_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
+    if (id_tdt_lw > 0) allocate (tdt_lw_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
+    if (id_isr > 0) allocate (isr(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (id_olr > 0) allocate (olr(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (id_swdn_toa > 0) allocate (swdn_toa(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (id_lwup_sfc > 0) allocate (lwup_sfc(size(lonb, 1) - 1, size(latb, 1) - 1))
 
     if (do_precip_albedo) then
       rrtm_precip = 0.
@@ -436,7 +416,7 @@ contains
 
     call astro_init
 
-    if (solday .gt. 0) then
+    if (solday > 0) then
       call error_mesg(mod_name, &
                       ' running perpetual simulation', NOTE)
     end if
@@ -456,10 +436,10 @@ contains
     !! `z_full`, `z_half`: height at full and half levels [m]; `t`: temperature [K]
     real(kind=rb), dimension(:, :), intent(in)  :: t_surf_rad  !! surface temperature [K]
 
-    integer i, j, k, kend
-    real dzk, dzk1, dzk2
+    integer :: i, j, k, kend
+    real :: dzk, dzk1, dzk2
 
-! also, for some reason, z_half(k=1)=0. so we need to deal with k=1 separately
+! z_half(k=1) at the top of the model (p = 0) is 0, so k=1 is dealt with separately
     kend = size(z_full, 3)
     do k = 2, kend
       do j = 1, size(t, 2)
@@ -477,11 +457,6 @@ contains
         !standard linear extrapolation
         !top: use full points, and distance is 1.5 from k=2
         t_half(i, j, 1) = 0.5*(3*t(i, j, 1) - t(i, j, 2))
-        !bottom: z=0 => distance is -z_full(kend-1)/(z_full(kend)-z_full(kend-1))
-!                  t_half(i,j,kend+1) = t(i,j,kend-1) &
-!                       + (z_half(i,j,kend+1) - z_full(i,j,kend-1))&
-!                       * (t     (i,j,kend  ) - t     (i,j,kend-1))&
-!                       / (z_full(i,j,kend  ) - z_full(i,j,kend-1))
         !bottom: t_half = t_surf
         t_half(i, j, kend + 1) = t_surf_rad(i, j)
       end do
@@ -500,7 +475,7 @@ contains
 !
 ! Modules
     use fms_mod, only: error_mesg, FATAL
-    use mpp_mod, only: mpp_pe, mpp_root_pe, mpp_npes
+    use mpp_mod, only: mpp_npes
     use rrtmg_lw_rad, only: rrtmg_lw
     use rrtm_astro, only: compute_zenith, use_dyofyr, solday, equinox_day
     use time_manager_mod, only: time_type, get_time, set_time
@@ -528,11 +503,11 @@ contains
     !! longwave flux at the surface [W/m2]; pass both or none
 !---------------------------------------------------------------------------------------------------------------
 ! Local variables
-    integer k, j, i, ij, j1, i1, ij1, kend, dyofyr, seconds, days
+    integer :: i, ij, i1, ij1, dyofyr, seconds, days
     integer(kind=8) :: t_now
     integer :: dloc, calday
     real(kind=rb) :: tsec
-    integer si, sj, sk, locmin(3)
+    integer :: si, sj, sk
     real(kind=rb), allocatable, dimension(:, :, :) :: o3f, tdt_rrtm  ! ozone, radiative heating
     real(kind=rb), dimension(ncols_rrt, nlay_rrt) :: pfull, tfull &
                                                      , hr, hrc, swhr
@@ -543,13 +518,11 @@ contains
     real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2)) :: swdntoaijk, lwupsfcijk
     real(kind=rb), dimension(ncols_rrt, nlay_rrt + 1):: phalf, thalf
     real(kind=rb), dimension(ncols_rrt)   :: tsrf, cosz_rr, albedo_rr
-    real(kind=rb) :: dlon, dlat, dj, di
+    real(kind=rb) :: dlon, di
     type(time_type) :: Time_loc
     real(kind=rb), dimension(size(q, 1), size(q, 2)) :: albedo_loc
     real(kind=rb), dimension(size(q, 2), size(q, 3)) :: q_zm, tdt_zm  ! zonal means
     real(kind=rb), dimension(size(q, 2)) :: precip_zm, swflx_zm, lwflx_zm
-! debug
-    integer :: indx2(2), indx(3), ii, ji, ki
 !---------------------------------------------------------------------------------------------------------------
 
     if (.not. rrtm_init) &
@@ -587,7 +560,7 @@ contains
 !make sure we run perpetual when solday > 0)
     if (solday > 0) then
       Time_loc = set_time(seconds, solday)
-    elseif (slowdown_rad .ne. 1.0) then
+    elseif (slowdown_rad /= 1.0) then
       ! in real arithmetic, as days*86400 overflows a default integer after 68 years
       tsec = (real(days, rb)*86400._rb + real(seconds, rb))*slowdown_rad
       dloc = int(tsec/86400._rb)
@@ -668,7 +641,7 @@ contains
     pfull = reshape(p_full(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))*0.01
     phalf = reshape(p_half(1:si:lonstep, :, sk + 1:1:-1), (/si*sj/lonstep, sk + 1/))*0.01
     !for RRTM, we need the top level to be greater than 0
-    if (minval(phalf(:, sk + 1)) .le. 0.) &
+    if (minval(phalf(:, sk + 1)) <= 0.) &
          &phalf(:, sk + 1) = pfull(:, sk)*0.5
     tfull = reshape(t(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
     thalf = reshape(t_half(1:si:lonstep, :, sk + 1:1:-1), (/si*sj/lonstep, sk + 1/))
@@ -694,11 +667,6 @@ contains
     tfull = min(tfull, temp_upper_limit)
     thalf = max(thalf, temp_lower_limit)
     thalf = min(thalf, temp_upper_limit)
-
-    !h2o=h2o_lower_limit
-    ! SW seems to have a problem with too small coszen values.
-    ! anything lower than 0.01 (about 15min) is set to zero
-    !where(cosz_rr < 1.e-2)cosz_rr=0.
 
     if (balance_sw_columns .and. mpp_npes() > 1) then
       call sw_balanced(pfull, phalf, tfull, thalf, tsrf, albedo_rr, cosz_rr, dyofyr, swuflx, swdflx, swhr)
@@ -752,12 +720,12 @@ contains
             +di*(swijk(i1, :, :) + lwijk(i1, :, :)) &
             + (1.-di)*(swijk(i, :, :) + lwijk(i, :, :))
         end if
-        if (id_tdt_sw .gt. 0) tdt_sw_rad(ij1, :, :) = di*swijk(i1, :, :) + (1.-di)*swijk(i, :, :)
-        if (id_tdt_lw .gt. 0) tdt_lw_rad(ij1, :, :) = di*lwijk(i1, :, :) + (1.-di)*lwijk(i, :, :)
-        if (id_olr .gt. 0) olr(ij1, :) = di*olrijk(i1, :) + (1.-di)*olrijk(i, :)
-        if (id_isr .gt. 0) isr(ij1, :) = di*isrijk(i1, :) + (1.-di)*isrijk(i, :)
-        if (id_swdn_toa .gt. 0) swdn_toa(ij1, :) = di*swdntoaijk(i1, :) + (1.-di)*swdntoaijk(i, :)
-        if (id_lwup_sfc .gt. 0) lwup_sfc(ij1, :) = di*lwupsfcijk(i1, :) + (1.-di)*lwupsfcijk(i, :)
+        if (id_tdt_sw > 0) tdt_sw_rad(ij1, :, :) = di*swijk(i1, :, :) + (1.-di)*swijk(i, :, :)
+        if (id_tdt_lw > 0) tdt_lw_rad(ij1, :, :) = di*lwijk(i1, :, :) + (1.-di)*lwijk(i, :, :)
+        if (id_olr > 0) olr(ij1, :) = di*olrijk(i1, :) + (1.-di)*olrijk(i, :)
+        if (id_isr > 0) isr(ij1, :) = di*isrijk(i1, :) + (1.-di)*isrijk(i, :)
+        if (id_swdn_toa > 0) swdn_toa(ij1, :) = di*swdntoaijk(i1, :) + (1.-di)*swdntoaijk(i, :)
+        if (id_lwup_sfc > 0) lwup_sfc(ij1, :) = di*lwupsfcijk(i1, :) + (1.-di)*lwupsfcijk(i, :)
       end do
     end do
     if (do_zm_rad) then
@@ -810,8 +778,6 @@ contains
     end if
     if (id_coszen > 0) zencos = coszen
 
-    ! check if we want surface albedo as a function of precipitation
-    !  call diagnostics accordingly
     if (id_ozone > 0) then
       call write_diag_rrtm(Time_diag, is, js, o3f, t_half, albedo_loc)
     else
@@ -1032,7 +998,7 @@ contains
   !> temperature and the albedo (the optional arguments) only on radiation steps.
   subroutine write_diag_rrtm(Time, is, js, ozone, thalf, albedo_loc)
 ! Modules
-    use diag_manager_mod, only: register_diag_field, send_data
+    use diag_manager_mod, only: send_data
     use time_manager_mod, only: time_type
 ! Input variables
     implicit none
@@ -1106,11 +1072,11 @@ contains
     !! `precip`: total precipitation; `rain`, `snow`: large-scale rain and snow [kg/m2/s]
 
     if (do_precip_albedo) then
-      if (trim(precip_albedo_mode) .eq. 'full') then
+      if (trim(precip_albedo_mode) == 'full') then
         where (precip > 0.) rrtm_precip = rrtm_precip + 1.
-      elseif (trim(precip_albedo_mode) .eq. 'lscale') then
+      elseif (trim(precip_albedo_mode) == 'lscale') then
         where (rain + snow > 0.) rrtm_precip = rrtm_precip + 1. !precip -> total precip, rain+snow -> lscale
-      elseif (trim(precip_albedo_mode) .eq. 'conv') then
+      elseif (trim(precip_albedo_mode) == 'conv') then
         where (precip - rain - snow > 0.) rrtm_precip = rrtm_precip + 1.
       end if
       num_precip = num_precip + 1
@@ -1185,7 +1151,7 @@ contains
                       ' radiation is recomputed at the first time step', NOTE)
     end if
     if (do_precip_albedo) then
-      if (restart_field_exists(rst, 'rrtm_precip')) then
+      if (restart_field_exists(rst, 'rrtm_precip') .and. restart_field_exists(rst, 'num_precip')) then
         call read_restart_field(rst, 'rrtm_precip', rrtm_precip)
         call read_restart_field(rst, 'num_precip', x)
         num_precip = nint(x)
