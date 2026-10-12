@@ -161,6 +161,10 @@ module cg_drag_mod
 !-------------------------------------------------------------------
   real, dimension(:), allocatable   :: c0, kwv, k2
 
+  real, parameter :: deg_per_rad = 180./3.14159265358979
+  !! degrees per radian, with the 15-digit pi cg_drag has always used (`PI` of constants_mod
+  !! differs in the last bits, which would change the source bands at their edges)
+
   integer    :: nc        ! number of wave speeds in spectrum
   ! (symmetric around c = 0)
   integer    :: klevel_of_source, klevel_of_damp
@@ -225,9 +229,6 @@ contains
     integer                 :: idf, jdf, kmax
     real                    :: alarm
     type(restart_file_type) :: rst
-    real                    :: pif = 3.14159265358979/180.
-    real                    :: pifinv = 180./3.14159265358979
-!      real                    :: pif = PI/180.
 
 !      real, allocatable       :: lat(:,:)
 !mj dimensions are different for non-cubed sphere version
@@ -330,14 +331,14 @@ contains
                                             klevel_of_source)*cos(lat(i, j)) + 0.5)
 
         damp_level(i, j) = klevel_of_damp  !cig
-        thislatdeg = lat(i, j)*pifinv
+        thislatdeg = lat(i, j)*deg_per_rad
 !code added by ipw - nov 23, 2016
         if (thislatdeg > phi0n) then
           source_amp(i, j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg - phi0n)/dphin)) + &
-                             Bt_sh*0.5*(1.+tanh((thislatdeg - phi0s)/dphis)); 
+                             Bt_sh*0.5*(1.+tanh((thislatdeg - phi0s)/dphis))
         elseif (thislatdeg < phi0s) then
           source_amp(i, j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg - phi0n)/dphin)) + &
-                             Bt_sh*0.5*(1.+tanh((thislatdeg - phi0s)/dphis)); 
+                             Bt_sh*0.5*(1.+tanh((thislatdeg - phi0s)/dphis))
         elseif ((thislatdeg <= dphin) .and. (thislatdeg >= dphis)) then
           source_amp(i, j) = Bt_eq
         elseif ((thislatdeg <= phi0n) .and. (thislatdeg > dphin)) then
@@ -542,8 +543,6 @@ contains
     integer           :: ie, je
     integer           :: imax, jmax, kmax
     integer           :: i, j, k, nn
-    real              :: pif = 3.14159265358979/180.
-!      real              :: pif = PI/180.
 !-------------------------------------------------------------------
 !    local variables:
 !
@@ -830,7 +829,6 @@ contains
     integer                 ::   iz0, iztop
     integer                 ::   i, j, k, ink, n
     real                    ::   ampl, cwthis, Bnthis, flagthis, kelvin_kludgethis
-    real                    :: pifinv = 180./3.14159265358979
 !------------------------------------------------------------------
 !  local variables:
 !
@@ -884,7 +882,7 @@ contains
 
       do i = 1, size(u, 1)
 !added by cig, january 2017
-        if ((lat(i, j)*pifinv <= dphin) .and. (lat(i, j)*pifinv >= dphis)) then
+        if ((lat(i, j)*deg_per_rad <= dphin) .and. (lat(i, j)*deg_per_rad >= dphis)) then
           cwthis = cwtropics
           Bnthis = 0.
           flagthis = 0
@@ -924,12 +922,12 @@ contains
 !---------------------------------------------------------------------
             c = c0(n)*flagthis + c0mu0(n)*(1 - flagthis)
             if (c0mu0(n) < 0.0) then
-              B0(n) = -1.0*(Bw*exp(-alog(2.0)*(c/cwthis)**2) + &
-                            Bnthis*exp(-alog(2.0)*(c/cn)**2))
+              B0(n) = -1.0*(Bw*exp(-log(2.0)*(c/cwthis)**2) + &
+                            Bnthis*exp(-log(2.0)*(c/cn)**2))
               B0(n) = B0(n)*kelvin_kludgethis
             else
-              B0(n) = (Bw*exp(-alog(2.0)*(c/cwthis)**2) + &
-                       Bnthis*exp(-alog(2.0)*(c/cn)**2))
+              B0(n) = (Bw*exp(-log(2.0)*(c/cwthis)**2) + &
+                       Bnthis*exp(-log(2.0)*(c/cn)**2))
 
             end if
             Bsum = Bsum + abs(B0(n))
@@ -967,7 +965,7 @@ contains
 
           do k = 0, iz0
             dz(k) = z(i, j, k) - z(i, j, k + 1)
-            Hb = -(dz(k))/alog(rho(i, j, k)/rho(i, j, k + 1))
+            Hb = -(dz(k))/log(rho(i, j, k)/rho(i, j, k + 1))
             alp2 = 0.25/(Hb*Hb)
             omc(k) = sqrt((bf(i, j, k)*bf(i, j, k)*k2(ink))/ &
                           (k2(ink) + alp2))

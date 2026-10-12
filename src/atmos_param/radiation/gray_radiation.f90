@@ -251,7 +251,7 @@ contains
         dist = sqrt(((rad_to_deg*lat(i, j) - lat_pert)/del_lat)**2 &
                     + ((rad_to_deg*lon(i, j) - lon_pert)/del_lon)**2)
         if (dist .lt. 1) then
-          walker_forcing(i, j) = fcng_pert*cos(pi*dist*0.5)**2; 
+          walker_forcing(i, j) = fcng_pert*cos(pi*dist*0.5)**2
         else
           walker_forcing(i, j) = 0.0
         end if
