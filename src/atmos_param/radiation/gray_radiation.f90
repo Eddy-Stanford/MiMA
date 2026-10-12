@@ -239,24 +239,33 @@ contains
 
     n = size(t, 3)
 
-    do i = 1, size(t, 1)
+! the insolation perturbations (exactly zero when their amplitude is zero)
+    if (size_pert /= 0.) then
       do j = 1, size(t, 2)
-        long_forcing(i, j) = size_pert*exp(-(rad_to_deg*lon(i, j) - long_pert)**2./ &
-                                           del_long**2.)
+        do i = 1, size(t, 1)
+          long_forcing(i, j) = size_pert*exp(-(rad_to_deg*lon(i, j) - long_pert)**2./ &
+                                             del_long**2.)
+        end do
       end do
-    end do
+    else
+      long_forcing = 0.
+    end if
 
-    do i = 1, size(t, 1)
+    if (fcng_pert /= 0.) then
       do j = 1, size(t, 2)
-        dist = sqrt(((rad_to_deg*lat(i, j) - lat_pert)/del_lat)**2 &
-                    + ((rad_to_deg*lon(i, j) - lon_pert)/del_lon)**2)
-        if (dist .lt. 1) then
-          walker_forcing(i, j) = fcng_pert*cos(pi*dist*0.5)**2
-        else
-          walker_forcing(i, j) = 0.0
-        end if
+        do i = 1, size(t, 1)
+          dist = sqrt(((rad_to_deg*lat(i, j) - lat_pert)/del_lat)**2 &
+                      + ((rad_to_deg*lon(i, j) - lon_pert)/del_lon)**2)
+          if (dist .lt. 1) then
+            walker_forcing(i, j) = fcng_pert*cos(pi*dist*0.5)**2
+          else
+            walker_forcing(i, j) = 0.0
+          end if
+        end do
       end do
-    end do
+    else
+      walker_forcing = 0.
+    end if
 
     ss = sin(lat(1, :))
     ss2 = ss*ss
@@ -271,29 +280,18 @@ contains
     b = stefan*t*t*t*t
     b_surf = stefan*t_surf*t_surf*t_surf*t_surf
 
+! optical depths: a fraction linear_tau of the longwave one is linear in pressure, the rest
+! goes as p**4 (relative to the reference pressure p00, not the surface pressure)
     do k = 1, n + 1
-
-!   tau(:,k)       = tau_0(:)      *(p_half(1,:,k)/p_half(1,:,n+1))**2
-
-! modif omp: optical thickness is obtained by combination of linear and quadratic function.
-! linear_tau controls the fraction of the optical depth that varies linearily. The
-! surface pressure has been replaced by a reference value (p00 = 1000mb) from constant_mod.
-
-!  tau(:,k)       = tau_0(:) * (linear_tau * p_half(1,:,k)/p00 + (1.0 - linear_tau) &
-!       * (p_half(1,:,k)/p00)**2)
-! modif df 1-23-04: changing profile of IR absorber
-      do i = 1, size(t, 1)
-        tau(i, :, k) = tau_0(:)*(linear_tau*p_half(i, :, k)/p00 + (1.0 - linear_tau) &
-                                 *(p_half(i, :, k)/p00)**4)
-!     solar_tau(i,:,k) = solar_tau_0(:)*(p_half(i,:,k)/p_half(i,:,n+1))**4
-        solar_tau(i, :, k) = solar_tau_0(:)*(p_half(i, :, k)/p00)**4
+      do j = 1, size(t, 2)
+        tau(:, j, k) = tau_0(j)*(linear_tau*p_half(:, j, k)/p00 + (1.0 - linear_tau) &
+                                 *(p_half(:, j, k)/p00)**4)
+        solar_tau(:, j, k) = solar_tau_0(j)*(p_half(:, j, k)/p00)**4
       end do
     end do
 
     do k = 1, n
-      do i = 1, size(t, 1)
-        dtrans(i, :, k) = exp(-(tau(i, :, k + 1) - tau(i, :, k)))
-      end do
+      dtrans(:, :, k) = exp(-(tau(:, :, k + 1) - tau(:, :, k)))
     end do
 
     up(:, :, n + 1) = b_surf
@@ -317,7 +315,6 @@ contains
     do k = 1, n + 1
       do j = 1, size(t, 2)
         do i = 1, size(t, 1)
-!    solar_down(i,j,k) = (solar(j)+long_forcing(i,j))*exp(-solar_tau(j,k))
           solar_down(i, j, k) = (walker_forcing(i, j) + long_forcing(i, j) &
                                  + solar(j))*exp(-solar_tau(i, j, k))
         end do
@@ -325,11 +322,9 @@ contains
     end do
 
     do k = 1, n + 1
-      do i = 1, size(t, 1)
-        net(i, :, k) = up(i, :, k) - down(i, :, k)
-        flux_sw(i, :, k) = albedo(i, :)*solar_down(i, :, n + 1) - solar_down(i, :, k)
-        flux_rad(i, :, k) = net(i, :, k) + flux_sw(i, :, k)
-      end do
+      net(:, :, k) = up(:, :, k) - down(:, :, k)
+      flux_sw(:, :, k) = albedo(:, :)*solar_down(:, :, n + 1) - solar_down(:, :, k)
+      flux_rad(:, :, k) = net(:, :, k) + flux_sw(:, :, k)
     end do
 
     do k = 1, n
