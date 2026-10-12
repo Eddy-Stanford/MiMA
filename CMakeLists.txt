@@ -62,9 +62,9 @@ target_link_libraries( mima PRIVATE ${MIMA_FMS_TARGET} )
 if(CMAKE_Fortran_COMPILER_ID  MATCHES "Intel|IntelLLVM")
     message(STATUS "Configuring for Intel Fortran")
     target_compile_options( mima PRIVATE -i4 -r8 -fpp -fPIC )
-    # Release: -O3 tuned for the build machine. (CMake appended its own -O3 to the
-    # earlier "-O2 -xHost", so this is what Release builds have always used.)
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O3 -xHost")
+    # Release: CMake's -O3, tuned for the build machine (-DCMAKE_Fortran_FLAGS_RELEASE=...
+    # replaces the -O3, e.g. with "-O2 -fp-model precise"; -xHost is always appended)
+    string(APPEND CMAKE_Fortran_FLAGS_RELEASE " -xHost")
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
     message(STATUS "Configuring for GNU Fortran")
     target_compile_options( mima PRIVATE -cpp -fallow-argument-mismatch -fbacktrace -fdefault-real-8 -fdefault-double-8 -fno-range-check -ffree-line-length-none )
@@ -72,9 +72,9 @@ elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
         # -fopenmp implies -frecursive (local arrays on the stack); keep that without OpenMP
         target_compile_options( mima PRIVATE -frecursive )
     endif()
-    # Release: -O3 tuned for the build machine. (CMake appended its own -O3 to the
-    # earlier "-O2 -march=native", so this is what Release builds have always used.)
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O3 -march=native")
+    # Release: CMake's -O3, tuned for the build machine (-DCMAKE_Fortran_FLAGS_RELEASE=...
+    # replaces the -O3, e.g. with "-O2 -ffp-contract=off"; -march=native is always appended)
+    string(APPEND CMAKE_Fortran_FLAGS_RELEASE " -march=native")
 endif()
 
 # Add various subdirectories with long lists of source files
