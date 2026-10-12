@@ -80,7 +80,7 @@ module damping_driver_mod
   integer :: id_udt_rdamp, id_vdt_rdamp, &
              id_udt_gwd, id_vdt_gwd, &
              id_sgsmtn, &
-             id_udt_cgwd, id_taus, &
+             id_udt_cgwd, id_vdt_cgwd, id_taus, &
              id_udt_cnstd                 !mj
 
   integer :: id_tdt_diss_rdamp, id_diss_heat_rdamp, &
@@ -270,6 +270,11 @@ contains
                          rmask=mask)
       end if
 
+      if (id_vdt_cgwd > 0) then
+        used = send_data(id_vdt_cgwd, vtnd, Time, is, js, 1, &
+                         rmask=mask)
+      end if
+
     end if
 
 ! constant drag, modeled on Alexander-Dunkerton winter average
@@ -449,6 +454,11 @@ contains
       id_udt_cgwd = &
         register_diag_field(mod_name, 'udt_cgwd', axes(1:3), Time, &
                             'u wind tendency for cg gravity wave drag', 'm/s2', &
+                            missing_value=missing_value)
+
+      id_vdt_cgwd = &
+        register_diag_field(mod_name, 'vdt_cgwd', axes(1:3), Time, &
+                            'v wind tendency for cg gravity wave drag', 'm/s2', &
                             missing_value=missing_value)
     end if
 
