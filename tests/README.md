@@ -94,4 +94,5 @@ commit you name.
 `.github/workflows/tests.yml` builds MiMA and runs this suite on every push to `v2` and
 `main` and on pull requests (FMS is built once and cached). The `ctest` step has a hard
 budget of a few minutes (`TEST_BUDGET_MINUTES` in the workflow): if the suite outgrows it,
-the job fails and the suite has to be trimmed, not the budget raised.
+the job fails and the suite has to be trimmed, not the budget raised. The same recipe in a
+4-CPU `ubuntu:24.04` container took 71 s for the tests and about 2 minutes for a cold build.
