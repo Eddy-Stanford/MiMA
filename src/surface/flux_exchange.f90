@@ -31,7 +31,7 @@ module flux_exchange_mod
   use atmos_model_mod, only: atmos_data_type, land_ice_atmos_boundary_type
 
   use surface_flux_mod, only: surface_flux, surface_flux_init
-  use mima_monin_obukhov_mod, only: mo_profile
+  use mima_monin_obukhov_mod, only: mo_profile, monin_obukhov_init
   use sat_vapor_pres_mod, only: compute_qs
 
   use mima_diag_integral_mod, only: diag_integral_field_init, &
@@ -497,8 +497,10 @@ contains
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=flux_exchange_nml)
     end if
-! Also when sfc_boundary_layer skips the fluxes, so that surface_flux_nml is always checked
+! Also when sfc_boundary_layer skips the fluxes, so that surface_flux_nml and
+! monin_obukhov_nml (used by surface_flux) are always checked
     call surface_flux_init
+    call monin_obukhov_init
 
 !------ the surface grid ------
 
