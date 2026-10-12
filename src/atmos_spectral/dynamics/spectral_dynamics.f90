@@ -12,6 +12,9 @@
 !> `INPUT/spectral_dynamics.res.nc` if it exists (otherwise a cold start by
 !> `spectral_init_cond`) and written to `RESTART/spectral_dynamics.res.nc`.
 !>
+!> The equations, the spectral layout and the time step are described in
+!> [The dynamical core](https://eddy-stanford.github.io/MiMA/DynamicalCore/).
+!>
 !> Namelist: `spectral_dynamics_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#spectral_dynamics_nml)).
 !>
@@ -22,8 +25,8 @@
 !>   109, 758-766.
 module spectral_dynamics_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE, FATAL, write_version_number, stdlog, &
-                     input_nml_file, check_nml_error, lowercase, uppercase, mpp_npes
+  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE, FATAL, stdlog, &
+                     input_nml_file, check_nml_error, lowercase, uppercase
 
   use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, close_restart, &
                               read_restart_field, write_restart_field, get_restart_field_size
@@ -31,7 +34,7 @@ module spectral_dynamics_mod
   use constants_mod, only: rdgas, rvgas, grav, cp_air, omega, radius, pi
 
   use time_manager_mod, only: time_type, get_time, set_time, get_calendar_type, NO_CALENDAR, &
-                              get_date, interval_alarm, operator(-), operator(+), operator(*), operator(/)
+                              get_date, interval_alarm, operator(+), operator(*), operator(/)
 
   use field_manager_mod, only: MODEL_ATMOS, parse
 
@@ -73,7 +76,7 @@ module spectral_dynamics_mod
 
   use spectral_initialize_fields_mod, only: read_initial_condition
 
-  use tracer_type_mod, only: tracer_type, tracer_type_version, tracer_type_tagname
+  use tracer_type_mod, only: tracer_type
 
   use every_step_diagnostics_mod, only: every_step_diagnostics_init, every_step_diagnostics, every_step_diagnostics_end, &
                                         need_damp_uv, need_damp_t, need_kegen, need_hadv, need_vadv
@@ -83,14 +86,9 @@ module spectral_dynamics_mod
 !===============================================================================================
 
   public :: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels
-  public :: get_use_virtual_temperature, get_reference_sea_level_press, get_surf_geopotential
+  public :: get_reference_sea_level_press, get_surf_geopotential
   public :: complete_robert_filter
   public :: get_axis_id, spectral_diagnostics, get_initial_fields
-
-!===============================================================================================
-
-  character(len=128), parameter :: version = '$Id: spectral_dynamics.f90,v 11.0.4.2 2005/06/09 18:54:54 pjp Exp $'
-  character(len=128), parameter :: tagname = '$Name:  $'
 
 !===============================================================================================
 ! variables needed for diagnostics
@@ -103,10 +101,10 @@ module spectral_dynamics_mod
   integer, dimension(4) :: axis_id
 !===============================================================================================
 
-  integer, parameter :: num_time_levels = 2
+  integer, parameter :: num_time_levels = 2   ! previous and current; the future level overwrites previous
 
   logical :: module_is_initialized = .false.
-  ! Needed only for error checks during code development
+  ! check that complete_robert_filter is called once after each step
   logical :: robert_complete_for_tracers = .true., robert_complete_for_fields = .true.
 
   type(time_type) :: Time_step, Alarm_time, Alarm_interval ! Used to determine when it is time to print global integrals.
@@ -129,7 +127,7 @@ module spectral_dynamics_mod
   integer, allocatable, dimension(:) :: tracer_vert_advect_scheme
 
   real    :: virtual_factor, dt_real
-  integer :: pe, npes, num_tracers, nhum, t_vert_advect_scheme, uv_vert_advect_scheme, step_number
+  integer :: num_tracers, nhum, t_vert_advect_scheme, uv_vert_advect_scheme, step_number
   real    :: mean_energy_previous, mean_water_previous, mean_surf_press_previous
   integer :: ms, me, ns, ne, is, ie, js, je
   integer :: previous, current, future
@@ -210,12 +208,11 @@ module spectral_dynamics_mod
              water_correction_limit = 200.e2
              !! [Pa] correct water only below this pressure; correcting in the stratosphere introduces an
              !! artificial sink there
-             ! (mj)
 
   logical :: specify_initial_conditions = .false.
   !! read the initial state from `INPUT/initial_conditions.nc` on a cold start (see
   !! [specified initial conditions](Configurations.md#specified-initial-conditions))
-  ! epg+ray: u, v, T, ps and q must be in the file (as ucomp, vcomp, temp, ps and sphum)
+  ! u, v, T, ps and q must be in the file (as ucomp, vcomp, temp, ps and sphum)
 
   integer :: add_noise_seed = -1 !! random seed for `add_noise`; set >= 0 for reproducible noise
   real :: add_noise = -1.
@@ -240,7 +237,7 @@ module spectral_dynamics_mod
     valid_range_t, eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff, &
     print_interval, num_steps, &
     noise_spectral_cutoff_minimum, noise_spectral_cutoff_maximum, &
-    water_correction_limit, specify_initial_conditions, add_noise, add_noise_seed      !mj + epg
+    water_correction_limit, specify_initial_conditions, add_noise, add_noise_seed
 
 contains
 
@@ -261,15 +258,15 @@ contains
     logical, optional, intent(in), dimension(:, :) :: ocean_mask
     !! ocean points, for the smoothing of the topography over the ocean on a cold start
 
-    integer :: num_total_wavenumbers, unit, k, seconds, days, ierr, io, ntr, nsphum, nmix_rat
-    logical :: south_to_north = .true.
+    integer :: num_total_wavenumbers, k, seconds, days, ierr, io, ntr, nsphum, nmix_rat
+    logical, parameter :: south_to_north = .true.
     real    :: ref_surf_p_implicit, robert_coeff_tracers
 
     real, allocatable, dimension(:, :) :: eigen
     integer, allocatable, dimension(:, :) :: wavenumber
     real, allocatable, dimension(:)   :: glon_bnd, glat_bnd, ref_temperature_implicit
-    character(len=32) :: chtmp, scheme, params
-    character(len=128) :: tname, longname, units, tracer_restart_file
+    character(len=32) :: scheme, params
+    character(len=128) :: tname, longname, units
 
 ! < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < >
 
@@ -278,9 +275,7 @@ contains
     read (input_nml_file, nml=spectral_dynamics_nml, iostat=io)
     ierr = check_nml_error(io, 'spectral_dynamics_nml')
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=spectral_dynamics_nml)
-    call write_version_number(tracer_type_version, tracer_type_tagname)
 
     Time_step = Time_step_in
     Alarm_interval = set_time(print_interval(2), print_interval(1))
@@ -417,6 +412,15 @@ contains
     end if
     nhum_out = nhum
 
+    ! the water correction rescales the humidity below water_correction_limit on the grid, which
+    ! has no spectral counterpart for a spectral humidity tracer
+    if (do_water_correction .and. water_correction_limit > 0. .and. &
+        trim(tracer_attributes(nhum)%numerical_representation) == 'spectral') then
+      call error_mesg('spectral_dynamics_init', 'do_water_correction with water_correction_limit > 0 '// &
+                      'needs numerical_representation = ''grid'' for '//trim(tracer_attributes(nhum)%name)// &
+                      ' in the field_table (or water_correction_limit = 0)', FATAL)
+    end if
+
     allocate (tracer_vert_advect_scheme(num_tracers))
 
     do ntr = 1, num_tracers
@@ -449,9 +453,6 @@ contains
     if (do_energy_correction .and. .not. do_mass_correction) then
       call error_mesg('spectral_dynamics_init', 'energy_correction requires mass_correction', FATAL)
     end if
-
-    pe = mpp_pe()
-    npes = mpp_npes()
 
     if (triang_trunc) then
       num_total_wavenumbers = num_spherical - 1
@@ -523,7 +524,7 @@ contains
     type(tracer_type), intent(inout), dimension(:) :: tracer_attributes
     logical, optional, intent(in), dimension(:, :) :: ocean_mask
 
-    integer :: m, n, k, nt, ntr, unit
+    integer :: m, n, k, nt, ntr
     integer, dimension(4) :: siz
     real :: level
     real, dimension(ms:me, ns:ne, num_levels) :: real_part, imag_part
@@ -629,8 +630,6 @@ contains
           else
             grid_tracers(:, :, :, :, ntr) = initial_sphum
           end if
-        else if (trim(tracer_attributes(ntr)%name) == 'mix_rat') then
-          grid_tracers(:, :, :, :, ntr) = 0.
         else
           grid_tracers(:, :, :, :, ntr) = 0.
         end if
@@ -639,7 +638,7 @@ contains
       end do
     end if
 
-    if (add_noise .gt. 0.0) then
+    if (add_noise > 0.0) then
       call add_noise_to_ics
     end if
 
@@ -683,7 +682,6 @@ contains
 !===============================================================================================
 
   subroutine allocate_fields
-    integer :: ntr
 
     allocate (psg(is:ie, js:je, num_time_levels))
     allocate (ug(is:ie, js:je, num_levels, num_time_levels))
@@ -875,12 +873,10 @@ contains
     real, dimension(is:ie, js:je, num_levels) :: dt_ug_damp, dt_vg_damp, dt_tg_damp
     real, dimension(is:ie, js:je, num_levels, num_tracers) :: dt_tracers_tmp
 
-    integer :: j, k, time_level, nsphum
+    integer :: j, k, time_level
     real    :: delta_t, temperature_correction
     real, dimension(num_tracers) :: dt_hadv, dt_vadv
-!mj error message
-    real    :: extrtmp
-    integer :: ii, jj, kk, i1, j1, k1
+    integer :: ii, jj, kk, loc(3)
 
 ! < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < >
 
@@ -895,11 +891,7 @@ contains
       else
         delta_t = 2*dt_real/num_steps
       end if
-      if (num_time_levels == 2) then
-        future = 3 - current
-      else
-        call error_mesg('spectral_dynamics', 'Do not know how to set time pointers when num_time_levels does not equal 2', FATAL)
-      end if
+      future = 3 - current   ! num_time_levels = 2
 
       dt_psg_tmp = dt_psg
       dt_ug_tmp = dt_ug
@@ -1008,39 +1000,23 @@ contains
       psg(:, :, future) = exp(ln_psg)
 
       if (minval(tg(:, :, :, future)) < valid_range_t(1) .or. maxval(tg(:, :, :, future)) > valid_range_t(2)) then
-!mj
+        ! report the global indices of the extreme temperature on this PE
         if (minval(tg(:, :, :, future)) < valid_range_t(1)) then
-          extrtmp = minval(tg(:, :, :, future))
+          loc = minloc(tg(:, :, :, future))
         else
-          extrtmp = maxval(tg(:, :, :, future))
+          loc = maxloc(tg(:, :, :, future))
         end if
-        do k1 = 1, size(tg, 3)
-          do j1 = 1, size(tg, 2)
-            do i1 = 1, size(tg, 1)
-              if (tg(i1, j1, k1, future) .eq. extrtmp) then
-                ii = i1
-                jj = j1
-                kk = k1
-                exit
-              end if
-            end do
-          end do
-        end do
-        write (*, '(a,i3,a,3i3,2f10.3)') 'PE, location, Textr(curr,future): ', mpp_pe()&
-        &, ': ', ii, jj, kk&
-        &, tg(ii, jj, kk, current)&
-        &, tg(ii, jj, kk, future)
-        write (*, '(a,i3,a,3i3,2f10.3)') 'PE, location, Uextr(curr,future): ', mpp_pe()&
-        &, ': ', ii, jj, kk&
-        &, ug(ii, jj, kk, current)&
-        &, ug(ii, jj, kk, future)
-!jm
+        ii = loc(1) + is - 1
+        jj = loc(2) + js - 1
+        kk = loc(3)
+        write (*, '(a,i0,a,3(1x,i0),a,2f10.3)') 'PE ', mpp_pe(), ': i, j, k =', ii, jj, kk, &
+          '  T (current, future) =', tg(ii, jj, kk, current), tg(ii, jj, kk, future)
+        write (*, '(a,i0,a,3(1x,i0),a,2f10.3)') 'PE ', mpp_pe(), ': i, j, k =', ii, jj, kk, &
+          '  u (current, future) =', ug(ii, jj, kk, current), ug(ii, jj, kk, future)
         call error_mesg('spectral_dynamics', 'temperatures out of valid range', FATAL)
       end if
 
       call update_tracers(tracer_attributes, dt_tracers_tmp, wg, p_half, delta_t, dt_hadv, dt_vadv)
-!mj add a vertical limit to water correction
-!call compute_corrections(delta_t, tracer_attributes, temperature_correction, water_correction)
       call compute_corrections(delta_t, tracer_attributes, temperature_correction, water_correction, p_full)
 
       previous = current
@@ -1256,23 +1232,28 @@ contains
   end subroutine compute_pressure_gradient
 
 !===================================================================================
-!mj add a vertical limit to water correction
-!subroutine compute_corrections(delta_t, tracer_attributes, temperature_correction, water_correction)
   !> Applies the mass, energy and water corrections to the new time level (see
   !> `do_mass_correction`, `do_energy_correction`, `do_water_correction`).
+  !>
+  !> The water correction rescales the humidity only where the pressure is at least
+  !> `water_correction_limit`, so that the global water is restored without a sink in the
+  !> stratosphere.
   subroutine compute_corrections(delta_t, tracer_attributes, temperature_correction, water_correction, p_full)
 
     real, intent(in)                   :: delta_t
     type(tracer_type), intent(inout), dimension(:)     :: tracer_attributes
-    real, intent(out)                   :: temperature_correction
-    real, intent(out), dimension(:, :, :) :: water_correction
-    real, intent(in), dimension(:, :, :) :: p_full !mj
+    real, intent(out)                   :: temperature_correction  !! temperature change of the energy correction [K]
+    real, intent(out), dimension(:, :, :) :: water_correction  !! humidity tendency of the water correction [kg/kg/s]
+    real, intent(in), dimension(:, :, :) :: p_full  !! pressure at full levels [Pa]
 
     real :: mass_correction_factor, water_correction_factor
     real :: mean_surf_press_tmp, mean_energy_tmp, mean_water_tmp
-!mj selective water correction
     real :: corr_water_tmp, not_corr_water_tmp
     integer, dimension(size(water_correction, 1), size(water_correction, 2), size(water_correction, 3)) :: water_mask
+
+    ! zero when a correction is off or not applied (the diagnostics send them)
+    temperature_correction = 0.
+    water_correction = 0.
 
     if (do_mass_correction) then
       mean_surf_press_tmp = area_weighted_global_mean(psg(:, :, future))
@@ -1295,7 +1276,6 @@ contains
 
     if (do_water_correction) then
       mean_water_tmp = mass_weighted_global_integral(grid_tracers(:, :, :, future, nhum), psg(:, :, future))
-!mj add water correction upper limit
       water_mask = 0
       where (p_full >= water_correction_limit)
         water_mask = 1
@@ -1306,22 +1286,19 @@ contains
         water_mask = 1
       end where
       not_corr_water_tmp = mass_weighted_global_integral(grid_tracers(:, :, :, future, nhum)*water_mask, psg(:, :, future))
-!
-      if (mean_water_tmp > 0.) then
+
+      if (mean_water_tmp > 0. .and. corr_water_tmp > 0.) then
+        ! the factor applied below water_correction_limit restores the total water
         water_correction_factor = mean_water_previous/mean_water_tmp
-!mj add water correction upper limit
         water_correction_factor = water_correction_factor*(1.+not_corr_water_tmp/corr_water_tmp) - not_corr_water_tmp/corr_water_tmp
-        water_correction = 0.
         where (p_full >= water_correction_limit)
           water_correction = (water_correction_factor - 1.)*grid_tracers(:, :, :, future, nhum)/delta_t
           grid_tracers(:, :, :, future, nhum) = water_correction_factor*grid_tracers(:, :, :, future, nhum)
         end where
-        if (tracer_attributes(nhum)%numerical_representation == 'spectral') then
-          where (p_full > water_correction_limit)
-            spec_tracers(:, :, :, future, nhum) = water_correction_factor*spec_tracers(:, :, :, future, nhum)
-          end where
+        if (trim(tracer_attributes(nhum)%numerical_representation) == 'spectral') then
+          ! only with water_correction_limit <= 0 (checked in spectral_dynamics_init): the whole field
+          spec_tracers(:, :, :, future, nhum) = water_correction_factor*spec_tracers(:, :, :, future, nhum)
         end if
-!jm
       end if
     end if
 
@@ -1339,7 +1316,6 @@ contains
     real, intent(in) :: delta_t
 
     real, dimension(is:ie, js:je, num_levels) :: energy
-    integer :: n
 
     if (do_mass_correction) then
       mean_surf_press_previous = area_weighted_global_mean(psg(:, :, previous))
@@ -1394,19 +1370,6 @@ contains
 
     return
   end subroutine get_reference_sea_level_press
-!================================================================================
-  !> Returns `use_virtual_temperature`.
-  subroutine get_use_virtual_temperature(use_virtual_temperature_out)
-    logical, intent(out) :: use_virtual_temperature_out  !! whether the geopotential uses virtual temperature
-
-    if (.not. module_is_initialized) then
-      call error_mesg('get_use_virtual_temperature', 'spectral_dynamics_init has not been called.', FATAL)
-    end if
-
-    use_virtual_temperature_out = use_virtual_temperature
-
-    return
-  end subroutine get_use_virtual_temperature
 !================================================================================
   !> Returns the number of vertical levels.
   subroutine get_num_levels(num_levels_out)
@@ -1529,7 +1492,7 @@ contains
     real, dimension(num_levels + 1) :: p_half, ln_p_half
     integer, dimension(3) :: axes_3d_half, axes_3d_full
     integer :: id_lonb, id_latb, id_phalf, id_lon, id_lat, id_pfull
-    integer :: id_pk, id_bk, id_zsurf, ntr, k
+    integer :: id_pk, id_bk, id_zsurf, ntr
     real :: rad_to_deg
     logical :: used
     real, dimension(2) :: vrange, trange
@@ -1660,7 +1623,7 @@ contains
     real, dimension(is:ie, js:je, num_levels + 1) :: ln_p_half, p_half, z_half
     real, dimension(is:ie, js:je)               :: t_low, slp
     logical :: used
-    integer :: ntr, i, j, k, seconds, days
+    integer :: ntr, i, j, k, k_low
     character(len=8) :: err_msg_1, err_msg_2
 
     if (id_ps > 0) used = send_data(id_ps, p_surf, Time)
@@ -1724,12 +1687,16 @@ contains
     if (id_slp > 0) then
       do j = js, je
         do i = is, ie
+          ! the highest level below sigma = 0.8
+          k_low = 0
           do k = 1, num_levels
-            if (p_full(i, j, k)/p_surf(i, j) > .8) goto 20
+            if (p_full(i, j, k)/p_surf(i, j) > .8) then
+              k_low = k
+              exit
+            end if
           end do
-          call error_mesg('spectral_diagnostics', 'No sigma values .gt. 0.8  Cannot compute slp', FATAL)
-20        continue
-          t_low(i, j) = t_grid(i, j, k)*(p_full(i, j, k)/p_surf(i, j))**(-expf)
+          if (k_low == 0) call error_mesg('spectral_diagnostics', 'No sigma values > 0.8  Cannot compute slp', FATAL)
+          t_low(i, j) = t_grid(i, j, k_low)*(p_full(i, j, k_low)/p_surf(i, j))**(-expf)
           slp(i, j) = p_surf(i, j)*((t_low(i, j) + gamma*surf_geopotential(i, j)/grav)/t_low(i, j))**expf_inverse
         end do
       end do
@@ -1737,18 +1704,15 @@ contains
     end if
 
     if (interval_alarm(Time, Time_step, Alarm_time, Alarm_interval)) then
-      call global_integrals(Time, p_surf, u_grid, v_grid, t_grid, wg_full, tr_grid)
+      call print_model_time(Time)
     end if
 
     return
   end subroutine spectral_diagnostics
 !===================================================================================
-  !> Prints the model time reached (despite the name, no global integrals are computed).
-  subroutine global_integrals(Time, p_surf, u_grid, v_grid, t_grid, wg_full, tr_grid)
+  !> Prints the model time reached (every `print_interval`).
+  subroutine print_model_time(Time)
     type(time_type), intent(in) :: Time
-    real, intent(in), dimension(is:ie, js:je)                          :: p_surf
-    real, intent(in), dimension(is:ie, js:je, num_levels)              :: u_grid, v_grid, t_grid, wg_full
-    real, intent(in), dimension(is:ie, js:je, num_levels, num_tracers) :: tr_grid
     integer :: year, month, days, hours, minutes, seconds
     character(len=4), dimension(12) :: month_name
 
@@ -1766,7 +1730,7 @@ contains
 100 format(' Integration completed through', i6, ' days', i6, ' seconds')
 200 format(' Integration completed through', i5, a4, i3, 2x, i2, ':', i2, ':', i2)
 
-  end subroutine global_integrals
+  end subroutine print_model_time
 !===================================================================================
   !> Returns the diagnostic axis ids (lon, lat, pfull, phalf).
   function get_axis_id()

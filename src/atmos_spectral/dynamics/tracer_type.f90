@@ -5,10 +5,6 @@ module tracer_type_mod
   private
 
   public :: tracer_type
-  public :: tracer_type_version, tracer_type_tagname
-
-  character(len=128) :: tracer_type_version = '$Id: tracer_type.f90,v 11.0 2004/09/28 19:30:05 fms Exp $'  !! version string
-  character(len=128) :: tracer_type_tagname = '$Name: lima $'  !! tag name
 
   !> Attributes of a prognostic tracer, set from the field table by `spectral_dynamics_init`.
   type tracer_type
