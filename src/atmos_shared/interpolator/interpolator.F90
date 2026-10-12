@@ -37,7 +37,7 @@ module mima_interpolator_mod
                     NF90_MAX_VAR_DIMS
   use diag_manager_mod, only: diag_manager_init, get_base_time
   use fms_mod, only: lowercase, write_version_number, &
-                     fms_init, &
+                     fms_init, input_nml_file, check_nml_error, &
                      mpp_root_pe, stdlog
   use fms2_io_mod, only: file_exists
   use horiz_interp_mod, only: horiz_interp_type, &
@@ -194,7 +194,8 @@ module mima_interpolator_mod
 !--lwh
 
   logical :: read_all_on_init = .false.  !! read all time levels of a file at initialization
-  integer :: verbose = 0  !! amount of diagnostic printout
+  integer :: verbose = 0  !! amount of diagnostic printout (> 3: note where the model column extends
+                          !! beyond the levels of a 3-D file)
 
   namelist /interpolator_nml/ &
     read_all_on_init, verbose
@@ -243,13 +244,16 @@ contains
     character(len=24) :: file_calendar
     integer :: model_calendar
     integer :: yr, mo, dy, hr, mn, sc
-    integer :: n
+    integer :: n, io, ierr
     type(time_type) :: Julian_time, Noleap_time
     real, allocatable :: time_in(:), time_values(:)
 
     if (.not. module_is_initialized) then
       call fms_init
       call diag_manager_init
+      read (input_nml_file, nml=interpolator_nml, iostat=io)
+      ierr = check_nml_error(io, 'interpolator_nml')
+      if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=interpolator_nml)
     end if
 
     tpi = 2.0*PI ! 4.*acos(0.)
