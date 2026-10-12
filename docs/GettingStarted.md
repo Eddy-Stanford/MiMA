@@ -126,6 +126,7 @@ The CMake options are:
 | `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository, or in `CMAKE_INSTALL_PREFIX` if you give one (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
 | `MIMA_RUN_CONFIG` | `input` | With `INSTALL_EXEC=ON`, the directory whose `input.nml`, `diag_table` and `field_table` are installed in `exec/`, relative to the top of the repository, e.g. `examples/gray` (see [Running the examples](#running-the-examples)). `INPUT/` always comes from `input/INPUT/`. |
 | `MIMA_OPENMP` | `OFF` | Compile with OpenMP, which threads the radiation (RRTM), the spectral transforms, the FFTs and the grid-point dynamics within each MPI process (see [OpenMP](#openmp)). |
+| `MIMA_TESTING` | `OFF` | If `ON`, adds the short model tests in `tests/` to the build, to be run with `ctest` (see `tests/README.md`). |
 
 ### OpenMP
 
