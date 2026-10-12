@@ -60,10 +60,9 @@ program coupler_main
   use constants_mod, only: constants_init
   use time_manager_mod, only: time_type, set_calendar_type, set_time, &
                               set_date, get_date, days_in_month, month_name, &
-                              operator(+), operator(-), operator(<), &
-                              operator(>), operator(/=), operator(/), &
-                              operator(*), THIRTY_DAY_MONTHS, JULIAN, &
-                              NOLEAP, NO_CALENDAR
+                              operator(+), operator(-), operator(>), &
+                              operator(/=), operator(/), THIRTY_DAY_MONTHS, &
+                              JULIAN, NOLEAP, NO_CALENDAR
   use fms_mod, only: input_nml_file, check_nml_error, &
                      uppercase, error_mesg, write_version_number, &
                      fms_init, fms_end
@@ -176,11 +175,6 @@ program coupler_main
 
   if (Atm%pe) then
     call mpp_set_current_pelist(Atm%pelist)
-  end if
-  call mpp_set_current_pelist()
-
-  if (Atm%pe) then
-    call mpp_set_current_pelist(Atm%pelist)
 
 !-----------------------------------------------------------------------
 !   ------ atmosphere/surface time step loop -------
@@ -263,18 +257,15 @@ contains
 !----- read date and calendar type from restart file -----
 
     if (file_exists('INPUT/coupler.res')) then
-!Balaji: currently written in binary, needs form=MPP_NATIVE
+! The second line, the initial date, is not used: it is taken from the diag_table below
       open (newunit=unit, file='INPUT/coupler.res', form='formatted', action='read', status='old')
-      read (unit, *, err=999) calendar_type
-      read (unit, *) date_init
-      read (unit, *) date
-      goto 998 !back to fortran-4
-!read old-style coupler.res
-999   close (unit)
-      open (newunit=unit, file='INPUT/coupler.res', form='unformatted', action='read', status='old')
-      read (unit) calendar_type
-      read (unit) date
-998   close (unit)
+      read (unit, *, iostat=io) calendar_type
+      if (io == 0) read (unit, *, iostat=io)
+      if (io == 0) read (unit, *, iostat=io) date
+      close (unit)
+      if (io /= 0) call error_mesg('program coupler', 'cannot read INPUT/coupler.res: it must hold '// &
+                                   'the calendar type, the initial date and the current date, '// &
+                                   'one per line, as written by the model', FATAL)
     else
       force_date_from_namelist = .true.
     end if
