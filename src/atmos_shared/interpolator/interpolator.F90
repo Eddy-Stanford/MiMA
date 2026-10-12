@@ -5,9 +5,9 @@
 !> interpolated conservatively to the model grid, to the model time and, for 3-D
 !> output, to the model pressure levels. The file's latitudes and longitudes may be in
 !> degrees or radians, and its levels pressure (`pfull`, `phalf`, in Pa, hPa or mb) or
-!> sigma (`sigma_full`, `sigma_half`). The time units are "days since" or "months since"
-!> a date; a year of 0 marks a climatology for all years, and julian and noleap file
-!> calendars are converted to the model calendar.
+!> sigma (`sigma_full`, `sigma_half`). The time units are "days since" a date (not
+!> "months since"); a year of 0 marks a climatology for all years, and julian and noleap
+!> file calendars are converted to the model calendar.
 !>
 !> A file with one record is used at all times, files with up to 12 records are
 !> interpolated cyclically over the year, and longer files linearly in time. Files of
@@ -434,13 +434,9 @@ contains
           read (fileunits(15:16), *) filemin
           read (fileunits(18:19), *) filesec
         case ('mon')
-          fileunits = units(14:) !Assuming "months since YYYY-MM-DD HH:MM:SS"
-          read (fileunits(1:4), *) fileyr
-          read (fileunits(6:7), *) filemon
-          read (fileunits(9:10), *) fileday
-          read (fileunits(12:13), *) filehr
-          read (fileunits(15:16), *) filemin
-          read (fileunits(18:19), *) filesec
+          ! the times would be read as days
+          call mpp_error(FATAL, 'Interpolator_init : time units "months since" are not supported (file '// &
+                         trim(file_name)//'); use "days since"')
         case default
           call mpp_error(FATAL, 'Interpolator_init : Time units not recognised in file '//file_name)
         end select
