@@ -7,7 +7,7 @@
 !> transformed to spectral space and back, so the grid fields are spectrally truncated.
 module spectral_initialize_fields_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, write_version_number, FATAL, error_mesg
+  use fms_mod, only: mpp_pe, mpp_root_pe, FATAL, error_mesg
 
   use netcdf, only: nf90_open, nf90_close, nf90_inq_varid, nf90_inquire_variable, &
                     nf90_inquire_dimension, nf90_get_var, nf90_strerror, nf90_noerr, &
@@ -33,14 +33,6 @@ module spectral_initialize_fields_mod
   end interface
 
   character(len=*), parameter :: ic_file = 'INPUT/initial_conditions.nc'
-
-  character(len=128), parameter :: version = &
-                                   '$Id: spectral_initialize_fields.f90,v 10.0 2003/10/24 22:00:59 fms Exp $'
-
-  character(len=128), parameter :: tagname = &
-                                   '$Name: lima $'
-
-  logical :: entry_to_logfile_done = .false.
 
 contains
 
@@ -69,14 +61,9 @@ contains
     real, allocatable, dimension(:, :) :: ln_psg
 
     real :: initial_sea_level_press, global_mean_psg
-    real :: initial_perturbation = 1.e-7
+    real, parameter :: initial_perturbation = 1.e-7
 
     integer :: ms, me, ns, ne, is, ie, js, je, num_levels
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
 
     num_levels = size(ug, 3)
     call get_grid_domain(is, ie, js, je)

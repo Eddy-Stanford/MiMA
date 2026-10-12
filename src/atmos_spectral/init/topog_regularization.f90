@@ -34,7 +34,7 @@
 !> Original authors: Charles Jackson, Peter Phillipps.
 module topog_regularization_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number, &
+  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
                      input_nml_file, check_nml_error, stdlog
 
   use mpp_mod, only: mpp_sum
@@ -47,9 +47,6 @@ module topog_regularization_mod
 
   implicit none
   private
-
-  character(len=128), parameter :: version = '$Id: topog_regularization.f90 MiMA v2 $'
-  character(len=128), parameter :: tagname = '$Name: MiMA v2 $'
 
   public :: regularize_topography
 
@@ -94,7 +91,6 @@ contains
 
     read (input_nml_file, nml=topog_regularization_nml, iostat=io)
     ierr = check_nml_error(io, 'topog_regularization_nml')
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=topog_regularization_nml)
 
     if (.not. transforms_are_initialized()) &

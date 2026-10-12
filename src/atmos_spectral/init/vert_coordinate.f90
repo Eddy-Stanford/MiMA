@@ -12,8 +12,7 @@
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#vert_coordinate_nml)).
 module vert_coordinate_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                     write_version_number, stdlog, &
+  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, stdlog, &
                      input_nml_file, check_nml_error
 
   use constants_mod, only: pi
@@ -22,15 +21,6 @@ module vert_coordinate_mod
   private
 
   public :: compute_vert_coord
-
-  character(len=128), parameter :: version = &
-                                   '$Id: vert_coordinate.f90,v 11.0 2004/09/28 19:29:23 fms Exp $'
-
-  character(len=128), parameter :: tagname = &
-                                   '$Name: lima $'
-
-  character(len=8) :: ch_tmp
-  logical :: entry_to_logfile_done = .false.
 
   integer, parameter :: max_levels = 100
   real, dimension(max_levels + 1) :: pk, bk
@@ -61,12 +51,7 @@ contains
     character(len=32) :: chtmp = 'size(a)=      size(b)=          '
     character(len=16) :: chtmp2, chtmp3
 
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
-
-    if (size(a, 1) .ne. size(b, 1)) then
+    if (size(a, 1) /= size(b, 1)) then
       write (chtmp(9:12), '(i4)') size(a, 1)
       write (chtmp(23:26), '(i4)') size(b, 1)
       call error_mesg('compute_vert_coord', 'size(a) does not equal size(b). '//chtmp, FATAL)
@@ -82,7 +67,7 @@ contains
       if (surf_res <= 0. .or. surf_res > 1.0) then
         write (chtmp2, '(1pe16.8)') surf_res
         call error_mesg('compute_vert_coord', &
-                        'the namelist parameter surf_res must be < 1.0, but surf_res='//chtmp2, FATAL)
+                        'the namelist parameter surf_res must be in (0, 1], but surf_res='//chtmp2, FATAL)
       end if
     end if
 
@@ -151,7 +136,12 @@ contains
   subroutine read_namelist(a, b)
 
     real, intent(out), dimension(:) :: a, b
-    integer :: namelist_unit, ierr, io
+    integer :: ierr, io
+
+    if (size(a, 1) > max_levels + 1) then
+      call error_mesg('read_namelist in vert_coordinate_mod', &
+                      'vert_coordinate_nml holds at most 100 levels (max_levels)', FATAL)
+    end if
 
     pk = 0.
     bk = 0.
@@ -170,8 +160,10 @@ contains
       call error_mesg('read_namelist in vert_coordinate_mod', 'Not enough levels specified in namelist vert_coordinate_nml', FATAL)
     end if
 
-    if (pk(size(a, 1) + 1) + bk(size(b, 1) + 1) /= 0.) then
-      call error_mesg('read_namelist in vert_coordinate_mod', 'Too many levels specified in namelist vert_coordinate_nml', FATAL)
+    if (size(a, 1) <= max_levels) then
+      if (pk(size(a, 1) + 1) + bk(size(b, 1) + 1) /= 0.) then
+        call error_mesg('read_namelist in vert_coordinate_mod', 'Too many levels specified in namelist vert_coordinate_nml', FATAL)
+      end if
     end if
 
     a = pk(1:size(a, 1))
@@ -190,7 +182,7 @@ contains
 
     a = 0.0
     do k = 1, num_levels
-      b(k) = float(k - 1)/float(num_levels)
+      b(k) = real(k - 1)/real(num_levels)
     end do
     b(num_levels + 1) = 1.0
 
@@ -218,7 +210,7 @@ contains
     s2 = 1.0 - surf_res
 
     do k = 1, num_levels
-      zeta = (1.-(float(k - 1)/float(num_levels)))
+      zeta = (1.-(real(k - 1)/real(num_levels)))
       z = surf_res*zeta + s2*(zeta**exponent)
       b(k) = exp(-z*scale_heights)
     end do

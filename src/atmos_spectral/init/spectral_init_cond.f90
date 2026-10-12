@@ -13,7 +13,7 @@
 module spectral_init_cond_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, stdlog, &
-                     write_version_number, check_nml_error, input_nml_file
+                     check_nml_error, input_nml_file
   use fms2_io_mod, only: file_exists, FmsNetcdfFile_t, open_file, close_file, read_data, &
                          get_variable_num_dimensions, get_variable_size
 
@@ -25,7 +25,7 @@ module spectral_init_cond_mod
 
   use transforms_mod, only: get_grid_boundaries, get_deg_lon, get_deg_lat, trans_grid_to_spherical, &
                             trans_spherical_to_grid, get_grid_domain, get_spec_domain
-  use spec_mpp_mod, only: grid_domain, spectral_domain
+  use spec_mpp_mod, only: grid_domain
 
   use press_and_geopot_mod, only: press_and_geopot_init, pressure_variables
 
@@ -37,12 +37,6 @@ module spectral_init_cond_mod
 
   implicit none
   private
-
-  character(len=128), parameter :: version = &
-                                   '$Id: spectral_init_cond.f90,v 10.0 2003/10/24 22:00:59 fms Exp $'
-
-  character(len=128), parameter :: tagname = &
-                                   '$Name: lima $'
 
   public :: spectral_init_cond
 
@@ -86,22 +80,16 @@ contains
     !! ocean points, used for the topography regularization instead of the mask of
     !! `topography_nml`
     logical, intent(in) :: specify_initial_conditions   !! read the initial state from `INPUT/initial_conditions.nc`
-    ! epg+ray
 
-! epg+ray: choice_of_init is used by spectral_initialize_fields to actually set up initial conditions
-    integer :: choice_of_init = 2
-    integer :: unit, ierr, io
+    integer :: choice_of_init   ! for spectral_initialize_fields: 2 = isothermal at rest, 3 = from the file
+    integer :: ierr, io
 
 !------------------------------------------------------------------------------------------------
 
-! epg+ray: if we want to specify the initial conditions, set choice_of_init to 3
-    if (specify_initial_conditions) then
-      choice_of_init = 3
-    end if
+    choice_of_init = merge(3, 2, specify_initial_conditions)
 
     read (input_nml_file, nml=spectral_init_cond_nml, iostat=io)
     ierr = check_nml_error(io, 'spectral_init_cond_nml')
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=spectral_init_cond_nml)
 
     call compute_vert_coord(vert_coord_option, scale_heights, surf_res, exponent, p_press, p_sigma, reference_sea_level_press, &
