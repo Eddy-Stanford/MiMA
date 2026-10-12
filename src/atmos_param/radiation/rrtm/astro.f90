@@ -16,10 +16,16 @@ module rrtm_astro
 ! Modules
   use parkind, only: im => kind_im, rb => kind_rb
   use fms_mod, only: input_nml_file, check_nml_error, &
-                     error_mesg, FATAL
+                     error_mesg, FATAL, mpp_pe, mpp_root_pe, stdlog
 ! Variables
   implicit none
-  logical          :: astro_initialized = .false.  !! whether `astro_init` has been called
+  private
+
+  public :: astro_init, compute_zenith
+  public :: use_dyofyr, solr_cnst, solrad, solday, equinox_day
+
+  logical          :: astro_initialized = .false.  ! whether astro_init has been called
+  integer          :: daysperyear                  ! number of days of the calendar year
 !
 !---------------------------------------------------------------------------------------------------------------
 !                                namelist values
@@ -37,13 +43,20 @@ module rrtm_astro
 contains
 !--------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------
-  !> Initializes the module: reads `astro_nml`.
+  !> Initializes the module: reads `astro_nml` and gets the length of the calendar year.
   subroutine astro_init
+    use time_manager_mod, only: get_time, length_of_year
     implicit none
-    integer :: unit, ierr, io
+    integer :: ierr, io, sec2
 
     read (input_nml_file, nml=astro_nml, iostat=io)
     ierr = check_nml_error(io, 'astro_nml')
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=astro_nml)
+
+    call get_time(length_of_year(), sec2, daysperyear)
+    if (daysperyear /= 365 .and. use_dyofyr) &
+      call error_mesg('astro', ' use_dyofyr is TRUE but the calendar year does not have 365 days. STOPPING', &
+                      FATAL)
 
     astro_initialized = .true.
 
@@ -57,9 +70,8 @@ contains
   subroutine compute_zenith(Time, equinox_day, dt, lat, lon, cosz, dyofyr, calday)
 !
 ! Modules
-    use time_manager_mod, only: time_type, get_time, length_of_year
+    use time_manager_mod, only: time_type, get_time
     use constants_mod, only: PI
-    use fms_mod, only: error_mesg, FATAL
 ! Local variables
     implicit none
 ! Inputs
@@ -78,11 +90,11 @@ contains
 
     real     :: dec_sin, dec_tan, dec, dec_cos, twopi, dt_pi
 
-    integer  :: seconds, sec2, days, daysperyear
+    integer  :: seconds, days
     real, dimension(size(lon, 1), size(lon, 2)) :: time_pi, aa, bb, tt, st, stt, sh, fracday
     real     :: radsec, radday
 
-    integer  :: i, j
+    integer  :: i
 ! Constants
     real     :: radpersec, radperday
     real     :: eps = 1.0e-05, deg2rad
@@ -92,14 +104,6 @@ contains
 
     if (.not. astro_initialized) then
       call error_mesg('astro', 'astro_mod not initialized', FATAL)
-    end if
-
-    call get_time(length_of_year(), sec2, daysperyear)
-    if (daysperyear .ne. 365 .and. use_dyofyr) then
-      print *, ' number of days per year: ', daysperyear
-      call error_mesg('astro', &
-                      ' use_dyofyr is TRUE but the calendar year does not have 365 days. STOPPING', &
-                      FATAL)
     end if
 
     radpersec = 2*PI/86400.
@@ -116,6 +120,7 @@ contains
       !move it into interval [-PI,PI]
       time_pi(i, :) = modulo(radsec + lon(i, :), 2*PI) - PI
     end do
+    ! in case rounding puts modulo() - PI just outside [-PI, PI)
     where (time_pi >= PI) time_pi = time_pi - twopi
     where (time_pi < -PI) time_pi = time_pi + twopi
     !time_pi now contains local time at each grid point
@@ -227,7 +232,7 @@ contains
 !-------------------------------------------------------------------
 !    daily mean
 !-------------------------------------------------------------------
-    else if (dt .ge. 86400.) then
+    else if (dt >= 86400.) then
       cosz = (aa*h + bb*sin(h))/PI
 
 !----------------------------------------------------------------------
