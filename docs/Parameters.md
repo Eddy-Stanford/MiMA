@@ -816,7 +816,7 @@ Declared in [`local_heating_mod`](https://eddy-stanford.github.io/MiMA/api/local
 | `latmove` | real, dimension(ngauss) | `0.` | [deg/day] meridional speed of the source |
 | `pwidth` | real, dimension(ngauss) | `1.` | [log10(hPa)] vertical width; constant in the vertical if < 0 |
 | `pcenter` | real, dimension(ngauss) | `-1.` | [hPa] pressure of the centre; surface heating if < 0 |
-| `pmove` | real, dimension(ngauss) | `0.` | [hPa/day] vertical speed of the source |
+| `pmove` | real, dimension(ngauss) | `0.` | [hPa/day] vertical speed of the source (atmospheric sources); the centre pressure is kept at 0.01 hPa or more, so a rising source (`pmove` < 0) stops at 0.01 hPa |
 | `is_periodic` | logical, dimension(ngauss) | `.false.` | reset the position periodically (with `tphase` and `tperiod`): periodic in longitude and pressure, back and forth in latitude |
 | `twidth` | real, dimension(ngauss) | `-1.` | [days] temporal width; constant in time if < 0 |
 | `tphase` | real, dimension(ngauss) | `0.` | [days] temporal phase |
