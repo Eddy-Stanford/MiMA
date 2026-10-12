@@ -24,7 +24,7 @@ module mg_drag_mod
 
   use topography_mod, only: get_topog_stdev
 
-  use fms_mod, only: mpp_npes, write_version_number, stdlog, &
+  use fms_mod, only: write_version_number, stdlog, &
                      mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, &
                      input_nml_file, check_nml_error, mpp_error
   use mpp_mod, only: mpp_max
@@ -139,7 +139,7 @@ contains
     real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3) + 1) ::  taus
     real vsamp
     integer, dimension(size(uwnd, 1), size(uwnd, 2)) :: ktop, kbtm
-    integer id, jd, idim, jdim, kdim, kdimm1, kdimp1, ie, je
+    integer idim, jdim, kdim, kdimm1, kdimp1
 
 !              XN,YN  = PROJECTIONS OF "LOW LEVEL" WIND
 !                       IN ZONAL & MERIDIONAL DIRECTIONS
@@ -163,21 +163,7 @@ contains
 !                   (dimensioned IDIM x JDIM)
 !-----------------------------------------------------------------------
 !  type loop indicies
-    integer i, j, k, kd, kb, kt, kbp1, ktm1
-!-----------------------------------------------------------------------
-!  Local variables needed only for code that
-!  implements supersource-like gravity wave drag.
-
-    integer :: klast, kcrit
-    real    :: sigtop, small = 1.e-10
-
-    real, dimension(size(uwnd, 1), size(uwnd, 2))              :: ulow, vlow, tlow, thlow
-    real, dimension(size(uwnd, 1), size(uwnd, 2))              :: rlow, zsvar, bvfreq, x
-    real, dimension(size(uwnd, 1), size(uwnd, 2))              :: depth, ave_p
-    integer, dimension(size(uwnd, 1), size(uwnd, 2))              :: ntop
-    real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3)) :: th, sh_ang, test
-!real,    dimension(size(uwnd,1),size(uwnd,2),size(uwnd,3)+1) :: sigma_half
-
+    integer i, j, kd
 !---------------------------------------------------------------------
 
     idim = size(uwnd, 1)
@@ -225,10 +211,6 @@ contains
 !                        A = 1.0
 !=======================================================================
 
-!--- export sub grid scale topography
-    ie = is + idim - 1
-    je = js + jdim - 1
-
 !-----------------------------------------------------------------------
 !     vsamp is a vertical sampling coefficient which serves to amplify
 !     the windshear wkb extension term in the calculation of d.
@@ -254,7 +236,6 @@ contains
     else
       psurf(:, :) = phalf(:, :, kdimp1)
     end if
-!     print *,'psurf=', psurf
 !  Based on fraction of model atmosphere to be considered "low-level"
 !  (input via namelist), find highest model level.
 
@@ -266,8 +247,6 @@ contains
     end do
 !  Make sure that low-level layer is at least 2 layer thick
     ktop(:, :) = min(ktop(:, :), (kbtm(:, :) - 1))
-!     print *,'ptop=', ptop
-!     print *,'ktop=', ktop
 
 !  calculate base flux
     call mgwd_base_flux(is, js, uwnd, vwnd, temp, pfull, phalf, ktop, kbtm, theta, &
@@ -324,7 +303,7 @@ contains
     integer idim, jdim, kdim, ie, je
 !-----------------------------------------------------------------------
 !  type loop indicies
-    integer i, j, k, kb, kt, kbp1, ktm1
+    integer i, j, k, kb, kt
 !-----------------------------------------------------------------------
 !===================================================================
 
@@ -370,7 +349,6 @@ contains
         end do
       end do
     end do
-!    print *, 'low-lev aves computed, ubar, vbar =', ubar, vbar
 
 !     calculate projections of low level flow onto wind components (u&v)
 !     ------------------------------------------------------------------
@@ -438,7 +416,7 @@ contains
 !=======================================================================
 !  (Intent local)
     real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3)) ::  &
-        &       dterm, dudz
+        &       dudz
     real, dimension(size(uwnd, 1), size(uwnd, 2), size(uwnd, 3) + 1) ::  &
         &       umag, bnvk2, d, d2, d2i, d2udz2, extend
     real grav2, xli, small
@@ -508,7 +486,6 @@ contains
     small = epsilon(umag)
     where (umag .lt. small) umag = 0.0
 
-!      print *, ' umag for sat flux =', umag
 
 !-----------------------------------------------------------------------
 
@@ -526,7 +503,6 @@ contains
   &                /(zhalf(:, :, k) - zhalf(:, :, k + 1))
     end do
 
-!      print *, ' dudz for sat flux =', dudz
 
 !     assume vertical derivative of umag at the boundaries=0 and
 !     compute 2nd derivatives there using uncentered differencing
@@ -550,7 +526,6 @@ contains
     end do
     end do
 
-!      print *, ' d2udz2 for sat flux =', d2udz2
 
 !-----------------------------------------------------------------------
 
@@ -563,7 +538,6 @@ contains
       extend(:, :, :) = 0.0
     end where
 
-!      print *, ' wkb exten for sat flux =', extend
 
 !     calculate brunt vaisala frequency at 1/2 levels
 !     -----------------------------------------------------
@@ -589,7 +563,6 @@ contains
     end do
     end do
 
-!      print *, ' brunt vaisala for sat flux =', bnvk2
 
 !-----------------------------------------------------------------------
 
@@ -604,7 +577,6 @@ contains
       d2i(:, :, :) = 1.0e+30
     end where
 
-!      print *, ' 1/d**2 for sat flux =', d2i
 
 !     for 1/d**2 approaching 0 calculate d by dividing by a
 !     very small but finite number
@@ -623,7 +595,6 @@ contains
 
 !-----------------------------------------------------------------------
 
-!      print *, 'd for sat flux =', d
 
 !     calculation of the saturation flux profile for scheme 2
 !     -------------------------------------------------------
@@ -741,11 +712,6 @@ contains
       dtauy(:, :, k) = yn(:, :)*dterm(:, :, k)
     end do
 
-!  print sample output
-!            print*, ' mgdrag output for i,j=', is,js
-!            print *,'taub = ', taub(is,js)
-!            print *,'taus = ', taus(is,js,:)
-!            print *,'taup = ', taup(is,js,:)
 
 !     ***********************************************************
 
@@ -768,7 +734,6 @@ contains
 !---------------------------------------------------------------------
     integer  ::  ix, iy, io, ierr
     logical  ::  answer
-    integer :: global_num_lon, global_num_lat
     type(restart_file_type) :: rst
 
 !=====================================================================
