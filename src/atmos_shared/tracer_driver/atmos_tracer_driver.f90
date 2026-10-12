@@ -29,7 +29,8 @@ module atmos_tracer_driver_mod
   use tracer_manager_mod, only: get_number_tracers
   use field_manager_mod, only: MODEL_ATMOS
   use atmos_tracer_utilities_mod, only: dry_deposition, &
-                                        atmos_tracer_utilities_init
+                                        atmos_tracer_utilities_init, &
+                                        atmos_tracer_utilities_end
   use constants_mod, only: grav
   use atmos_radon_mod, only: atmos_radon_sourcesink, &
                              atmos_radon_init, &
@@ -194,11 +195,10 @@ contains
 
 !-----------------------------------------------------------------------
 
-    if (mpp_pe() /= mpp_root_pe()) return
-
-    write (stdlog(), '(/,(a))') 'Exiting tracer_driver, have a nice day ...'
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), '(/,(a))') 'Exiting tracer_driver, have a nice day ...'
 
     call atmos_radon_end
+    call atmos_tracer_utilities_end
 
     module_is_initialized = .false.
 
