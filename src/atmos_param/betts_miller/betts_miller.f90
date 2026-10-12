@@ -23,17 +23,12 @@
 !>   https://doi.org/10.1175/JAS3935.1.
 module betts_miller_mod
 
-!----------------------------------------------------------------------
-!use      utilities_mod, only:  file_exist, error_mesg, open_file,  &
-!                               check_nml_error, get_my_pe, FATAL,  &
-!                               close_file
-
   use fms_mod, only: error_mesg, input_nml_file, &
                      check_nml_error, mpp_pe, mpp_root_pe, &
                      FATAL, write_version_number, stdlog
 
-  use sat_vapor_pres_mod, only: escomp, descomp
-  use constants_mod, only: HLv, HLs, HLf, Cp_air, Grav, rdgas, rvgas, &
+  use sat_vapor_pres_mod, only: escomp
+  use constants_mod, only: HLv, HLf, Cp_air, Grav, rdgas, rvgas, &
                            kappa, es0
 
   implicit none
@@ -52,9 +47,6 @@ module betts_miller_mod
 !-----------------------------------------------------------------------
 !   ---- local/private data ----
 
-  real, parameter :: d622 = rdgas/rvgas
-  real, parameter :: d378 = 1.-d622
-
   logical :: do_init = .true.
 
 !-----------------------------------------------------------------------
@@ -64,7 +56,6 @@ module betts_miller_mod
   real    :: rhbm = .7  !! relative humidity of the reference profile
   logical :: do_simp = .false.  !! adjust the time scales so that precipitation is always continuous
 
-!logical :: do_enadjusttemp = .false.
   logical :: do_shallower = .true.  !! shallow convection: choose a smaller depth so that precipitation is zero
   logical :: do_changeqref = .false.  !! shallow convection: change both q and T so that precipitation is zero
   logical :: do_envsat = .false.
@@ -76,7 +67,6 @@ module betts_miller_mod
   real    :: buoyancy_kick = 0.  !! [K] temperature added to the parcel at the lowest level
 
   namelist /betts_miller_nml/ tau_bm, rhbm, do_simp, &
-    !                            do_enadjusttemp, &
     do_shallower, do_changeqref, &
     do_envsat, do_taucape, capetaubm, tau_min, &
     buoyancy_kick
@@ -116,19 +106,14 @@ contains
 !-----------------------------------------------------------------------
 !---------------------- local data -------------------------------------
 
-    logical, dimension(size(tin, 1), size(tin, 2), size(tin, 3)) :: do_adjust
-    real, dimension(size(tin, 1), size(tin, 2), size(tin, 3)) :: &
-      rin, esat, qsat, desat, dqsat, pmes, pmass
-    real, dimension(size(tin, 1), size(tin, 2))             :: &
-      hlcp, precip, precip_t
-    real, dimension(size(tin, 3))                         :: eref, rpc, tpc, &
-                                                             tpc1, rpc1
+    real, dimension(size(tin, 1), size(tin, 2), size(tin, 3)) :: rin
+    real, dimension(size(tin, 1), size(tin, 2)) :: precip, precip_t
+    real, dimension(size(tin, 3)) :: rpc, tpc
 
-    real                                                :: &
-      cape1, cin1, tot, deltak, deltaq, qrefint, deltaqfrac, deltaqfrac2, &
-      ptopfrac, es, plzb, plcl, cape2, small
+    real :: cape1, cin1, deltak, deltaq, qrefint, deltaqfrac, deltaqfrac2, &
+            ptopfrac, es, small
     real :: tau  ! relaxation time of the current column [s]
-    integer i, j, k, ix, jx, kx, klzb, ktop, klzb2
+    integer i, j, k, ix, jx, kx, klzb, ktop
 !-----------------------------------------------------------------------
 !     computation of precipitation by betts-miller scheme
 !-----------------------------------------------------------------------
@@ -143,11 +128,10 @@ contains
 
 ! calculate r
     rin = qin/(1.0 - qin)
-    do i = 1, ix
-      do j = 1, jx
+    do j = 1, jx
+      do i = 1, ix
         cape1 = 0.
         cin1 = 0.
-        tot = 0.
         klzb = 0
 ! the bmflag is written out to show what aspects of the bm scheme is called
 ! bmflag = 0 is no cape, no convection
@@ -169,7 +153,6 @@ contains
         klzbs(i, j) = klzb
         tau = tau_bm
         if (cape1 .gt. 0.) then
-!             if((tot.gt.0.).and.(cape1.gt.0.)) then
           bmflag(i, j) = 1.
 ! reference temperature is just that of the parcel all the way up
           t_ref(i, j, :) = tpc
@@ -177,16 +160,12 @@ contains
 ! sets reference spec hum to a certain relative hum (change to vapor pressure,
 ! multiply by rhbm, then back to spec humid)
             if (do_envsat) then
-!                      call establ2(es,tin(i,j,k))
               call escomp(tin(i, j, k), es)
               es = es*rhbm
-!                      rpc(k) = d622*es/(pfull(i,j,k) - d378*es)
               rpc(k) = rdgas/rvgas*es/pfull(i, j, k)
               q_ref(i, j, k) = rpc(k)/(1 + rpc(k))
             else
               rpc(k) = rhbm*rpc(k)
-!                      eref(k) = rhbm*pfull(i,j,k)*rpc(k)/(d622 + d378*rpc(k))
-!                      rpc(k) = d622*eref(k)/(pfull(i,j,k) - d378*eref(k))
               q_ref(i, j, k) = rpc(k)/(1 + rpc(k))
             end if
           end do
@@ -236,7 +215,6 @@ contains
                 tdel(i, j, klzb:kx) = tau*invtau_bm_t(i, j)* &
                                       tdel(i, j, klzb:kx)
                 invtau_bm_q(i, j) = 1./tau
-!                      else if(do_enadjusttemp)
               else
 ! not simple scheme: shift the reference profile of temperature
 ! deltak is the energy correction that you make to the temperature reference
@@ -468,12 +446,10 @@ contains
     real, intent(out), dimension(:)        :: tp, rp
     real, intent(out)                      :: cape, cin
 
-    integer            :: k, klcl, klfc, klcl2
+    integer            :: k, klcl
     logical            :: nocape
-    real, dimension(kx)   :: theta
-    real                  :: t0, r0, es, rs, theta0, pstar, value, tlcl, &
-                             a, b, dtdlnp, d2tdlnp2, thetam, rm, tlcl2, &
-                             plcl2, plcl, plzb, small
+    real               :: t0, r0, es, rs, theta0, pstar, value, tlcl, &
+                          a, b, dtdlnp, plcl, small
 
     pstar = 1.e5
 ! so we can run dry limit (one expression involves 1/hlv)
@@ -483,8 +459,6 @@ contains
     cape = 0.
     cin = 0.
     plcl = 0.
-    plzb = 0.
-    klfc = 0
     klcl = 0
     klzb = 0
     tp(1:kx) = tin(1:kx)
@@ -531,7 +505,6 @@ contains
 ! if the parcel sp hum is zero or negative, set lcl to top level
         plcl = p(1)
         tlcl = theta0*(plcl/pstar)**kappa
-!            write (*,*) 'zero r0', r0
         do k = 1, kx
           tp(k) = theta0*(p(k)/pstar)**kappa
           rp(k) = 0.
@@ -560,8 +533,6 @@ contains
       a = kappa*tlcl + hlv/cp_air*r0
       b = hlv**2.*r0/cp_air/rvgas/tlcl**2.
       dtdlnp = a/(1.+b)
-! first order in p
-!         tp(klcl) = tlcl + dtdlnp*log(p(klcl)/plcl)
 ! second order in p (RK2)
 ! first get temp halfway up
       tp(klcl) = tlcl + dtdlnp*log(p(klcl)/plcl)/2.
@@ -573,16 +544,9 @@ contains
       dtdlnp = a/(1.+b)
 ! second half of RK2
       tp(klcl) = tlcl + dtdlnp*log(p(klcl)/plcl)
-!         d2tdlnp2 = (kappa + b - 1. - b/tlcl*(hlv/rvgas/tlcl - &
-!                   2.)*dtdlnp)/ (1. + b)*dtdlnp - hlv*r0/cp_air/ &
-!                   (1. + b)
-! second order in p
-!         tp(klcl) = tlcl + dtdlnp*log(p(klcl)/plcl) + .5*d2tdlnp2*(log(&
-!             p(klcl)/plcl))**2.
       if ((tp(klcl) .lt. 173.16) .and. nocape) go to 11
       call escomp(tp(klcl), es)
       rp(klcl) = rdgas/rvgas*es/p(klcl)
-!         write (*,*) 'tp, rp klcl:kx, new', tp(klcl:kx), rp(klcl:kx)
 ! CAPE/CIN stuff
       if ((tp(klcl) .lt. tin(klcl)) .and. nocape) then
 ! if you're not yet buoyant, then add to the CIN and continue
@@ -592,11 +556,7 @@ contains
 ! if you're buoyant, then add to cape
         cape = cape + rdgas*(tp(klcl) - &
                              tin(klcl))*log(phalf(klcl + 1)/phalf(klcl))
-! if it's the first time buoyant, then set the level of free convection to k
-        if (nocape) then
-          nocape = .false.
-          klfc = klcl
-        end if
+        nocape = .false.
       end if
     end if
 ! then, start at the LCL, and do moist adiabatic ascent by the first order
@@ -605,8 +565,6 @@ contains
       a = kappa*tp(k + 1) + hlv/cp_air*rp(k + 1)
       b = hlv**2./cp_air/rvgas*rp(k + 1)/tp(k + 1)**2.
       dtdlnp = a/(1.+b)
-! first order in p
-!         tp(k) = tp(k+1) + dtdlnp*log(p(k)/p(k+1))
 ! second order in p (RK2)
 ! first get temp halfway up
       tp(k) = tp(k + 1) + dtdlnp*log(p(k)/p(k + 1))/2.
@@ -618,11 +576,6 @@ contains
       dtdlnp = a/(1.+b)
 ! second half of RK2
       tp(k) = tp(k + 1) + dtdlnp*log(p(k)/p(k + 1))
-!         d2tdlnp2 = (kappa + b - 1. - b/tp(k+1)*(hlv/rvgas/tp(k+1) - &
-!               2.)*dtdlnp)/(1. + b)*dtdlnp - hlv/cp_air*rp(k+1)/(1. + b)
-! second order in p
-!         tp(k) = tp(k+1) + dtdlnp*log(p(k)/p(k+1)) + .5*d2tdlnp2*(log( &
-!             p(k)/p(k+1)))**2.
 ! if you're below the lookup table value, just presume that there's no way
 ! you could have cape and call it quits
       if ((tp(k) .lt. 173.16) .and. nocape) go to 11
@@ -639,30 +592,18 @@ contains
       else
 ! if you're buoyant, then add to cape
         cape = cape + rdgas*(tp(k) - tin(k))*log(phalf(k + 1)/phalf(k))
-! if it's the first time buoyant, then set the level of free convection to k
-        if (nocape) then
-          nocape = .false.
-          klfc = k
-        end if
+        nocape = .false.
       end if
     end do
 11  if (nocape) then
-! this is if you made it through without having a LZB
-! set LZB to be the top level.
-      plzb = p(1)
+! no CAPE: no level of zero buoyancy
       klzb = 0
-      klfc = 0
       cin = 0.
       tp(1:kx) = tin(1:kx)
       rp(1:kx) = rin(1:kx)
     end if
 ! if the parcel is still buoyant at the top level, take that as the LZB
     if (.not. nocape .and. klzb == 0) klzb = 1
-!      write (*,*) 'plcl, klcl, tlcl, r0 new', plcl, klcl, tlcl, r0
-!      write (*,*) 'tp, rp new', tp, rp
-!       write (*,*) 'tp, new', tp
-!       write (*,*) 'tin new', tin
-!       write (*,*) 'klcl, klfc, klzb new', klcl, klfc, klzb
   end subroutine capecalcnew
 
 ! lookup table for the analytic evaluation of LCL
@@ -738,7 +679,7 @@ contains
   subroutine betts_miller_init()
 
 
-    integer unit, io, ierr
+    integer io, ierr
 
 !----------- read namelist ---------------------------------------------
 
