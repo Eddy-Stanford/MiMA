@@ -232,7 +232,7 @@ contains
   subroutine lscale_cond_init()
 
 
-    integer unit, io, ierr
+    integer io, ierr
 
 !----------- read namelist ---------------------------------------------
 

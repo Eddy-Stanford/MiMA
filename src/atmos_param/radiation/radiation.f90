@@ -59,7 +59,7 @@ contains
     real, intent(in), dimension(:) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
     type(domain2d), intent(in)               :: domain   !! grid domain, for restart files
 
-    integer :: unit, ierr, io
+    integer :: ierr, io
 
     if (module_is_initialized) return
 

@@ -67,7 +67,7 @@ contains
     integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
     type(time_type), intent(in)               :: Time  !! current time
 
-    integer :: unit, ierr, io
+    integer :: ierr, io
 
     if (module_is_initialized) return
 
@@ -116,7 +116,7 @@ contains
 
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: teq, tdt_hs, udt_hs, vdt_hs, diss
     real, dimension(size(t, 1), size(t, 2))           :: sin2, cos2, cos4, p_surf
-    real    :: sigma, sigma_fac, rka, rks, rkf
+    real    :: rka, rks, rkf
     integer :: k, nlev
     logical :: used
 

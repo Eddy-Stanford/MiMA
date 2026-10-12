@@ -12,7 +12,7 @@
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#diffusivity_nml)).
 module diffusivity_mod
 
-  use constants_mod, only: grav, vonkarm, cp_air, rdgas, rvgas
+  use constants_mod, only: grav, cp_air, rdgas
 
   use fms_mod, only: error_mesg, FATAL, &
                      check_nml_error, input_nml_file, &
@@ -61,8 +61,6 @@ module diffusivity_mod
   real    :: rbop1 = 110.4
   real    :: rbop2 = 1.405
 
-  real, parameter :: d608 = (rvgas - rdgas)/rdgas
-
 contains
 
 !=======================================================================
@@ -70,7 +68,7 @@ contains
   !> Reads `diffusivity_nml` and checks its values.
   subroutine diffusivity_init
 
-    integer :: unit, ierr, io
+    integer :: ierr, io
 
 !------------------- read namelist input -------------------------------
 
@@ -103,13 +101,6 @@ contains
     return
   end subroutine diffusivity_init
 
-!=======================================================================
-
-  subroutine diffusivity_end
-
-    module_is_initialized = .false.
-
-  end subroutine diffusivity_end
 
 !=======================================================================
 
@@ -278,7 +269,7 @@ contains
                                                             k_t_ref, factor
     real, dimension(size(t, 1), size(t, 2), size(t, 3) + 1)  :: zm
     real                                              :: h_inner_max
-    integer                                           :: i, j, k, kk, nlev
+    integer                                           :: k, kk, nlev
 
     nlev = size(t, 3)
 
