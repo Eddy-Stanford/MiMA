@@ -646,7 +646,7 @@ contains
 
     !interactive albedo: zonal mean of precipitation
     if (do_precip_albedo .and. num_precip > 0) then
-      where (abs(lat) < precip_lat*3.14159265/180.) rrtm_precip = 0.
+      where (abs(lat) < precip_lat*deg2rad) rrtm_precip = 0.
       precip_zm = sum(rrtm_precip, 1)
       do i = 1, size(albedo, 1)
         albedo_loc(i, :) = albedo(i, :) + (precip_albedo - albedo(i, :))&
