@@ -30,7 +30,6 @@ module mima_monin_obukhov_mod
   public mo_drag
   public mo_profile
   public mo_diff
-  public stable_mix
 !=======================================================================
 
   !> Computes the drag coefficients, the friction velocity and the buoyancy scale from the
@@ -65,16 +64,6 @@ module mima_monin_obukhov_mod
     module procedure mo_diff_one_lev_0d, mo_diff_one_lev_1d, mo_diff_one_lev_2d
   end interface
 
-  !> Returns the factor `1/phi**2` that reduces the mixing in stable conditions, as a function
-  !> of the Richardson number (0 where it is not between 0 and `rich_crit`).
-  !>
-  !> `stable_option` selects the stability function; with `stable_option = 2` it changes at
-  !> z/L = `zeta_trans`. Scalar or 1d to 3d arguments.
-  interface stable_mix
-    module procedure stable_mix_0d, stable_mix_1d
-    module procedure stable_mix_2d, stable_mix_3d
-  end interface
-
 !--------------------- version number ---------------------------------
 
   character(len=128) :: version = '$Id: monin_obukhov.f90,v 1.5.4.1 2005/05/13 18:16:40 pjp Exp $'
@@ -87,20 +76,15 @@ module mima_monin_obukhov_mod
   real    :: rich_crit = 2.0  !! critical Richardson number (must be > 0.25)
   real    :: drag_min = 4.e-05  !! minimum drag coefficient (>= 0)
   logical :: neutral = .false.  !! neutral stability everywhere
-  integer :: stable_option = 1
-  !! stability function for stable conditions (1 or 2); used only by `stable_mix`, which is
-  !! not called in MiMA
-  real    :: zeta_trans = 0.5  !! transition value of z/L for `stable_option = 2`
 
-  namelist /monin_obukhov_nml/ rich_crit, neutral, drag_min, &
-    stable_option, zeta_trans
+  namelist /monin_obukhov_nml/ rich_crit, neutral, drag_min
 
 !=======================================================================
 
 !  MODULE VARIABLES
 
   real, parameter    :: small = 1.e-04
-  real               :: b_stab, r_crit, sqrt_drag_min, lambda, rich_trans
+  real               :: r_crit, sqrt_drag_min
   logical            :: init = .false.
 
 contains
@@ -110,7 +94,7 @@ contains
   !> Reads and checks `monin_obukhov_nml` and sets the derived constants.
   subroutine monin_obukhov_init
 
-    integer :: unit, ierr, io
+    integer :: ierr, io
 
 !------------------- read namelist input -------------------------------
 
@@ -132,14 +116,10 @@ contains
       'MONIN_OBUKHOV_INIT in MONIN_OBUKHOV_MOD', &
       'drag_min in mima_monin_obukhov_mod must be >= 0.0', FATAL)
 
-    b_stab = 1.0/rich_crit
     r_crit = 0.95*rich_crit
 
     sqrt_drag_min = 0.0
     if (drag_min .ne. 0.0) sqrt_drag_min = sqrt(drag_min)
-
-    lambda = 1.0 + (5.0 - b_stab)*zeta_trans   ! used only if stable_option = 2
-    rich_trans = zeta_trans/(1.0 + 5.0*zeta_trans) ! used only if stable_option = 2
 
     init = .true.
 
@@ -162,17 +142,11 @@ contains
     real, intent(out), dimension(:) :: u_star, b_star  !! friction velocity [m/s] and buoyancy scale [m/s2]
     logical, intent(in), optional, dimension(:) :: mask  !! compute only where `.true.`
 
-    real :: vk2, r_crit1
-
     real, dimension(size(pt)) :: rich, fm, fh, fq
     integer, dimension(size(pt)) :: stabl, unstabl
     logical, dimension(size(pt)) :: avail
 
-    real, dimension(size(pt)) :: &
-      rich_1d, z_1d, z0_1d, zt_1d, zq_1d, fm_1d, fh_1d, fq_1d, zeta_1d, delta_b, us, bs, qs, &
-      u_star_eq, b_star_eq, drag_m_eq, drag_t_eq, drag_q_eq
-
-    real :: xi, xi_1, xi_2
+    real, dimension(size(pt)) :: delta_b, us, bs, qs, drag_m_eq, drag_t_eq, drag_q_eq
 
     integer :: i, npts, nptu
 
@@ -180,8 +154,6 @@ contains
 
     avail = .true.
     if (present(mask)) avail = mask
-
-    vk2 = vonkarm**2
 
 ! delta_b is the difference in buoyancy b/w first level and surface
 ! rich is the richardson number: (dB/dz)/(du/dz)^2
@@ -227,23 +199,7 @@ contains
       call separate_stabilities(npts, nptu, stabl, unstabl, rich, avail, r_crit)
 ! unstable points -- now treated as the neutral case.
       if (nptu > 0) then
-
-!    do i =1, nptu
-!       rich_1d(i) = rich(unstabl(i))
-!       z_1d   (i) = z   (unstabl(i))
-!       z0_1d  (i) = z0  (unstabl(i))
-!       zt_1d  (i) = zt  (unstabl(i))
-!       zq_1d  (i) = zq  (unstabl(i))
-!    end do
-!
-!    call solve_zeta  &
-!     (nptu, rich_1d, z_1d, z0_1d, zt_1d, zq_1d, fm_1d, fh_1d, fq_1d, &
-!      unstable = .true.)
-!
         do i = 1, nptu
-!      fm(unstabl(i)) = fm_1d(i)
-!      fh(unstabl(i)) = fh_1d(i)
-!      fq(unstabl(i)) = fq_1d(i)
           fm(unstabl(i)) = log(z(unstabl(i))/z0(unstabl(i)))
           fh(unstabl(i)) = log(z(unstabl(i))/zt(unstabl(i)))
           fq(unstabl(i)) = log(z(unstabl(i))/zq(unstabl(i)))
@@ -254,19 +210,6 @@ contains
 ! zero near Ri = 1).
 ! no iteration is necessary -- we have an analytic solution
       if (npts > 0) then
-!    do i =1, npts
-!       rich_1d(i) = rich(stabl(i))
-!       z_1d   (i) = z   (stabl(i))
-!       z0_1d  (i) = z0  (stabl(i))
-!       zt_1d  (i) = zt  (stabl(i))
-!       zq_1d  (i) = zq  (stabl(i))
-!    end do
-!
-!    call solve_zeta  &
-!     (npts, rich_1d, z_1d, z0_1d, zt_1d, zq_1d, fm_1d, fh_1d, fq_1d, &
-!      unstable = .false.)
-!
-
         do i = 1, npts
           fm(stabl(i)) = log(z(stabl(i))/z0(stabl(i)))/(1.- &
                                                         rich(stabl(i))*(1.-z0(stabl(i))/z(stabl(i))))
@@ -274,9 +217,6 @@ contains
                                                         rich(stabl(i))*(1.-zt(stabl(i))/z(stabl(i))))
           fq(stabl(i)) = log(z(stabl(i))/zq(stabl(i)))/(1.- &
                                                         rich(stabl(i))*(1.-zq(stabl(i))/z(stabl(i))))
-!      fm(stabl(i)) = fm_1d(i)
-!      fh(stabl(i)) = fh_1d(i)
-!      fq(stabl(i)) = fq_1d(i)
         end do
       end if
 
@@ -304,230 +244,6 @@ contains
 
 !=======================================================================
 
-  !> Solves iteratively for z/L from the bulk Richardson number (not called in this version).
-  subroutine solve_zeta(n, rich, z, z0, zt, zq, f_m, f_h, f_q, unstable)
-
-    integer, intent(in) :: n
-    real, intent(in), dimension(n)  :: rich, z, z0, zt, zq
-    logical, intent(in) :: unstable
-    real, intent(out), dimension(n) :: f_m, f_h, f_q
-
-    real :: vk, vk2, error, max_cor, zeta_min
-    real, dimension(n) :: &
-      d_rich, rich_1, correction, &
-      z_z0, z_zt, z_zq, ln_z_z0, ln_z_zt, ln_z_zq, zeta, zeta_q, corr
-
-    integer :: iter, max_iter, nn
-
-    vk2 = vonkarm**2
-    error = 1.e-4
-    max_iter = 20
-    zeta_min = 1.e-6
-
-    z_z0 = z/z0
-    z_zt = z/zt
-    z_zq = z/zq
-    ln_z_z0 = log(z_z0)
-    ln_z_zt = log(z_zt)
-    ln_z_zq = log(z_zq)
-
-    zeta = rich*ln_z_z0*ln_z_z0/ln_z_zt
-    if (.not. unstable) zeta = zeta/(1.0 - rich/rich_crit)
-
-    iter_loop: do iter = 1, max_iter
-
-      where (abs(zeta) .lt. zeta_min) zeta = zeta_min
-      call solve_zeta_internal &
-        (unstable, zeta, z_z0, z_zt, ln_z_z0, ln_z_zt, f_m, f_h, rich_1, d_rich)
-      correction = (rich - rich_1)/d_rich
-      corr = min(abs(correction), abs(correction/zeta))
-      max_cor = maxval(corr)
-
-      if (max_cor .gt. error) then
-        where (corr .gt. error) zeta = zeta + correction
-        cycle iter_loop
-      else
-        zeta_q = zeta/z_zq
-        if (unstable) then
-          call mo_integral_uh(f_q, zeta, zeta_q, ln_z_zq)
-        else
-          call mo_integral_s(f_q, zeta, zeta_q, ln_z_zq)
-        end if
-        return
-      end if
-
-    end do iter_loop
-
-    call error_mesg('solve_zeta in mima_monin_obukhov_mod', &
-                    'no convergence in surface drag iteration', FATAL)
-
-  end subroutine solve_zeta
-
-!=======================================================================
-
-  subroutine solve_zeta_internal(unstable, zeta, z_z0, z_zt, &
-                                 ln_z_z0, ln_z_zt, f_m, f_h, rich, d_rich)
-
-    logical, intent(in) :: unstable
-    real, intent(in), dimension(:) :: zeta, z_z0, z_zt, ln_z_z0, ln_z_zt
-    real, intent(out), dimension(:) :: f_m, f_h, rich, d_rich
-
-    real, dimension(size(zeta)) :: &
-      x, x_0, x_h, x_h_0, rzeta, zeta_0, zeta_h, df_m, df_h
-
-    rzeta = 1.0/zeta
-    zeta_0 = zeta/z_z0
-    zeta_h = zeta/z_zt
-
-    if (unstable) then
-      call mo_derivative_um(x, zeta)
-      call mo_derivative_um(x_0, zeta_0)
-    else
-      call mo_derivative_s(x, zeta)
-      call mo_derivative_s(x_0, zeta_0)
-    end if
-
-    df_m = (x - x_0)*rzeta
-
-    if (unstable) then
-      call mo_derivative_uh(x, zeta)
-      call mo_derivative_uh(x_0, zeta_h)
-    else
-      call mo_derivative_s(x, zeta)
-      call mo_derivative_s(x_0, zeta_h)
-    end if
-
-    df_h = (x - x_0)*rzeta
-
-    if (unstable) then
-      call mo_integral_um(f_m, zeta, zeta_0, ln_z_z0)
-      call mo_integral_uh(f_h, zeta, zeta_h, ln_z_zt)
-    else
-      call mo_integral_s(f_m, zeta, zeta_0, ln_z_z0)
-      call mo_integral_s(f_h, zeta, zeta_h, ln_z_zt)
-    end if
-
-    rich = zeta*f_h/(f_m*f_m)
-    d_rich = rich*(rzeta + df_h/f_h - 2.0*df_m/f_m)
-
-    return
-  end subroutine solve_zeta_internal
-
-!=======================================================================
-
-  subroutine mo_derivative_um(phi, zeta)
-
-    real, intent(out), dimension(:) :: phi
-    real, intent(in), dimension(:) :: zeta
-
-!     phi = (1 - 16.0*zeta)**(-0.25)
-
-    phi = (1 - 16.0*zeta)**(-0.5)
-    phi = sqrt(phi)
-
-    return
-  end subroutine mo_derivative_um
-!=======================================================================
-
-  subroutine mo_derivative_uh(phi, zeta)
-
-    real, intent(out), dimension(:) :: phi
-    real, intent(in), dimension(:) :: zeta
-
-    phi = (1 - 16.0*zeta)**(-0.5)
-
-    return
-  end subroutine mo_derivative_uh
-!=======================================================================
-
-  subroutine mo_derivative_s(phi, zeta)
-
-    real, intent(out), dimension(:) :: phi
-    real, intent(in), dimension(:) :: zeta
-
-    phi = 1.0 + zeta*(5.0 + b_stab*zeta)/(1.0 + zeta)
-
-    return
-  end subroutine mo_derivative_s
-
-!=======================================================================
-
-  subroutine mo_integral_um(psi, zeta, zeta_0, ln_z_z0_in)
-
-    real, intent(out), dimension(:) :: psi
-    real, intent(in), dimension(:)  :: zeta, zeta_0
-    real, optional, dimension(:)  :: ln_z_z0_in
-
-    real, dimension(size(zeta)) :: x, x_0, x1, x1_0, ln_z_z0, num, denom, y
-
-    if (present(ln_z_z0_in)) then
-      ln_z_z0 = ln_z_z0_in
-    else
-      ln_z_z0 = log(zeta/zeta_0)
-    end if
-
-!     x      = (1 - 16.0*zeta)**(0.25)
-!     x_0    = (1 - 16.0*zeta_0)**(0.25)
-
-    x = sqrt(sqrt(1 - 16.0*zeta))
-    x_0 = sqrt(sqrt(1 - 16.0*zeta_0))
-
-    x1 = 1.0 + x
-    x1_0 = 1.0 + x_0
-    num = x1*x1*(1.0 + x*x)
-    denom = x1_0*x1_0*(1.0 + x_0*x_0)
-    y = atan(x) - atan(x_0)
-    psi = ln_z_z0 - log(num/denom) + 2*y
-
-    return
-  end subroutine mo_integral_um
-
-!=======================================================================
-  subroutine mo_integral_uh(psi, zeta, zeta_0, ln_z_z0_in)
-
-    real, intent(out), dimension(:) :: psi
-    real, intent(in), dimension(:)  :: zeta, zeta_0
-    real, optional, dimension(:)  :: ln_z_z0_in
-
-    real, dimension(size(zeta)) :: x, x_0, ln_z_z0
-
-    if (present(ln_z_z0_in)) then
-      ln_z_z0 = ln_z_z0_in
-    else
-      ln_z_z0 = log(zeta/zeta_0)
-    end if
-
-    x = sqrt(1 - 16.0*zeta)
-    x_0 = sqrt(1 - 16.0*zeta_0)
-    psi = ln_z_z0 - 2.0*log((1.0 + x)/(1.0 + x_0))
-
-    return
-  end subroutine mo_integral_uh
-
-!=======================================================================
-
-  subroutine mo_integral_s(psi, zeta, zeta_0, ln_z_z0_in)
-
-    real, intent(out), dimension(:) :: psi
-    real, intent(in), dimension(:)  :: zeta, zeta_0
-    real, optional, dimension(:)  :: ln_z_z0_in
-
-    real, dimension(size(zeta)) :: ln_z_z0
-
-    if (present(ln_z_z0_in)) then
-      ln_z_z0 = ln_z_z0_in
-    else
-      ln_z_z0 = log(zeta/zeta_0)
-    end if
-
-    psi = ln_z_z0 + (5.0 - b_stab)*log((1.0 + zeta)/(1.0 + zeta_0)) &
-          + b_stab*(zeta - zeta_0)
-
-    return
-  end subroutine mo_integral_s
-
-!=======================================================================
-
   !> Computes the factors for interpolating to a reference height (1d).
   subroutine mo_profile_1d(zref, zref_t, z, z0, zt, zq, u_star, b_star, q_star, del_m, del_h, del_q, mask)
 
@@ -544,16 +260,11 @@ contains
     logical, optional, dimension(:) :: mask  !! compute only where `.true.`
 
     integer, dimension(size(z)) :: stabl, unstabl
-    real, allocatable, dimension(:) :: &
-      zeta_1d, zeta_0_1d, zeta_h_1d, zeta_q_1d, zeta_ref_1d, &
-      ln_z_z0_1d, ln_z_zt_1d, ln_z_zq_1d, ln_z_zref_1d, &
-      f_m_1d, f_h_1d, f_q_1d, f_m_ref_1d, f_h_ref_1d, f_q_ref_1d
 
-    integer :: i, j, npts, nptu
+    integer :: i, npts, nptu
 
     real, dimension(size(z)) :: zeta, zeta_0, zeta_h, zeta_q, zeta_ref, &
                                 ln_z_z0, ln_z_zt, ln_z_zq, ln_z_zref, &
-                                f_m_ref, f_m_0, f_h_ref, f_h_0, f_q_ref, f_q_0, &
                                 mo_length_inv
 
     logical, dimension(size(z)) :: avail, avail1
@@ -607,105 +318,15 @@ contains
       call separate_stabilities(npts, nptu, stabl, unstabl, zeta, avail1)
 
       if (nptu > 0) then
-!
-!    allocate(zeta_1d      (nptu))
-!    allocate(zeta_0_1d    (nptu))
-!    allocate(zeta_h_1d    (nptu))
-!    allocate(zeta_q_1d    (nptu))
-!    allocate(zeta_ref_1d  (nptu))
-!    allocate(ln_z_z0_1d   (nptu))
-!    allocate(ln_z_zt_1d   (nptu))
-!    allocate(ln_z_zq_1d   (nptu))
-!    allocate(ln_z_zref_1d (nptu))
-!    allocate(f_m_1d       (nptu))
-!    allocate(f_h_1d       (nptu))
-!    allocate(f_q_1d       (nptu))
-!    allocate(f_m_ref_1d   (nptu))
-!    allocate(f_h_ref_1d   (nptu))
-!    allocate(f_q_ref_1d   (nptu))
-!
-!    do i =1, nptu
-!       zeta_1d   (i)   = zeta     (unstabl(i))
-!       zeta_0_1d (i)   = zeta_0   (unstabl(i))
-!       zeta_h_1d (i)   = zeta_h   (unstabl(i))
-!       zeta_q_1d (i)   = zeta_q   (unstabl(i))
-!       zeta_ref_1d (i) = zeta_ref (unstabl(i))
-!       ln_z_z0_1d(i)   = ln_z_z0  (unstabl(i))
-!       ln_z_zt_1d(i)   = ln_z_zt  (unstabl(i))
-!       ln_z_zq_1d(i)   = ln_z_zq  (unstabl(i))
-!       ln_z_zref_1d(i) = ln_z_zref(unstabl(i))
-!    end do
-!
-!    call mo_integral_um(f_m_1d     ,zeta_1d,  zeta_0_1d,   ln_z_z0_1d  )
-!    call mo_integral_uh(f_h_1d     ,zeta_1d,  zeta_h_1d,   ln_z_zt_1d  )
-!    call mo_integral_uh(f_q_1d     ,zeta_1d,  zeta_q_1d,   ln_z_zq_1d  )
-!    call mo_integral_um(f_m_ref_1d ,zeta_1d,  zeta_ref_1d, ln_z_zref_1d)
-!    call mo_integral_uh(f_h_ref_1d ,zeta_1d,  zeta_ref_1d, ln_z_zref_1d)
-!    f_q_ref_1d = f_h_ref_1d
-!
         do i = 1, nptu
           del_m(unstabl(i)) = 1.0 - ln_z_zref(unstabl(i))/ln_z_z0(unstabl(i))
           del_h(unstabl(i)) = 1.0 - ln_z_zref(unstabl(i))/ln_z_zt(unstabl(i))
           del_q(unstabl(i)) = 1.0 - ln_z_zref(unstabl(i))/ln_z_zq(unstabl(i))
-!      del_m(unstabl(i)) = 1.0 - f_m_ref_1d(i)/f_m_1d(i)
-!      del_h(unstabl(i)) = 1.0 - f_h_ref_1d(i)/f_h_1d(i)
-!      del_q(unstabl(i)) = 1.0 - f_q_ref_1d(i)/f_q_1d(i)
         end do
-
-!    deallocate(zeta_1d      )
-!    deallocate(zeta_0_1d    )
-!    deallocate(zeta_h_1d    )
-!    deallocate(zeta_q_1d    )
-!    deallocate(zeta_ref_1d  )
-!    deallocate(ln_z_z0_1d   )
-!    deallocate(ln_z_zt_1d   )
-!    deallocate(ln_z_zq_1d   )
-!    deallocate(ln_z_zref_1d )
-!    deallocate(f_m_1d       )
-!    deallocate(f_h_1d       )
-!    deallocate(f_q_1d       )
-!    deallocate(f_m_ref_1d   )
-!    deallocate(f_h_ref_1d   )
-!    deallocate(f_q_ref_1d   )
 
       end if
 
       if (npts > 0) then
-
-!    allocate(zeta_1d      (npts))
-!    allocate(zeta_0_1d    (npts))
-!    allocate(zeta_h_1d    (npts))
-!    allocate(zeta_q_1d    (npts))
-!    allocate(zeta_ref_1d  (npts))
-!    allocate(ln_z_z0_1d   (npts))
-!    allocate(ln_z_zt_1d   (npts))
-!    allocate(ln_z_zq_1d   (npts))
-!    allocate(ln_z_zref_1d (npts))
-!    allocate(f_m_1d       (npts))
-!    allocate(f_h_1d       (npts))
-!    allocate(f_q_1d       (npts))
-!    allocate(f_m_ref_1d   (npts))
-!    allocate(f_h_ref_1d   (npts))
-!    allocate(f_q_ref_1d   (npts))
-
-!    do i =1, npts
-!       zeta_1d   (i)   = zeta     (stabl(i))
-!       zeta_0_1d (i)   = zeta_0   (stabl(i))
-!       zeta_h_1d (i)   = zeta_h   (stabl(i))
-!       zeta_q_1d (i)   = zeta_q   (stabl(i))
-!       zeta_ref_1d (i) = zeta_ref (stabl(i))
-!       ln_z_z0_1d(i)   = ln_z_z0  (stabl(i))
-!       ln_z_zt_1d(i)   = ln_z_zt  (stabl(i))
-!       ln_z_zq_1d(i)   = ln_z_zq  (stabl(i))
-!       ln_z_zref_1d(i) = ln_z_zref(stabl(i))
-!    end do
-
-!    call mo_integral_s(f_m_1d     , zeta_1d, zeta_0_1d,   ln_z_z0_1d  )
-!    call mo_integral_s(f_h_1d     , zeta_1d, zeta_h_1d,   ln_z_zt_1d  )
-!    call mo_integral_s(f_q_1d     , zeta_1d, zeta_q_1d,   ln_z_zq_1d  )
-!    call mo_integral_s(f_m_ref_1d , zeta_1d, zeta_ref_1d, ln_z_zref_1d)
-!    f_h_ref_1d = f_m_ref_1d
-!    f_q_ref_1d = f_m_ref_1d
 
         do i = 1, npts
           del_m(stabl(i)) = (ln_z_z0(stabl(i)) - ln_z_zref(stabl(i)) + &
@@ -717,26 +338,7 @@ contains
           del_q(stabl(i)) = (ln_z_zq(stabl(i)) - ln_z_zref(stabl(i)) + &
                              zeta_ref(stabl(i)) - zeta_q(stabl(i)))/ &
                             (ln_z_zq(stabl(i)) + zeta(stabl(i)) - zeta_q(stabl(i)))
-!      del_m(stabl(i)) = 1.0 - f_m_ref_1d(i)/f_m_1d(i)
-!      del_h(stabl(i)) = 1.0 - f_h_ref_1d(i)/f_h_1d(i)
-!      del_q(stabl(i)) = 1.0 - f_q_ref_1d(i)/f_q_1d(i)
         end do
-
-!    deallocate(zeta_1d      )
-!    deallocate(zeta_0_1d    )
-!    deallocate(zeta_h_1d    )
-!    deallocate(zeta_q_1d    )
-!    deallocate(zeta_ref_1d  )
-!    deallocate(ln_z_z0_1d   )
-!    deallocate(ln_z_zt_1d   )
-!    deallocate(ln_z_zq_1d   )
-!    deallocate(ln_z_zref_1d )
-!    deallocate(f_m_1d       )
-!    deallocate(f_h_1d       )
-!    deallocate(f_q_1d       )
-!    deallocate(f_m_ref_1d   )
-!    deallocate(f_h_ref_1d   )
-!    deallocate(f_q_ref_1d   )
 
       end if
 
@@ -757,11 +359,10 @@ contains
     logical, optional, dimension(:)   :: mask  !! compute only where `.true.`
 
     real, dimension(size(z, 1), size(z, 2)) :: phi_m, phi_h, zeta
-    real, allocatable, dimension(:)      :: phi_m1, phi_h1, zeta1
     real, dimension(size(z, 1))           :: mo_length_inv
     integer, dimension(size(z, 1))           :: stab, unstab
     logical, dimension(size(z, 1))           :: avail, avail1
-    integer :: n, i, k, ns, nu
+    integer :: i, k, ns, nu
 
     if (.not. init) call monin_obukhov_init
 
@@ -810,57 +411,25 @@ contains
 
       if (nu > 0) then
 
-!    allocate(zeta1 (nu))
-!    allocate(phi_m1(nu))
-!    allocate(phi_h1(nu))
-
         do k = 1, size(z, 2)
-!      do i = 1, nu
-!        zeta1(i) = zeta(unstab(i),k)
-!      end do
-
-!      call mo_derivative_um(phi_m1, zeta1)
-!      call mo_derivative_uh(phi_h1, zeta1)
 
           do i = 1, nu
-!        phi_m(unstab(i),k) = phi_m1(i)
-!        phi_h(unstab(i),k) = phi_h1(i)
             phi_m(unstab(i), k) = 1.0
             phi_h(unstab(i), k) = 1.0
           end do
         end do
 
-!    deallocate(zeta1)
-!    deallocate(phi_m1)
-!    deallocate(phi_h1)
-
       end if
 
       if (ns > 0) then
 
-!    allocate(zeta1 (ns))
-!    allocate(phi_m1(ns))
-!    allocate(phi_h1(ns))
-
         do k = 1, size(z, 2)
-!      do i =1, ns
-!        zeta1(i) = zeta(stab(i),k)
-!      end do
-
-!      call mo_derivative_s(phi_m1, zeta1)
-!      phi_h1 = phi_m1
 
           do i = 1, ns
             phi_m(stab(i), k) = 1.0 + zeta(stab(i), k)
             phi_h(stab(i), k) = 1.0 + zeta(stab(i), k)
-!        phi_m(stab(i),k) = phi_m1(i)
-!        phi_h(stab(i),k) = phi_h1(i)
           end do
         end do
-
-!    deallocate(zeta1)
-!    deallocate(phi_m1)
-!    deallocate(phi_h1)
 
       end if
 
@@ -888,7 +457,7 @@ contains
     integer, intent(out), dimension(:) :: stab, unstab
 
     real    :: xcrit
-    integer :: i, j
+    integer :: i
 
     ns = 0
     nu = 0
@@ -1132,101 +701,6 @@ contains
 
     return
   end subroutine mo_diff_one_lev_2d
-!=======================================================================
-
-  !> Returns the stable mixing factor (3d).
-  subroutine stable_mix_3d(rich, mix)
-
-    real, intent(in), dimension(:, :, :)  :: rich  !! Richardson number
-    real, intent(out), dimension(:, :, :)  :: mix  !! stable mixing factor
-
-    real, dimension(size(rich, 1), size(rich, 2), size(rich, 3)) :: &
-      r, a, b, c, zeta, phi
-
-    mix = 0.0
-
-    if (stable_option == 1) then
-
-      where (rich > 0.0 .and. rich < rich_crit)
-        r = 1.0/rich
-        a = r - b_stab
-        b = r - (1.0 + 5.0)
-        c = -1.0
-
-        zeta = (-b + sqrt(b*b - 4.0*a*c))/(2.0*a)
-        phi = 1.0 + b_stab*zeta + (5.0 - b_stab)*zeta/(1.0 + zeta)
-        mix = 1./(phi*phi)
-      end where
-
-    else if (stable_option == 2) then
-
-      where (rich > 0.0 .and. rich <= rich_trans)
-        mix = (1.0 - 5.0*rich)**2
-      end where
-      where (rich > rich_trans .and. rich < rich_crit)
-        mix = ((1.0 - b_stab*rich)/lambda)**2
-      end where
-
-    end if
-
-    return
-  end subroutine stable_mix_3d
-!=======================================================================
-
-  !> Returns the stable mixing factor (2d).
-  subroutine stable_mix_2d(rich, mix)
-
-    real, intent(in), dimension(:, :)  :: rich  !! Richardson number
-    real, intent(out), dimension(:, :)  :: mix  !! stable mixing factor
-
-    real, dimension(size(rich, 1), size(rich, 2), 1) :: rich_3d, mix_3d
-
-    rich_3d(:, :, 1) = rich
-
-    call stable_mix_3d(rich_3d, mix_3d)
-
-    mix = mix_3d(:, :, 1)
-
-    return
-  end subroutine stable_mix_2d
-
-!=======================================================================
-
-  !> Returns the stable mixing factor (1d).
-  subroutine stable_mix_1d(rich, mix)
-
-    real, intent(in), dimension(:)  :: rich  !! Richardson number
-    real, intent(out), dimension(:)  :: mix  !! stable mixing factor
-
-    real, dimension(size(rich), 1, 1) :: rich_3d, mix_3d
-
-    rich_3d(:, 1, 1) = rich
-
-    call stable_mix_3d(rich_3d, mix_3d)
-
-    mix = mix_3d(:, 1, 1)
-
-    return
-  end subroutine stable_mix_1d
-
-!=======================================================================
-
-  !> Returns the stable mixing factor at one point.
-  subroutine stable_mix_0d(rich, mix)
-
-    real, intent(in) :: rich  !! Richardson number
-    real, intent(out) :: mix  !! stable mixing factor
-
-    real, dimension(1, 1, 1) :: rich_3d, mix_3d
-
-    rich_3d(1, 1, 1) = rich
-
-    call stable_mix_3d(rich_3d, mix_3d)
-
-    mix = mix_3d(1, 1, 1)
-
-    return
-  end subroutine stable_mix_0d
 !=======================================================================
 
 end module mima_monin_obukhov_mod
