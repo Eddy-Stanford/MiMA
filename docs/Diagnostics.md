@@ -154,20 +154,18 @@ The surface diagnostics are in the modules `flux` (the merged ocean and land fie
 | module | fields | registered when | source |
 |---|---:|---|---|
 | [`cg_drag`](#module-cg_drag) | 5 | `do_cg_drag` (damping_driver) and `do_damping` (physics_driver) | [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) |
-| [`climo`](#module-climo) | 1 |  | [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/) |
-| [`damping`](#module-damping) | 14 | `do_damping` (physics_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
+| [`damping`](#module-damping) | 15 | `do_damping` (physics_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
 | [`dynamics`](#module-dynamics) | 24 |  | [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) |
 | [`dynamics_every`](#module-dynamics_every) | 47 |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | [`flux`](#module-flux) | 30 |  | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
 | [`held_suarez`](#module-held_suarez) | 5 | `do_held_suarez` (physics_driver) | [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/) |
-| [`hinterp`](#module-hinterp) | 1 |  | [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/) |
 | [`land`](#module-land) | 11 |  | [`land_model_mod`](https://eddy-stanford.github.io/MiMA/api/land_model_mod/) |
 | [`local_heating`](#module-local_heating) | 1 | `do_3d_heating` and `do_local_heating` (physics_driver) | [`local_heating_mod`](https://eddy-stanford.github.io/MiMA/api/local_heating_mod/) |
 | [`mca`](#module-mca) | 8 | `do_mca` (moist_processes) | [`moist_conv_mod`](https://eddy-stanford.github.io/MiMA/api/moist_conv_mod/) |
 | [`moist`](#module-moist) | 30 |  | [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/) |
 | [`ocean`](#module-ocean) | 4 | `surface_is_coupled()` | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/), [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
 | [`radiation`](#module-radiation) | 19 | `radiation_scheme` (radiation): gray, rrtm | [`gray_radiation_mod`](https://eddy-stanford.github.io/MiMA/api/gray_radiation_mod/), [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) |
-| [`tracers`](#module-tracers) | 6 |  | [`atmos_carbon_aerosol_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_carbon_aerosol_mod/), [`atmos_sulfur_hex_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_sulfur_hex_mod/), [`atmos_tracer_utilities_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_tracer_utilities_mod/) |
+| [`tracers`](#module-tracers) | 3 |  | [`atmos_tracer_utilities_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_tracer_utilities_mod/) |
 | [`vert_diff`](#module-vert_diff) | 10 |  | [`vert_diff_driver_mod`](https://eddy-stanford.github.io/MiMA/api/vert_diff_driver_mod/) |
 | [`vert_turb`](#module-vert_turb) | 8 |  | [`vert_turb_driver_mod`](https://eddy-stanford.github.io/MiMA/api/vert_turb_driver_mod/) |
 
@@ -184,14 +182,6 @@ Registered only when `do_cg_drag` (damping_driver) and `do_damping` (physics_dri
 | `gwfv_cgwd` | lon, lat, pfull | m/s2 | gravity wave forcing on mean meridional flow |  | [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) |
 | `kedx_cgwd` | lon, lat, pfull | m2/s | effective eddy viscosity from cg_drag (zonal) |  | [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) |
 | `kedy_cgwd` | lon, lat, pfull | m2/s | effective eddy viscosity from cg_drag (meridional) |  | [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) |
-
-<a id="module-climo"></a>
-
-### `climo`
-
-| field | dims | units | long_name | available with | source |
-|---|---|---|---|---|---|
-| `{clim_type%field_name(i)}` | lon, lat | kg/m2 | column integral of {clim_type%field_name(i)} (climatology grid) |  | [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/) |
 
 <a id="module-damping"></a>
 
@@ -213,6 +203,7 @@ Registered only when `do_damping` (physics_driver).
 | `udt_cnstd` | lon, lat, pfull | m/s2 | u wind tendency for constant drag | `do_const_drag` (damping_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
 | `udt_gwd` | lon, lat, pfull | m/s2 | u wind tendency for gravity wave drag | `do_mg_drag` (damping_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
 | `udt_rdamp` | lon, lat, pfull | m/s2 | u wind tendency for Rayleigh damping | `do_rayleigh` (damping_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
+| `vdt_cgwd` | lon, lat, pfull | m/s2 | v wind tendency for cg gravity wave drag | `do_cg_drag` (damping_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
 | `vdt_gwd` | lon, lat, pfull | m/s2 | v wind tendency for gravity wave drag | `do_mg_drag` (damping_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
 | `vdt_rdamp` | lon, lat, pfull | m/s2 | v wind tendency for Rayleigh damping | `do_rayleigh` (damping_driver) | [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damping_driver_mod/) |
 
@@ -264,7 +255,7 @@ Registered only when `do_damping` (physics_driver).
 | `dry_stat_en` | lon, lat, pfull | J/kg | dry static energy |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `entrop_dampt` | lon, lat, pfull | 1/s | Entropy prod from horiz diff of temp |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `entrop_dampuv` | lon, lat, pfull | 1/s | Entropy prod from horiz diff of vel |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
-| `entrop_tempcor` | lon, lat, pfull | 1/s | Entropy tend due to hor diff temp corr |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
+| `entrop_tempcor` | lon, lat, pfull | 1/s | Entropy tend due to dynamics energy correction, weighted by ps/p00 |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `kegen` | lon, lat, pfull | K/s | kappa omega T/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00 |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `kegenq` | lon, lat, pfull | K/s kg/kg | kappa omega T q/p from the dynamical core (Tv if use_virtual_temperature), weighted by ps/p00 |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `kegenqtinv` | lon, lat, pfull | kg/kg/s | kappa omega q/p from the dynamical core, weighted by ps/p00 |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
@@ -277,7 +268,7 @@ Registered only when `do_damping` (physics_driver).
 | `t_every` | lon, lat, pfull | K | temperature |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `tdt_damp` | lon, lat, pfull | K/s | Temperature tend from horiz diff |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `tdt_dampuv` | lon, lat, pfull | K/s | Temp tend (not applied) due to diff of winds |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
-| `tdt_tempcor` | lon, lat, pfull | K/s | Temp tend due to dynamics temp correction |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
+| `tdt_tempcor` | lon, lat, pfull | K/s | Temp tend due to dynamics energy correction |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `u_every` | lon, lat, pfull | m/s | zonal wind component |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `udt_damp` | lon, lat, pfull | m/s2 | Zonal wind tend from horiz diff |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
 | `upvp` | lon, lat, pfull | m2/s2 | meridional eddy momentum flux |  | [`every_step_diagnostics_mod`](https://eddy-stanford.github.io/MiMA/api/every_step_diagnostics_mod/) |
@@ -351,14 +342,6 @@ Registered only when `do_held_suarez` (physics_driver).
 | `teq` | lon, lat, pfull | K | Held-Suarez equilibrium temperature |  | [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/) |
 | `udt_hs` | lon, lat, pfull | m/s2 | Zonal wind tendency from Held-Suarez friction |  | [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/) |
 | `vdt_hs` | lon, lat, pfull | m/s2 | Meridional wind tendency from Held-Suarez friction |  | [`held_suarez_mod`](https://eddy-stanford.github.io/MiMA/api/held_suarez_mod/) |
-
-<a id="module-hinterp"></a>
-
-### `hinterp`
-
-| field | dims | units | long_name | available with | source |
-|---|---|---|---|---|---|
-| `{clim_type%field_name(i)}` | lon, lat | kg/m2 | column integral of {clim_type%field_name(i)} (interpolated to the model grid) |  | [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/) |
 
 <a id="module-land"></a>
 
@@ -451,7 +434,7 @@ Registered only when `surface_is_coupled()`.
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
 | `heat_capacity_ocean` |  | J/m2/K | ocean mixed layer heat capacity (0 over land) |  | [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
-| `qflux` |  | W/m2 | prescribed ocean heat divergence |  | [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
+| `qflux` |  | W/m2 | prescribed ocean heat flux convergence (Q-flux) |  | [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
 | `qflux_implied` |  | W/m2 | implied ocean heat flux convergence: the Q-flux a slab ocean needs to reproduce the SST change (0 over land) | `ocean%model = 'prescribed' or ocean%model = 'fixed'` | [`flux_exchange_mod`](https://eddy-stanford.github.io/MiMA/api/flux_exchange_mod/) |
 | `sst_interp` |  | K | SST interpolated from sst_file (prescribed ocean; debug) | `ocean_model = 'prescribed'` (ocean_model) | [`ocean_model_mod`](https://eddy-stanford.github.io/MiMA/api/ocean_model_mod/) |
 
@@ -489,9 +472,6 @@ Which fields exist depends on `radiation_scheme` in `&radiation_nml`: **availabl
 
 | field | dims | units | long_name | available with | source |
 |---|---|---|---|---|---|
-| `bcemiss` | lon, lat; static | g/m2/s | black carbon emission | `nbcphobic > 0` | [`atmos_carbon_aerosol_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_carbon_aerosol_mod/) |
-| `ocemiss` | lon, lat; static | g/m2/s | organic carbon emission | `nbcphobic > 0` | [`atmos_carbon_aerosol_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_carbon_aerosol_mod/) |
-| `sf6emiss` | lon, lat; static | g/m2/s | SF6 emission | `nsf6 > 0` | [`atmos_sulfur_hex_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_sulfur_hex_mod/) |
 | `{tracer_ddep_names(n)}` | lon, lat | {tracer_units(n)} kg/m2/s | {tracer_ddep_longnames(n)} |  | [`atmos_tracer_utilities_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_tracer_utilities_mod/) |
 | `{tracer_wdep_names(n)}_cv` | lon, lat | {tracer_units(n)} kg/m2/s | {tracer_wdep_longnames(n)} in convective scheme |  | [`atmos_tracer_utilities_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_tracer_utilities_mod/) |
 | `{tracer_wdep_names(n)}_ls` | lon, lat | {tracer_units(n)} kg/m2/s | {tracer_wdep_longnames(n)} in large scale |  | [`atmos_tracer_utilities_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_tracer_utilities_mod/) |

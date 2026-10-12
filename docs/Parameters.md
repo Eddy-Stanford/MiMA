@@ -56,7 +56,7 @@ Declared in [`atmos_model_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_m
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `restart_tbot_qbot` | logical | `.false.` | also store the lowest-level temperature and humidity (`t_bot`, `q_bot`) in `atmos_coupled.res.nc` |
+| `restart_tbot_qbot` | logical | `.false.` | also store the lowest-level temperature and humidity (`t_bot`, `q_bot`) in `atmos_coupled.res.nc`, and read them from it if they are there |
 
 <!-- mimadoc:end -->
 
@@ -64,7 +64,7 @@ Declared in [`atmos_model_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_m
 
 <!-- mimadoc:namelist spec_mpp_nml -->
 
-Declared in [`spec_mpp_mod`](https://eddy-stanford.github.io/MiMA/api/spec_mpp_mod/) (`src/atmos_spectral/tools/spec_mpp.f90`).
+Declared in [`spec_mpp_mod`](https://eddy-stanford.github.io/MiMA/api/spec_mpp_mod/) (`src/atmos_spectral/transforms/spec_mpp.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -100,7 +100,7 @@ The spectral dynamical core.
 
 <!-- mimadoc:namelist spectral_dynamics_nml -->
 
-Declared in [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) (`src/atmos_spectral/model/spectral_dynamics.f90`).
+Declared in [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) (`src/atmos_spectral/dynamics/spectral_dynamics.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -202,7 +202,7 @@ Declared in [`topog_regularization_mod`](https://eddy-stanford.github.io/MiMA/ap
 
 <!-- mimadoc:namelist transforms_nml -->
 
-Declared in [`transforms_mod`](https://eddy-stanford.github.io/MiMA/api/transforms_mod/) (`src/atmos_spectral/tools/transforms.f90`).
+Declared in [`transforms_mod`](https://eddy-stanford.github.io/MiMA/api/transforms_mod/) (`src/atmos_spectral/transforms/transforms.f90`).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
@@ -259,7 +259,7 @@ Declared in [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_rad
 |---|---|---|---|
 | `include_secondary_gases` | logical | `.false.` | use the following values for CH<sub>4</sub>, N<sub>2</sub>O, O<sub>2</sub>, CFC-11, CFC-12, CFC-22 and CCl<sub>4</sub> (otherwise they are zero) |
 | `do_read_ozone` | logical | `.true.` | read ozone from `ozone_file` (the only way to have non-constant ozone) |
-| `ozone_file` | character(len=256) | `'ozone_1990'` | ozone file (in `input/INPUT/`) |
+| `ozone_file` | character(len=256) | `'ozone_1990'` | ozone file in `INPUT/`, without `.nc` |
 | `scale_ozone` | real(kind=rb) | `1.0` | factor applied to the ozone from the file |
 | `o3_val` | real(kind=rb) | `0.0` | constant ozone used if `do_read_ozone = .false.` |
 | `ch4_val` | real(kind=rb) | `0.` | CH<sub>4</sub> volume mixing ratio if `include_secondary_gases` |
@@ -278,7 +278,7 @@ Declared in [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_rad
 | `do_rad_time_avg` | logical | `.true.` | average the solar zenith angle over `dt_rad_avg` |
 | `dt_rad` | integer(kind=im) | `4500` | [s] radiation time step; radiation is computed every step if `dt_rad` < `dt_atmos` |
 | `dt_rad_avg` | integer(kind=im) | `4500` | [s] averaging interval for the zenith angle; 0: no averaging; < 0: `dt_rad`. 86400 removes the diurnal cycle. |
-| `lonstep` | integer(kind=im) | `4` | compute radiation only at every `lonstep`-th longitude and interpolate |
+| `lonstep` | integer(kind=im) | `4` | compute radiation only at every `lonstep`-th longitude and interpolate; must divide the number of longitudes |
 | `balance_sw_columns` | logical | `.true.` | share the sunlit columns of the shortwave calculation evenly among the processes. RRTMG skips the columns where the sun is down, so the processes whose latitude bands are more in daylight have more work and the others wait for them. With `.true.` processes with more sunlit columns than the mean send the extra columns to processes with fewer, which compute them and send the fluxes back. The results are the same as with `.false.`, bit for bit. |
 | `do_zm_tracers` | logical | `.false.` | pass only the zonal mean of the absorbers to RRTM |
 | `do_zm_rad` | logical | `.false.` | compute radiation for the zonal mean only |
@@ -316,7 +316,7 @@ Declared in [`rrtm_astro`](https://eddy-stanford.github.io/MiMA/api/rrtm_astro/)
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `obliq` | real(kind=rb) | `23.439` | [deg] obliquity |
-| `use_dyofyr` | logical | `.false.` | let RRTM compute the Earth-Sun distance from the day of the year (assumes 365 days per year) |
+| `use_dyofyr` | logical | `.false.` | let RRTM compute the Earth-Sun distance from the calendar day of the year (needs a 365-day calendar year) |
 | `solr_cnst` | real(kind=rb) | `1370.` | [W/m2] solar constant |
 | `solrad` | real(kind=rb) | `1.0` | Earth-Sun distance factor if `use_dyofyr = .false.` |
 | `solday` | integer(kind=im) | `0` | if > 0, perpetual run at this day of the year |
@@ -527,9 +527,7 @@ Declared in [`mima_monin_obukhov_mod`](https://eddy-stanford.github.io/MiMA/api/
 |---|---|---|---|
 | `rich_crit` | real | `2.0` | critical Richardson number (must be > 0.25) |
 | `neutral` | logical | `.false.` | neutral stability everywhere |
-| `drag_min` | real | `4.e-05` | minimum drag coefficient |
-| `stable_option` | integer | `1` | stability function for stable conditions (1 or 2); used only by `stable_mix`, which is not called in MiMA |
-| `zeta_trans` | real | `0.5` | transition value of z/L for `stable_option = 2` |
+| `drag_min` | real | `4.e-05` | minimum drag coefficient (>= 0) |
 
 <!-- mimadoc:end -->
 
@@ -625,7 +623,7 @@ Declared in [`betts_miller_mod`](https://eddy-stanford.github.io/MiMA/api/betts_
 | `do_shallower` | logical | `.true.` | shallow convection: choose a smaller depth so that precipitation is zero |
 | `do_changeqref` | logical | `.false.` | shallow convection: change both q and T so that precipitation is zero |
 | `do_envsat` | logical | `.false.` | reference humidity relative to the environment (`.true.`) or the parcel (`.false.`) |
-| `do_taucape` | logical | `.false.` | make `tau_bm` proportional to `CAPE**(-1/2)` |
+| `do_taucape` | logical | `.false.` | make the relaxation time of each convecting column `tau_bm*sqrt(capetaubm/CAPE)`, at least `tau_min` |
 | `capetaubm` | real | `900.` | [J/kg] CAPE at which the relaxation time is `tau_bm` (with `do_taucape`) |
 | `tau_min` | real | `2400.` | [s] minimum relaxation time (with `do_taucape`) |
 | `buoyancy_kick` | real | `0.` | [K] temperature added to the parcel at the lowest level |
@@ -732,7 +730,7 @@ Declared in [`mg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/mg_drag_mod
 | `low_lev_frac` | real | `.23` | fraction of the atmosphere (from the bottom) used for the base flux, where no wave breaking is allowed |
 | `do_conserve_energy` | logical | `.false.` | heat the air by the dissipated kinetic energy |
 | `source_of_sgsmtn` | character(len=128) | `'input'` | sub-grid orography: `'input'` (read from `INPUT/mg_drag.res.nc`) or `'computed'` (from the high-resolution topography) |
-| `flux_cut_level` | real | `0.0` | [Pa] above this level the flux divergence is set to zero |
+| `flux_cut_level` | real | `0.0` | [Pa] if > 0, the flux divergence is set to zero above the first half level, counted from the top, whose pressure is at least `flux_cut_level` in every column of the global domain |
 
 <!-- mimadoc:end -->
 
@@ -807,20 +805,6 @@ Declared in [`atmos_radon_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_r
 
 <!-- mimadoc:end -->
 
-### `atmos_convection_tracer_nml`
-
-The convection tracer, used only if it is in the `field_table`.
-
-<!-- mimadoc:namelist atmos_convection_tracer_nml -->
-
-Declared in [`atmos_convection_tracer_mod`](https://eddy-stanford.github.io/MiMA/api/atmos_convection_tracer_mod/) (`src/atmos_shared/tracer_driver/atmos_convection_tracer.f90`).
-
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `ncopies_cnvct_trcr` | integer | `9` | number of copies of the convection tracer looked for in the field table; at most 9 |
-
-<!-- mimadoc:end -->
-
 ### `interpolator_nml`
 
 MiMA's interpolator of climatology files, e.g. ozone and SST.
@@ -832,7 +816,7 @@ Declared in [`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/m
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `read_all_on_init` | logical | `.false.` | read all time levels of a file at initialization |
-| `verbose` | integer | `0` | amount of diagnostic printout |
+| `verbose` | integer | `0` | amount of diagnostic printout (> 3: note where the model column extends beyond the levels of a 3-D file) |
 
 <!-- mimadoc:end -->
 
