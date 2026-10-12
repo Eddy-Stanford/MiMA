@@ -180,14 +180,13 @@ contains
                       Boundary%t, & ! Required argument, intent(in). t_surf instead of Land%t_ca
                       q_surf, u_surf, v_surf, &
                       Boundary%rough_mom, rough_heat, rough_moist, &
-                      Boundary%rough_mom, & ! Required argument, intent(in). rough_mom instead of Land%rough_scale
                       Atm%gust, flux_t, flux_q, flux_lw, flux_u, flux_v, &
                       cd_m, cd_t, cd_q, wind, Boundary%u_star, Boundary%b_star, q_star, &
                       dhdt_surf, dedt_surf, &
                       dedq_surf, & ! Required argument, intent(out), but not needed by this model.
                       drdt_surf, dhdt_atm, dedq_atm, &
                       Boundary%dtaudu, & ! returned to the coupler for the implicit zonal stress
-                      Boundary%dtaudv, dt, & ! Required argument, intent(in). Looks like it should be .false. everywhere.
+                      Boundary%dtaudv, & ! Looks like it should be .false. everywhere.
                       .not. mask, &
                       seawater, & ! ocean points (used only with ncar_ocean_flux)
                       mask) ! Required argument, intent(in). Looks like it should be .true. everywhere.

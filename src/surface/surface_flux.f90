@@ -110,13 +110,13 @@ contains
     t_atm, q_atm_in, u_atm, v_atm, p_atm, z_atm, &
     p_surf, t_surf, t_ca, q_surf, &
     u_surf, v_surf, &
-    rough_mom, rough_heat, rough_moist, rough_scale, gust, &
+    rough_mom, rough_heat, rough_moist, gust, &
     flux_t, flux_q, flux_r, flux_u, flux_v, &
     cd_m, cd_t, cd_q, &
     w_atm, u_star, b_star, q_star, &
     dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
     dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm, &
-    dt, land, seawater, avail)
+    land, seawater, avail)
 !  slm Mar 28 2002 -- remove agument drag_q since it is just cd_q*wind
 ! ============================================================================
     ! ---- arguments -----------------------------------------------------------
@@ -128,14 +128,13 @@ contains
       t_atm, q_atm_in, u_atm, v_atm, &
       p_atm, z_atm, t_ca, &
       p_surf, t_surf, u_surf, v_surf, &
-      rough_mom, rough_heat, rough_moist, rough_scale, gust
+      rough_mom, rough_heat, rough_moist, gust
     !! `t_atm` [K], `q_atm_in` [kg/kg], `u_atm`, `v_atm` [m/s], `p_atm` [Pa]: temperature,
     !! specific humidity, wind and pressure at the lowest model level; `z_atm`: height of the
     !! lowest level above the surface [m]; `t_ca`: canopy air temperature, used over land [K];
     !! `p_surf`: surface pressure [Pa]; `t_surf`: surface temperature [K]; `u_surf`, `v_surf`:
     !! surface velocity [m/s]; `rough_mom`, `rough_heat`, `rough_moist`: roughness lengths for
-    !! momentum, heat and moisture [m]; `rough_scale`: roughness length to which the momentum
-    !! drag is scaled (`rough_mom`: no scaling) [m]; `gust`: gustiness [m/s]
+    !! momentum, heat and moisture [m]; `gust`: gustiness [m/s]
     real, intent(out), dimension(:) :: &
       flux_t, flux_q, flux_r, flux_u, flux_v, &
       dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
@@ -156,7 +155,6 @@ contains
     !! momentum, heat and moisture
     real, intent(inout), dimension(:) :: q_surf
     !! surface specific humidity: given over land, diagnosed from the flux on output [kg/kg]
-    real, intent(in) :: dt  !! time step [s] (not used)
 
     ! ---- local constants -----------------------------------------------------
     ! temperature increment and its reciprocal value for comp. of derivatives
@@ -275,8 +273,6 @@ contains
     end if
 
     where (avail)
-      ! scale momentum drag coefficient on orographic roughness
-      cd_m = cd_m*(log(z_atm/rough_mom + 1)/log(z_atm/rough_scale + 1))**2
       ! surface layer drag coefficients
 
       ! epg: the coeffieciets cft, cfq, and cfm default to 1.0, but are set to
@@ -381,13 +377,13 @@ contains
     t_atm, q_atm_in, u_atm, v_atm, p_atm, z_atm, &
     p_surf, t_surf, t_ca, q_surf, &
     u_surf, v_surf, &
-    rough_mom, rough_heat, rough_moist, rough_scale, gust, &
+    rough_mom, rough_heat, rough_moist, gust, &
     flux_t, flux_q, flux_r, flux_u, flux_v, &
     cd_m, cd_t, cd_q, &
     w_atm, u_star, b_star, q_star, &
     dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
     dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm, &
-    dt, land, seawater, avail)
+    land, seawater, avail)
 
     ! ---- arguments -----------------------------------------------------------
     logical, intent(in), dimension(:, :) :: land, seawater, avail
@@ -395,7 +391,7 @@ contains
       t_atm, q_atm_in, u_atm, v_atm, &
       p_atm, z_atm, t_ca, &
       p_surf, t_surf, u_surf, v_surf, &
-      rough_mom, rough_heat, rough_moist, rough_scale, gust
+      rough_mom, rough_heat, rough_moist, gust
     real, intent(out), dimension(:, :) :: &
       flux_t, flux_q, flux_r, flux_u, flux_v, &
       dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
@@ -403,7 +399,6 @@ contains
       w_atm, u_star, b_star, q_star, &
       cd_m, cd_t, cd_q
     real, intent(inout), dimension(:, :) :: q_surf
-    real, intent(in) :: dt
 
     ! ---- local vars -----------------------------------------------------------
     integer :: j
@@ -413,13 +408,13 @@ contains
         t_atm(:, j), q_atm_in(:, j), u_atm(:, j), v_atm(:, j), p_atm(:, j), z_atm(:, j), &
         p_surf(:, j), t_surf(:, j), t_ca(:, j), q_surf(:, j), &
         u_surf(:, j), v_surf(:, j), &
-        rough_mom(:, j), rough_heat(:, j), rough_moist(:, j), rough_scale(:, j), gust(:, j), &
+        rough_mom(:, j), rough_heat(:, j), rough_moist(:, j), gust(:, j), &
         flux_t(:, j), flux_q(:, j), flux_r(:, j), flux_u(:, j), flux_v(:, j), &
         cd_m(:, j), cd_t(:, j), cd_q(:, j), &
         w_atm(:, j), u_star(:, j), b_star(:, j), q_star(:, j), &
         dhdt_surf(:, j), dedt_surf(:, j), dedq_surf(:, j), drdt_surf(:, j), &
         dhdt_atm(:, j), dedq_atm(:, j), dtaudu_atm(:, j), dtaudv_atm(:, j), &
-        dt, land(:, j), seawater(:, j), avail(:, j))
+        land(:, j), seawater(:, j), avail(:, j))
     end do
   end subroutine surface_flux_2d
 
