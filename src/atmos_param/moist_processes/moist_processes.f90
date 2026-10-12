@@ -535,7 +535,7 @@ contains
     if (do_lsc) then
       if (id_entrop_ls > 0) then
         do k = 1, kx
-          entrop_ls(:, :, k) = ttnd(:, :, k)/t(:, :, k)*phalf(:, :, kx)/1.e5
+          entrop_ls(:, :, k) = ttnd(:, :, k)/t(:, :, k)*phalf(:, :, kx + 1)/1.e5
         end do
         used = send_data(id_entrop_ls, entrop_ls, Time, is, js, 1, &
                          rmask=mask)

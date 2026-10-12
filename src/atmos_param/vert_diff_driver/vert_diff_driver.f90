@@ -189,7 +189,7 @@ contains
     if (id_entrop_vdif_sens > 0) then
       kx = size(p_half, 3) - 1
       do k = 1, kx
-        entrop_vdif_sens(:, :, k) = -2.*dt_t(:, :, k)/t(:, :, k)*p_half(:, :, kx)/1.e5
+        entrop_vdif_sens(:, :, k) = -2.*dt_t(:, :, k)/t(:, :, k)*p_half(:, :, kx + 1)/1.e5
       end do
       used = send_data(id_entrop_vdif_sens, entrop_vdif_sens, Time, is, js, 1, &
                        rmask=mask)
@@ -236,7 +236,7 @@ contains
     if (id_entrop_vdif_kediss > 0) then
       kx = size(p_half, 3) - 1
       do k = 1, kx
-        entrop_vdif_kediss(:, :, k) = dissipative_heat(:, :, k)/t(:, :, k)*p_half(:, :, kx)/1.e5
+        entrop_vdif_kediss(:, :, k) = dissipative_heat(:, :, k)/t(:, :, k)*p_half(:, :, kx + 1)/1.e5
       end do
 
       used = send_data(id_entrop_vdif_kediss, entrop_vdif_kediss, Time, &
@@ -303,7 +303,7 @@ contains
       if (id_entrop_vdif_sens > 0) then
         kx = size(p_half, 3) - 1
         do k = 1, kx
-          entrop_vdif_sens(:, :, k) = 2.*dt_t(:, :, k)/t(:, :, k)*p_half(:, :, kx)/1.e5
+          entrop_vdif_sens(:, :, k) = 2.*dt_t(:, :, k)/t(:, :, k)*p_half(:, :, kx + 1)/1.e5
         end do
         used = send_data(id_entrop_vdif_sens, entrop_vdif_sens, Time, is, js, 1, &
                          rmask=mask)
