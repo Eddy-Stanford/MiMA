@@ -2,18 +2,14 @@
 !> grid longitudes.
 module grid_fourier_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                     write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use constants_mod, only: pi
 
-  use fft_mod, only: fft_init, fft_grid_to_fourier, fft_fourier_to_grid
+  use fft_mod, only: fft_init, fft_end, fft_grid_to_fourier, fft_fourier_to_grid
 
   implicit none
   private
-
-  character(len=128), parameter :: version = '$Id: grid_fourier.f90,v 11.0 2004/09/28 19:30:50 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
 
   public :: grid_fourier_init, grid_fourier_end, trans_grid_to_fourier, trans_fourier_to_grid
   public :: get_lon_max, get_longitude_origin, get_deg_lon
@@ -62,14 +58,12 @@ contains
 
     if (module_is_initialized) return
 
-    call write_version_number(version, tagname)
-
-    if (mod(num_lon_in, 2) .ne. 0) then
+    if (mod(num_lon_in, 2) /= 0) then
       write (chtmp, '(i8)') num_lon_in
       call error_mesg('grid_fourier_init', 'num_lon must be even, but num_lon='//chtmp, FATAL)
     end if
 
-    if (num_lon_in .eq. 0) then
+    if (num_lon_in == 0) then
       call error_mesg('grid_fourier_init', 'num_lon cannot be zero', FATAL)
     end if
 
@@ -87,17 +81,17 @@ contains
       longitude_origin_local = 0.0
     end if
 
-    total_degrees = 360./float(fourier_inc)
+    total_degrees = 360./real(fourier_inc)
 
     if (allocated(deg_lon)) deallocate (deg_lon)
     allocate (deg_lon(num_lon))
     do i = 1, num_lon
       deg_lon(i) = 180*longitude_origin_local/pi &
-                   + (i - 1)*total_degrees/float(num_lon)
-      if (deg_lon(i) .ge. total_degrees) then
+                   + (i - 1)*total_degrees/real(num_lon)
+      if (deg_lon(i) >= total_degrees) then
         deg_lon(i) = deg_lon(i) - total_degrees
       end if
-      if (deg_lon(i) .lt. 0.0) then
+      if (deg_lon(i) < 0.0) then
         deg_lon(i) = deg_lon(i) + total_degrees
       end if
     end do
@@ -115,23 +109,20 @@ contains
 
     real, intent(in), dimension(:, :, :) :: grid
     complex, dimension(0:size(grid, 1)/2, size(grid, 2), size(grid, 3)) :: fourier
-    real, dimension(size(grid, 1) + 1, size(grid, 2), size(grid, 3)) :: grid1
     character(len=8) :: chtmp1, chtmp2
 
     if (.not. module_is_initialized) then
       call error_mesg('trans_grid_to_fourier', 'module grid_fourier not initialized', FATAL)
     end if
 
-    if (size(grid, 1) .ne. num_lon) then
+    if (size(grid, 1) /= num_lon) then
       write (chtmp1, '(i8)') size(grid, 1)
       write (chtmp2, '(i8)') num_lon
       call error_mesg('trans_grid_to_fourier', &
                       'size(grid,1) must equal num_lon, but size(grid,1)='//chtmp1//' num_lon='//chtmp2, FATAL)
     end if
 
-    grid1(1:size(grid, 1), :, :) = grid
-    grid1(size(grid, 1) + 1, :, :) = grid(1, :, :)
-    fourier = fft_grid_to_fourier(grid1)
+    fourier = fft_grid_to_fourier(grid)
 
     return
   end function trans_grid_to_fourier_3d
@@ -141,14 +132,13 @@ contains
 
     complex, intent(in), dimension(0:, :, :) :: fourier
     real, dimension(2*(size(fourier, 1) - 1), size(fourier, 2), size(fourier, 3)) :: grid
-    real, dimension(2*size(fourier, 1) - 1, size(fourier, 2), size(fourier, 3)) :: grid1
     character(len=8) :: chtmp1, chtmp2
 
     if (.not. module_is_initialized) then
       call error_mesg('trans_fourier_to_grid', 'module grid_fourier not initialized', FATAL)
     end if
 
-    if (2*(size(fourier, 1) - 1) .ne. num_lon) then
+    if (2*(size(fourier, 1) - 1) /= num_lon) then
       write (chtmp1, '(i8)') size(fourier, 1)
       write (chtmp2, '(i8)') num_lon
       call error_mesg('trans_fourier_to_grid', &
@@ -157,8 +147,7 @@ contains
 
     if (check_local) call verify_fourier_imag(fourier)
 
-    grid1 = fft_fourier_to_grid(fourier)
-    grid = grid1(1:2*(size(fourier, 1) - 1), :, :)
+    grid = fft_fourier_to_grid(fourier)
 
     return
   end function trans_fourier_to_grid_3d
@@ -172,7 +161,7 @@ contains
 
     do k = 1, size(fourier, 3)
       do j = 1, size(fourier, 2)
-        if (aimag(fourier(0, j, k)) .ne. 0.0) then
+        if (aimag(fourier(0, j, k)) /= 0.0) then
           chtmp(15:17) = '  0'
           write (chtmp(19:21), '(i3)') j
           write (chtmp(23:25), '(i3)') k
@@ -182,14 +171,14 @@ contains
       end do
     end do
 
-    if (mod(num_lon, 2) .eq. 0) then
+    if (mod(num_lon, 2) == 0) then
       do k = 1, size(fourier, 3)
         do j = 1, size(fourier, 2)
-          if (aimag(fourier(num_lon/2, j, k)) .ne. 0.0) then
+          if (aimag(fourier(num_lon/2, j, k)) /= 0.0) then
             write (chtmp(15:17), '(i3)') num_lon/2
             write (chtmp(19:21), '(i3)') j
             write (chtmp(23:25), '(i3)') k
-            write (chtmp(29:52), '(1pe24.16)') aimag(fourier(0, j, k))
+            write (chtmp(29:52), '(1pe24.16)') aimag(fourier(num_lon/2, j, k))
             call error_mesg('verify_fourier_imag', chtmp//'  It should be zero.', FATAL)
           end if
         end do
@@ -291,7 +280,7 @@ contains
     if (.not. module_is_initialized) then
       call error_mesg('get_deg_lon', 'module grid_fourier not initialized', FATAL)
     end if
-    if (size(deg_lon_out, 1) .ne. num_lon) then
+    if (size(deg_lon_out, 1) /= num_lon) then
       write (chtmp1, '(i8)') size(deg_lon_out, 1)
       write (chtmp2, '(i8)') num_lon
       call error_mesg('get_deg_lon', &
@@ -310,7 +299,7 @@ contains
 
     if (.not. module_is_initialized) return
     deallocate (deg_lon)
-!call fft_end
+    call fft_end
     module_is_initialized = .false.
 
     return

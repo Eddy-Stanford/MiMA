@@ -5,15 +5,14 @@
 !> inverse transforms: given a set of real data vectors it returns a set of half-complex
 !> Fourier coefficient vectors, or vice versa. The transform length `n` must be an even
 !> number greater than 4 with no prime factors other than 2, 3 and 5. `set99` must be
-!> called once for a given `n` before the transforms `fft99` and `fft991`, which differ
-!> only in the arrangement of the gridpoint values. A typical sequence, for `m` vectors
-!> of length `n`, is
+!> called once for a given `n` before the transforms `fft991`. A typical sequence, for `m`
+!> vectors of length `n`, is
 !>
 !> ```fortran
 !> integer :: ifax(13)
 !> real :: trigs(3*n/2+1), a(m*(n+2)), work(m*(n+1))
 !> call set99(trigs, ifax, n)
-!> call fft99(a, work, trigs, ifax, inc, jump, n, m, isign)
+!> call fft991(a, work, trigs, ifax, inc, jump, n, m, isign)
 !> ```
 !>
 !> The transform is converted to a half-length complex transform by the procedure of
@@ -34,148 +33,13 @@ module fft99_mod
   implicit none
   private
 
-  public :: fft99, fft991, set99
+  public :: fft991, set99
 
 contains
 
 !##########################################################################
 
-  !> Performs multiple real/half-complex periodic FFTs, with explicit cyclic continuity
-  !> in the gridpoint values.
-  !>
-  !> Each coefficient vector holds `a(0), b(0), a(1), b(1), ..., a(n/2), b(n/2)` (n+2
-  !> values; b(0) = b(n/2) = 0, which need not be supplied for `isign` = +1). Each data
-  !> vector holds the n+2 gridpoint values `x(n-1), x(0), x(1), ..., x(n-1), x(0)` (for
-  !> `fft991`: `x(0), x(1), ..., x(n-1), 0, 0`). The transforms are
-  !>
-  !> ```text
-  !> isign = +1:  x(j) = sum(k=0,...,n-1) c(k) exp(2 i j k pi/n),
-  !>              where c(k) = a(k) + i b(k) and c(n-k) = a(k) - i b(k)
-  !> isign = -1:  c(k) = (1/n) sum(j=0,...,n-1) x(j) exp(-2 i j k pi/n)
-  !> ```
-  !>
-  !> so a call with `isign` = +1 followed by one with `isign` = -1 returns the original
-  !> data. For example, 19 data vectors of length 64 stored one after the other in 70
-  !> locations each (66 values and 4 empty) have `inc` = 1, `jump` = 70; stored
-  !> interleaved (`a(1:19)` holding x(63) of each vector, `a(20:38)` x(0), ...), they have
-  !> `inc` = 19, `jump` = 1. Each coefficient vector overwrites the corresponding data
-  !> vector.
-  subroutine fft99(a, work, trigs, ifax, inc, jump, n, lot, isign)
-    integer, intent(in)    :: inc, jump, n, lot, isign
-    !! `inc`: increment between successive elements of each vector (1 for consecutive
-    !! data); `jump`: increment between the first elements of successive vectors; `n`:
-    !! length of each transform; `lot`: number of transforms done at once; `isign`: +1 from
-    !! Fourier coefficients to gridpoint values, -1 from gridpoint values to coefficients
-    integer, intent(inout) :: ifax(:)  !! factors of n/2, set up by `set99`
-    real, intent(in)    :: trigs(:)  !! trigonometric function values, set up by `set99`
-    real, intent(inout) :: a(*), work(*)
-    !! `a`: the data or coefficient vectors, length lot*(n+2), overwritten by the results;
-    !! `work`: work array of length lot*(n+1)
-
-    integer :: nfax, nx, nh, ink, igo, ibase, jbase
-    integer :: i, j, k, L, m, ia, la, ib
-
-    nfax = ifax(1)
-    nx = n + 1
-    nh = n/2
-    ink = inc + inc
-    if (isign .eq. +1) go to 30
-
-!   if necessary, transfer data to work area
-    igo = 50
-    if (mod(nfax, 2) .eq. 1) goto 40
-    ibase = inc + 1
-    jbase = 1
-    do L = 1, lot
-      i = ibase
-      j = jbase
-!dir$ ivdep
-      do m = 1, n
-        work(j) = a(i)
-        i = i + inc
-        j = j + 1
-      end do
-      ibase = ibase + jump
-      jbase = jbase + nx
-    end do
-
-    igo = 60
-    go to 40
-
-!   preprocessing (isign=+1)
-!   ------------------------
-
-30  continue
-    call fft99a(a, work, trigs, inc, jump, n, lot)
-    igo = 60
-
-!   complex transform
-!   -----------------
-
-40  continue
-    ia = inc + 1
-    la = 1
-    do k = 1, nfax
-      if (igo .eq. 60) go to 60
-50    continue
-      call vpassm(a(ia), a(ia + inc), work(1), work(2), trigs, &
-                  ink, 2, jump, nx, lot, nh, ifax(k + 1), la)
-      igo = 60
-      go to 70
-60    continue
-      call vpassm(work(1), work(2), a(ia), a(ia + inc), trigs, &
-                  2, ink, nx, jump, lot, nh, ifax(k + 1), la)
-      igo = 50
-70    continue
-      la = la*ifax(k + 1)
-    end do
-
-    if (isign .eq. -1) go to 130
-
-! if necessary, transfer data from work area
-
-    if (mod(nfax, 2) .ne. 1) then
-      ibase = 1
-      jbase = ia
-      do L = 1, lot
-        i = ibase
-        j = jbase
-!dir$ ivdep
-        do m = 1, n
-          a(j) = work(i)
-          i = i + 1
-          j = j + inc
-        end do
-        ibase = ibase + nx
-        jbase = jbase + jump
-      end do
-    end if
-
-!   fill in cyclic boundary points
-    ia = 1
-    ib = n*inc + 1
-!dir$ ivdep
-    do L = 1, lot
-      a(ia) = a(ib)
-      a(ib + inc) = a(ia + inc)
-      ia = ia + jump
-      ib = ib + jump
-    end do
-    go to 140
-
-!   postprocessing (isign=-1):
-!   --------------------------
-
-130 continue
-    call fft99b(work, a, trigs, inc, jump, n, lot)
-
-140 continue
-
-  end subroutine fft99
-
-!##########################################################################
-
-  !> Preprocessing step of `fft99` and `fft991` for `isign` = +1 (spectral to gridpoint).
+  !> Preprocessing step of `fft991` for `isign` = +1 (spectral to gridpoint).
   subroutine fft99a(a, work, trigs, inc, jump, n, lot)
     integer, intent(in)    :: inc, jump, n, lot
     real, intent(in)    :: trigs(:)
@@ -183,7 +47,7 @@ contains
 
 !     dimension a(n),work(n),trigs(n)
 !
-!     subroutine fft99a - preprocessing step for fft99, isign=+1
+!     subroutine fft99a - preprocessing step for fft991, isign=+1
 !     (spectral to gridpoint transform)
 
     integer :: nh, nx, ink, k, L
@@ -244,7 +108,7 @@ contains
     end do
 
 !   wavenumber n/4 (if it exists)
-    if (iabase .eq. ibbase) then
+    if (iabase == ibbase) then
       ia = iabase
       ja = jabase
 !dir$ ivdep
@@ -260,7 +124,7 @@ contains
 
 !##########################################################################
 
-  !> Postprocessing step of `fft99` and `fft991` for `isign` = -1 (gridpoint to spectral).
+  !> Postprocessing step of `fft991` for `isign` = -1 (gridpoint to spectral).
   subroutine fft99b(work, a, trigs, inc, jump, n, lot)
     integer, intent(in)    :: inc, jump, n, lot
     real, intent(in)    :: trigs(:)
@@ -268,7 +132,7 @@ contains
 
 !     dimension work(n),a(n),trigs(n)
 !
-!     subroutine fft99b - postprocessing step for fft99, isign=-1
+!     subroutine fft99b - postprocessing step for fft991, isign=-1
 !     (gridpoint to spectral transform)
 
     integer :: nh, nx, ink, k, L
@@ -333,7 +197,7 @@ contains
     end do
 
 !   wavenumber n/4 (if it exists)
-    if (iabase .eq. ibbase) then
+    if (iabase == ibbase) then
       ia = iabase
       ja = jabase
       scale = 2.0*scale
@@ -353,8 +217,23 @@ contains
   !> Performs multiple real/half-complex periodic FFTs, with the gridpoint values in
   !> ordinary spatial order.
   !>
-  !> The same as `fft99` except that each data vector holds `x(0), x(1), ..., x(n-1), 0, 0`
-  !> (the ordering of `mrfft2`).
+  !> Each coefficient vector holds `a(0), b(0), a(1), b(1), ..., a(n/2), b(n/2)` (n+2
+  !> values; b(0) = b(n/2) = 0, which need not be supplied for `isign` = +1). Each data
+  !> vector holds the n+2 values `x(0), x(1), ..., x(n-1), 0, 0` (the ordering of
+  !> `mrfft2`). The transforms are
+  !>
+  !> ```text
+  !> isign = +1:  x(j) = sum(k=0,...,n-1) c(k) exp(2 i j k pi/n),
+  !>              where c(k) = a(k) + i b(k) and c(n-k) = a(k) - i b(k)
+  !> isign = -1:  c(k) = (1/n) sum(j=0,...,n-1) x(j) exp(-2 i j k pi/n)
+  !> ```
+  !>
+  !> so a call with `isign` = +1 followed by one with `isign` = -1 returns the original
+  !> data. For example, 19 data vectors of length 64 stored one after the other in 70
+  !> locations each (66 values and 4 empty) have `inc` = 1, `jump` = 70; stored
+  !> interleaved (`a(1:19)` holding x(0) of each vector, `a(20:38)` x(1), ...), they have
+  !> `inc` = 19, `jump` = 1. Each coefficient vector overwrites the corresponding data
+  !> vector.
   subroutine fft991(a, work, trigs, ifax, inc, jump, n, lot, isign)
     integer, intent(in)    :: inc, jump, n, lot, isign
     !! `inc`: increment between successive elements of each vector (1 for consecutive
@@ -367,68 +246,23 @@ contains
     !! `a`: the data or coefficient vectors, length lot*(n+2), overwritten by the results;
     !! `work`: work array of length lot*(n+1)
 
-    integer :: nfax, nx, nh, ink, igo, ibase, jbase
+    integer :: nfax, nx, nh, ink, ibase, jbase
     integer :: i, j, k, L, m, ia, la, ib
+    logical :: from_a   ! the next pass of the complex transform reads a and writes work
 
     nfax = ifax(1)
     nx = n + 1
     nh = n/2
     ink = inc + inc
-    if (isign .eq. +1) go to 30
 
-!     if necessary, transfer data to work area
-    igo = 50
-    if (mod(nfax, 2) .eq. 1) goto 40
-    ibase = 1
-    jbase = 1
-    do L = 1, lot
-      i = ibase
-      j = jbase
-!dir$ ivdep
-      do m = 1, n
-        work(j) = a(i)
-        i = i + inc
-        j = j + 1
-      end do
-      ibase = ibase + jump
-      jbase = jbase + nx
-    end do
-!
-    igo = 60
-    go to 40
-!
-!   preprocessing (isign=+1)
-!   ------------------------
-!
-30  continue
-    call fft99a(a, work, trigs, inc, jump, n, lot)
-    igo = 60
-!
-!   complex transform
-!   -----------------
-!
-40  continue
-    ia = 1
-    la = 1
-    do k = 1, nfax
-      if (igo .eq. 60) go to 60
-50    continue
-      call vpassm(a(ia), a(ia + inc), work(1), work(2), trigs, &
-                  ink, 2, jump, nx, lot, nh, ifax(k + 1), la)
-      igo = 60
-      go to 70
-60    continue
-      call vpassm(work(1), work(2), a(ia), a(ia + inc), trigs, &
-                  2, ink, nx, jump, lot, nh, ifax(k + 1), la)
-      igo = 50
-70    continue
-      la = la*ifax(k + 1)
-    end do
-
-    if (isign .eq. -1) go to 130
-
-! if necessary, transfer data from work area
-    if (mod(nfax, 2) .ne. 1) then
+    if (isign == +1) then
+      ! preprocessing (isign=+1)
+      call fft99a(a, work, trigs, inc, jump, n, lot)
+      from_a = .false.
+    else if (mod(nfax, 2) == 1) then
+      from_a = .true.
+    else
+      ! an even number of passes: transfer the data to the work area first
       ibase = 1
       jbase = 1
       do L = 1, lot
@@ -436,38 +270,68 @@ contains
         j = jbase
 !dir$ ivdep
         do m = 1, n
-          a(j) = work(i)
-          i = i + 1
-          j = j + inc
+          work(j) = a(i)
+          i = i + inc
+          j = j + 1
         end do
-        ibase = ibase + nx
-        jbase = jbase + jump
+        ibase = ibase + jump
+        jbase = jbase + nx
       end do
+      from_a = .false.
     end if
 
-!   fill in zeros at end
-    ib = n*inc + 1
-!dir$ ivdep
-    do L = 1, lot
-      a(ib) = 0.0
-      a(ib + inc) = 0.0
-      ib = ib + jump
+    ! complex transform, one pass per factor, alternating between a and work
+    ia = 1
+    la = 1
+    do k = 1, nfax
+      if (from_a) then
+        call vpassm(a(ia), a(ia + inc), work(1), work(2), trigs, &
+                    ink, 2, jump, nx, lot, nh, ifax(k + 1), la)
+      else
+        call vpassm(work(1), work(2), a(ia), a(ia + inc), trigs, &
+                    2, ink, nx, jump, lot, nh, ifax(k + 1), la)
+      end if
+      from_a = .not. from_a
+      la = la*ifax(k + 1)
     end do
-    go to 140
 
-!     postprocessing (isign=-1):
-!     --------------------------
+    if (isign == -1) then
+      ! postprocessing (isign=-1)
+      call fft99b(work, a, trigs, inc, jump, n, lot)
+    else
+      ! if necessary, transfer data from work area
+      if (mod(nfax, 2) /= 1) then
+        ibase = 1
+        jbase = 1
+        do L = 1, lot
+          i = ibase
+          j = jbase
+!dir$ ivdep
+          do m = 1, n
+            a(j) = work(i)
+            i = i + 1
+            j = j + inc
+          end do
+          ibase = ibase + nx
+          jbase = jbase + jump
+        end do
+      end if
 
-130 continue
-    call fft99b(work, a, trigs, inc, jump, n, lot)
-
-140 continue
+      ! fill in zeros at end
+      ib = n*inc + 1
+!dir$ ivdep
+      do L = 1, lot
+        a(ib) = 0.0
+        a(ib + inc) = 0.0
+        ib = ib + jump
+      end do
+    end if
 
   end subroutine fft991
 
 !##########################################################################
 
-  !> Sets up the factors and trigonometric values used by `fft99` and `fft991` for
+  !> Sets up the factors and trigonometric values used by `fft991` for
   !> transforms of length `n`.
   !>
   !> It need only be called once before a sequence of transforms of the same length. Stops
@@ -490,13 +354,13 @@ contains
 ! documentation of the details were not available when this routine
 ! was written.
 !
-    integer :: mode = 3
+    integer, parameter :: mode = 3
     integer :: i
 
     call fax(ifax, n, mode)
     i = ifax(1)
-    if (ifax(i + 1) .gt. 5 .or. n .le. 4) ifax(1) = -99
-    if (ifax(1) .le. 0) then
+    if (ifax(i + 1) > 5 .or. n <= 4) ifax(1) = -99
+    if (ifax(1) <= 0) then
       call mpp_error(FATAL, 'fft99_mod: in routine set99 -- invalid n')
     end if
     call fftrig(trigs, n, mode)
@@ -513,61 +377,58 @@ contains
     integer :: nn, k, L, inc, nfax, ii, istop, i, item
 
     nn = n
-    if (iabs(mode) .eq. 1) go to 10
-    if (iabs(mode) .eq. 8) go to 10
-    nn = n/2
-    if ((nn + nn) .eq. n) go to 10
-    ifax(1) = -99
-    return
-10  k = 1
-!     test for factors of 4
-20  if (mod(nn, 4) .ne. 0) go to 30
-    k = k + 1
-    ifax(k) = 4
-    nn = nn/4
-    if (nn .eq. 1) go to 80
-    go to 20
-!     test for extra factor of 2
-30  if (mod(nn, 2) .ne. 0) go to 40
-    k = k + 1
-    ifax(k) = 2
-    nn = nn/2
-    if (nn .eq. 1) go to 80
-!     test for factors of 3
-40  if (mod(nn, 3) .ne. 0) go to 50
-    k = k + 1
-    ifax(k) = 3
-    nn = nn/3
-    if (nn .eq. 1) go to 80
-    go to 40
-!     now find remaining factors
-50  L = 5
+    if (iabs(mode) /= 1 .and. iabs(mode) /= 8) then
+      nn = n/2
+      if ((nn + nn) /= n) then
+        ifax(1) = -99
+        return
+      end if
+    end if
+    k = 1
+!     factors of 4
+    do while (mod(nn, 4) == 0)
+      k = k + 1
+      ifax(k) = 4
+      nn = nn/4
+    end do
+!     an extra factor of 2
+    if (mod(nn, 2) == 0) then
+      k = k + 1
+      ifax(k) = 2
+      nn = nn/2
+    end if
+!     factors of 3
+    do while (mod(nn, 3) == 0)
+      k = k + 1
+      ifax(k) = 3
+      nn = nn/3
+    end do
+!     the remaining factors: L = 5, 7, 11, 13, ... (inc alternately takes on values 2 and 4)
+    L = 5
     inc = 2
-!     inc alternately takes on values 2 and 4
-60  if (mod(nn, L) .ne. 0) go to 70
-    k = k + 1
-    ifax(k) = L
-    nn = nn/L
-    if (nn .eq. 1) go to 80
-    go to 60
-70  L = L + inc
-    inc = 6 - inc
-    go to 60
-80  ifax(1) = k - 1
+    do while (nn /= 1)
+      if (mod(nn, L) == 0) then
+        k = k + 1
+        ifax(k) = L
+        nn = nn/L
+      else
+        L = L + inc
+        inc = 6 - inc
+      end if
+    end do
+    ifax(1) = k - 1
 !     ifax(1) contains number of factors
     nfax = ifax(1)
 !     sort factors into ascending order
-    if (nfax .eq. 1) go to 110
     do ii = 2, nfax
       istop = nfax + 2 - ii
       do i = 2, istop
-        if (ifax(i + 1) .ge. ifax(i)) cycle
+        if (ifax(i + 1) >= ifax(i)) cycle
         item = ifax(i)
         ifax(i) = ifax(i + 1)
         ifax(i + 1) = item
       end do
     end do
-110 continue
 
   end subroutine fax
 
@@ -583,7 +444,7 @@ contains
 
     imode = iabs(mode)
     nn = n
-    if (imode .gt. 1 .and. imode .lt. 6) nn = n/2
+    if (imode > 1 .and. imode < 6) nn = n/2
     del = (pi + pi)/real(nn)
     L = nn + nn
     do i = 1, L, 2
@@ -591,8 +452,8 @@ contains
       trigs(i) = cos(angle)
       trigs(i + 1) = sin(angle)
     end do
-    if (imode .eq. 1) return
-    if (imode .eq. 8) return
+    if (imode == 1) return
+    if (imode == 8) return
 
     del = 0.5*del
     nh = (nn + 1)/2
@@ -603,11 +464,11 @@ contains
       trigs(la + i) = cos(angle)
       trigs(la + i + 1) = sin(angle)
     end do
-    if (imode .le. 3) return
+    if (imode <= 3) return
 
     del = 0.5*del
     la = la + nn
-    if (mode .ne. 5) then
+    if (mode /= 5) then
       do i = 2, nn
         angle = real(i - 1)*del
         trigs(la + i) = 2.0*sin(angle)
@@ -649,11 +510,11 @@ contains
 !     la is product of previous factors
 !
 
-    real :: sin36 = 0.587785252292473
-    real :: cos36 = 0.809016994374947
-    real :: sin72 = 0.951056516295154
-    real :: cos72 = 0.309016994374947
-    real :: sin60 = 0.866025403784437
+    real, parameter :: sin36 = 0.587785252292473
+    real, parameter :: cos36 = 0.809016994374947
+    real, parameter :: sin72 = 0.951056516295154
+    real, parameter :: cos72 = 0.309016994374947
+    real, parameter :: sin60 = 0.866025403784437
 
     integer :: i, j, k, L, m, iink, jink, jump, ibase, jbase, igo, ijk, la1
     integer :: ia, ja, ib, jb, kb, ic, jc, kc, id, jd, kd, ie, je, ke
@@ -666,15 +527,14 @@ contains
     ibase = 0
     jbase = 0
     igo = ifac - 1
-    if (igo .gt. 4) return
-!del  go to (10,50,90,130),igo
+    if (igo > 4) return
 
     select case (igo)
 
 !   coding for factor 2
 
     case (1)
-10    ia = 1
+      ia = 1
       ja = 1
       ib = ia + iink
       jb = ja + jink
@@ -693,7 +553,7 @@ contains
         ibase = ibase + inc1
         jbase = jbase + inc2
       end do
-      if (la .eq. m) return
+      if (la == m) return
       la1 = la + 1
       jbase = jbase + jump
       do k = la1, m, la
@@ -717,12 +577,11 @@ contains
         end do
         jbase = jbase + jump
       end do
-!     return
 
 !   coding for factor 3
 
     case (2)
-50    ia = 1
+      ia = 1
       ja = 1
       ib = ia + iink
       jb = ja + jink
@@ -745,7 +604,7 @@ contains
         ibase = ibase + inc1
         jbase = jbase + inc2
       end do
-      if (la .eq. m) return
+      if (la == m) return
       la1 = la + 1
       jbase = jbase + jump
       do k = la1, m, la
@@ -782,12 +641,11 @@ contains
         end do
         jbase = jbase + jump
       end do
-!     return
 
 !   coding for factor 4
 
     case (3)
-90    ia = 1
+      ia = 1
       ja = 1
       ib = ia + iink
       jb = ja + jink
@@ -814,7 +672,7 @@ contains
         ibase = ibase + inc1
         jbase = jbase + inc2
       end do
-      if (la .eq. m) return
+      if (la == m) return
       la1 = la + 1
       jbase = jbase + jump
       do k = la1, m, la
@@ -860,12 +718,11 @@ contains
         end do
         jbase = jbase + jump
       end do
-!     return
 
 !   coding for factor 5
 
     case (4)
-130   ia = 1
+      ia = 1
       ja = 1
       ib = ia + iink
       jb = ja + jink
@@ -904,7 +761,7 @@ contains
         ibase = ibase + inc1
         jbase = jbase + inc2
       end do
-      if (la .eq. m) return
+      if (la == m) return
       la1 = la + 1
       jbase = jbase + jump
       do k = la1, m, la

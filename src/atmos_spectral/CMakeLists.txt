@@ -29,7 +29,7 @@ transforms/spherical.f90
 transforms/spherical_fourier.f90
 transforms/grid_fourier.f90
 transforms/fft99.f90
-transforms/fft.F90
+transforms/fft.f90
 )
 
 target_sources( mima PRIVATE ${ATMOS_SPECTRAL_SOURCES} )
