@@ -401,10 +401,11 @@ contains
 !-----------------------------------------------------------------------
     end if ! if (do_bm)
 
-! Do wet deposition for the convective routine here
+! Do wet deposition for the convective routine here (prognostic tracers only: rdt has
+! no diagnostic tracers)
 ! qdt should give the vertical distribution here
     wet_data = 0.0
-    do n = 1, size(tracertnd, 4)
+    do n = 1, size(rdt, 4)
       wetdeptnd = 0.0
       call wet_deposition(n, t, pfull, phalf, rain, snow, qtnd, tracer(:, :, :, n), &
                           wetdeptnd, Time, 'convect', is, js, dt)
@@ -548,17 +549,19 @@ contains
 
 !-----------------------------------------------------------------------
     end if
-! Do wet deposition for the large scale routine here
+! Do wet deposition for the large scale routine here (only with large-scale condensation:
+! otherwise rain, snow and qtnd are still those of the convection)
 ! qdt should give the vertical distribution here
-    do n = 1, size(tracertnd, 4)
-      wetdeptnd = 0.0
-      call wet_deposition(n, t, pfull, phalf, rain, snow, qtnd, tracer(:, :, :, n), &
-                          wetdeptnd, Time, 'lscale', is, js, dt)
-      tracertnd(:, :, :, n) = tracertnd(:, :, :, n) - wetdeptnd
+    if (do_lsc) then
+      do n = 1, size(rdt, 4)
+        wetdeptnd = 0.0
+        call wet_deposition(n, t, pfull, phalf, rain, snow, qtnd, tracer(:, :, :, n), &
+                            wetdeptnd, Time, 'lscale', is, js, dt)
+        tracertnd(:, :, :, n) = tracertnd(:, :, :, n) - wetdeptnd
 !RSH9-11-03
 ! added here, previously effect not added to rdt
-      rdt(:, :, :, n) = rdt(:, :, :, n) - wetdeptnd
-      wet_data(:, :, :, n) = wet_data(:, :, :, n) + wetdeptnd
+        rdt(:, :, :, n) = rdt(:, :, :, n) - wetdeptnd
+        wet_data(:, :, :, n) = wet_data(:, :, :, n) + wetdeptnd
 
 ! start chemistry
 !if (id_wet(n) /= 0 ) then
@@ -566,7 +569,8 @@ contains
 !used = send_data(id_wet(n), wet_data(:,:,:,n), Time,is_in=is,js_in=js)
 !endif
 ! end chemistry
-    end do
+      end do
+    end if
 
 !-----------------------------------------------------------------------
 !***********************************************************************
