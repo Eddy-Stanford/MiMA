@@ -3,8 +3,8 @@
 !> The tracer and tracer tendency arrays are supplied with the longitude, latitude, wind,
 !> temperature and pressure, from which the tracer routines compute the tendencies due to
 !> emissions, chemical losses and deposition. The driver applies dry deposition to all
-!> prognostic tracers and calls the radon, convection tracer, black and organic carbon and
-!> sulfur hexafluoride (SF6) routines for the tracers that are in the `field_table`.
+!> prognostic tracers and calls the radon routines for the radon tracers that are in the
+!> `field_table`. Other tracers are passive.
 !>
 !> To add a tracer: add a `use` statement for its module; in `atmos_tracer_driver_init`, get
 !> its index with `get_tracer_index(MODEL_ATMOS, 'name')` (positive if the tracer is in the
@@ -38,16 +38,6 @@ module atmos_tracer_driver_mod
   use atmos_radon_mod, only: atmos_radon_sourcesink, &
                              atmos_radon_init, &
                              atmos_radon_end
-  use atmos_carbon_aerosol_mod, only: atmos_blackc_sourcesink, &
-                                      atmos_organic_sourcesink, &
-                                      atmos_carbon_aerosol_init, &
-                                      atmos_carbon_aerosol_end
-  use atmos_sulfur_hex_mod, only: atmos_sf6_sourcesink, &
-                                  atmos_sulfur_hex_init, &
-                                  atmos_sulfur_hex_end
-  use atmos_convection_tracer_mod, only: atmos_convection_tracer_init, &
-                                         atmos_cnvct_tracer_sourcesink, &
-                                         atmos_convection_tracer_end
 !chemistry start
 !use       chem_interface, only : sourcesink, &
 !                                 driver_init, &
@@ -74,17 +64,11 @@ module atmos_tracer_driver_mod
 !-----------------------------------------------------------------------
 
   integer :: nchem = 0  ! tracer number for chem_interface
-  integer :: nbcphobic = 0
-  integer :: nbcphilic = 0
-  integer :: nocphobic = 0
-  integer :: nocphilic = 0
   integer :: nclay = 0
   integer :: nsilt = 0
   integer :: nseasalt = 0
-  integer :: nsf6 = 0
 
   integer, dimension(:), pointer :: nradon
-  integer, dimension(:), pointer :: nconvect
 
   integer :: nt     ! number of activated tracers
   integer :: ntp    ! number of activated prognostic tracers
@@ -145,7 +129,6 @@ contains
     integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level above the surface
 !-----------------------------------------------------------------------
     real, dimension(size(r, 1), size(r, 2), size(r, 3)) :: rtnd, pwt
-    real, dimension(size(r, 1), size(r, 2), size(r, 3)) :: rtndphob, rtndphil
     real, dimension(size(r, 1), size(r, 2)) :: dsinku
     integer :: k, kd
     real, dimension(size(r, 1), size(r, 2), size(r, 3), ntp) :: chem_tend
@@ -193,19 +176,6 @@ contains
         rdt(:, :, :, nradon(nnn)) = rdt(:, :, :, nradon(nnn)) + rtnd(:, :, :)
       end if
 
-    end do
-
-!
-!--------------- compute convection tracer source-sink tendency -----
-    do nnn = 1, size(nconvect(:))
-      if (nconvect(nnn) > 0) then
-        if (nconvect(nnn) > nt) call error_mesg('Tracer_driver', &
-                                                'Number of tracers .lt. number for convection tracer', FATAL)
-        call atmos_cnvct_tracer_sourcesink(lon, lat, land, pwt, &
-                                           r(:, :, :, nconvect(nnn)), &
-                                           rtnd, Time, is, ie, js, je, kbot)
-        rdt(:, :, :, nconvect(nnn)) = rdt(:, :, :, nconvect(nnn)) + rtnd(:, :, :)
-      end if
     end do
 
 !  RSH 4/8/04
@@ -259,42 +229,6 @@ contains
     end if  ! (no diagnostic tracers)
 !chemistry end
 
-    if (nbcphobic > 0 .and. nbcphilic > 0) then
-      if (nbcphobic > ntp .or. nbcphilic > ntp) &
-        call error_mesg('Tracer_driver', &
-                        'Number of tracers .lt. number for black carbon', FATAL)
-      call atmos_blackc_sourcesink(lon, lat, land, pwt, &
-                                   r(:, :, :, nbcphobic), rtndphob, &
-                                   r(:, :, :, nbcphilic), rtndphil, &
-                                   Time, is, ie, js, je)
-      rdt(:, :, :, nbcphobic) = rdt(:, :, :, nbcphobic) + rtndphob(:, :, :)
-      rdt(:, :, :, nbcphilic) = rdt(:, :, :, nbcphilic) + rtndphil(:, :, :)
-    end if
-
-    if (nocphobic > 0) then
-      if (nocphobic > ntp) call error_mesg('Tracer_driver', &
-                                           'Number of tracers .lt. number for organic carbon', FATAL)
-      call atmos_organic_sourcesink(lon, lat, land, pwt, r(:, :, :, nocphobic), &
-                                    rtnd, Time, is, ie, js, je, kbot)
-      rdt(:, :, :, nocphobic) = rdt(:, :, :, nocphobic) + rtnd(:, :, :)
-    end if
-
-    if (nocphilic > 0) then
-      if (nocphilic > ntp) call error_mesg('Tracer_driver', &
-                                           'Number of tracers .lt. number for organic carbon', FATAL)
-      call atmos_organic_sourcesink(lon, lat, land, pwt, r(:, :, :, nocphilic), &
-                                    rtnd, Time, is, ie, js, je, kbot)
-      rdt(:, :, :, nocphilic) = rdt(:, :, :, nocphilic) + rtnd(:, :, :)
-    end if
-
-    if (nsf6 > 0) then
-      if (nsf6 > ntp) call error_mesg('Tracer_driver', &
-                                      'Number of tracers .lt. number for sulfur hexafluoride', FATAL)
-      call atmos_sf6_sourcesink(lon, lat, land, pwt, r(:, :, :, nsf6), &
-                                rtnd, Time, is, ie, js, je, kbot)
-      rdt(:, :, :, nsf6) = rdt(:, :, :, nsf6) + rtnd(:, :, :)
-    end if
-
   end subroutine atmos_tracer_driver
 
 !#######################################################################
@@ -334,35 +268,12 @@ contains
 
     call atmos_radon_init(r, axes, Time, nradon, mask)
 
-!----- initialize the convection tracer ------------
-
-    call atmos_convection_tracer_init(r, phalf, axes, Time, &
-                                      nconvect, mask)
-
 !chemistry start
 !      nchem = get_tracer_index(MODEL_ATMOS,'CO')
 !      if (nchem > 0) then
 !        call driver_init(r, mask, axes, Time, lonb, latb, phalf)
 !      endif
 !chemistry end
-
-    nbcphobic = get_tracer_index(MODEL_ATMOS, 'bcphob')
-
-    nbcphilic = get_tracer_index(MODEL_ATMOS, 'bcphil')
-
-    nocphobic = get_tracer_index(MODEL_ATMOS, 'ocphob')
-
-    nocphilic = get_tracer_index(MODEL_ATMOS, 'ocphil')
-
-    if (nbcphobic > 0) then
-      call atmos_carbon_aerosol_init(lonb, latb, r, axes, Time, mask)
-    end if
-
-    nsf6 = get_tracer_index(MODEL_ATMOS, 'sf6')
-
-    if (nsf6 > 0) then
-      call atmos_sulfur_hex_init(lonb, latb, r, axes, Time, mask)
-    end if
 
     call get_number_tracers(MODEL_ATMOS, num_tracers=nt, &
                             num_prog=ntp)
@@ -383,9 +294,6 @@ contains
     write (stdlog(), '(/,(a))') 'Exiting tracer_driver, have a nice day ...'
 
     call atmos_radon_end
-    call atmos_sulfur_hex_end
-    call atmos_carbon_aerosol_end
-    call atmos_convection_tracer_end
 
     module_is_initialized = .false.
 
