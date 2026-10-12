@@ -17,6 +17,7 @@ nav:
   - Home: README.md
   - Getting started: GettingStarted.md
   - Model configurations: Configurations.md
+  - Dynamical core: DynamicalCore.md
   - Namelist reference: Parameters.md
   - Diagnostics: Diagnostics.md
   - Fortran API reference: FortranAPI.md
@@ -62,11 +63,12 @@ markdown_extensions:
 hooks:
   - tools/fortran_api.py
 
-# rebuild on changes to the Fortran doc comments (mkdocs serve)
+# rebuild on changes to the Fortran doc comments and the generators (mkdocs serve)
 watch:
   - src
   - ford.md
   - tools/fortran_api.py
+  - tools/mimadoc
 
 validation:
   omitted_files: warn
