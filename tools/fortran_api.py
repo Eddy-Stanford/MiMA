@@ -60,7 +60,12 @@ def _diag_anchor(module):
 
 def _parse():
     """Parse the sources with FORD; returns [(name, kind, entity, relpath)]."""
-    os.environ["PATH"] = os.path.dirname(os.sys.executable) + os.pathsep + os.environ["PATH"]
+    # FORD's default preprocessor (pcpp) is a script next to this Python, which
+    # is not on PATH when mkdocs is run as ./docs-env/bin/mkdocs. Add it once:
+    # this runs on every rebuild of mkdocs serve.
+    bindir = os.path.dirname(sys.executable)
+    if bindir not in os.environ.get("PATH", "").split(os.pathsep):
+        os.environ["PATH"] = bindir + os.pathsep + os.environ.get("PATH", "")
     text = (ROOT / "ford.md").read_text()
     with contextlib.redirect_stdout(io.StringIO()):
         docs, settings = ford.load_settings(text, ROOT, "ford.md")

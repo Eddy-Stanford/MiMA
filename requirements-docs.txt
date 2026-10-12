@@ -6,4 +6,6 @@
 # successor, Zensical (https://zensical.org), reads the same mkdocs.yml.
 mkdocs==1.6.1
 mkdocs-material==9.7.7
+# tools/fortran_api.py uses FORD internals (load_settings, parse_arguments,
+# fortran_project.Project), so keep FORD pinned and check the hook when updating it.
 ford==7.0.13
