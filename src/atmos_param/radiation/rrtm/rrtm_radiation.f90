@@ -129,11 +129,13 @@ module rrtm_radiation
   ! dimension (lon x lat)
   integer(kind=im)                           :: num_precip            ! number of times precipitation
   ! has been summed in rrtm_precip
-  integer(kind=im)                           :: dt_last               ! time of last radiation calculation
-  ! used for alarm
+  integer(kind=8)                            :: t_last                ! model time of the last radiation
+  ! calculation [s since the calendar base], for the alarm
+  integer(kind=8)                            :: day_last              ! model day of the last call of run_rrtmg
+  ! (with t_last, gives the dt_last of the restart file)
   type(domain2d)                             :: domain                ! grid domain, for the restart file
   ! RESTART/rrtm_radiation.res.nc, which
-  ! holds dt_last and the fields kept
+  ! holds t_last, dt_last and the fields kept
   ! between radiation steps
 !---------------------------------------------------------------------------------------------------------------
 ! some constants
@@ -331,7 +333,9 @@ contains
 
     deg2rad = acos(0.)/90.
 
-    dt_last = -dt_rad !make sure we are computing radiation at the first time step
+    ! make sure we are computing radiation at the first time step
+    t_last = -int(dt_rad, 8)
+    day_last = 0
 
     ncols_rrt = ncols/lonstep
     nlay_rrt = nlay
@@ -493,6 +497,7 @@ contains
 !---------------------------------------------------------------------------------------------------------------
 ! Local variables
     integer k, j, i, ij, j1, i1, ij1, kend, dyofyr, seconds, days
+    integer(kind=8) :: t_now
     integer si, sj, sk, locmin(3)
     real(kind=rb), dimension(size(q, 1), size(q, 2), size(q, 3)) :: o3f
     real(kind=rb), dimension(ncols_rrt, nlay_rrt) :: pfull, tfull &
@@ -519,9 +524,10 @@ contains
 !check if we really want to recompute radiation (alarm,input file(s))
 ! alarm
     call get_time(Time, seconds, days)
-    if (seconds < dt_last) dt_last = dt_last - 86400 !it's a new day
-    if (seconds - dt_last .ge. dt_rad) then
-      dt_last = seconds
+    t_now = int(days, 8)*86400_8 + seconds
+    day_last = days
+    if (t_now - t_last >= dt_rad) then
+      t_last = t_now
     else
       if (store_intermediate_rad) then
         tdt_rrtm = tdt_rad
@@ -1085,9 +1091,13 @@ contains
     if (allocated(isr)) call read_saved(rst, 'isr', isr, found)
     if (allocated(swdn_toa)) call read_saved(rst, 'swdn_toa', swdn_toa, found)
     if (allocated(lwup_sfc)) call read_saved(rst, 'lwup_sfc', lwup_sfc, found)
+    ! older restarts lack t_last
+    found = found .and. restart_field_exists(rst, 't_last') .and. restart_field_exists(rst, 'dt_last')
     if (found) then
+      call read_restart_field(rst, 't_last', x)
+      t_last = nint(x, 8)
       call read_restart_field(rst, 'dt_last', x)
-      dt_last = nint(x)
+      day_last = (t_last - nint(x, 8))/86400_8
     elseif (mpp_pe() == mpp_root_pe()) then
       call error_mesg(mod_name, 'INPUT/rrtm_radiation.res.nc lacks fields now in use;'// &
                       ' radiation is recomputed at the first time step', NOTE)
@@ -1144,7 +1154,11 @@ contains
     if (mpp_pe() == mpp_root_pe()) call error_mesg(mod_name, &
                                                    'Writing NetCDF formatted restart file: RESTART/rrtm_radiation.res.nc', NOTE)
     call open_restart_write(rst, 'RESTART/rrtm_radiation.res.nc', domain)
-    call write_restart_field(rst, 'dt_last', real(dt_last))
+    ! dt_last: the time of the last radiation step in seconds from the start of the day of
+    ! the last time step (the alarm variable of earlier versions); t_last: the model time of
+    ! the last radiation step [s]
+    call write_restart_field(rst, 'dt_last', real(t_last - day_last*86400_8))
+    call write_restart_field(rst, 't_last', real(t_last))
     if (allocated(tdt_rad)) call write_restart_field(rst, 'tdt_rad', tdt_rad)
     if (allocated(sw_flux)) call write_restart_field(rst, 'sw_flux', sw_flux)
     if (allocated(lw_flux)) call write_restart_field(rst, 'lw_flux', lw_flux)
