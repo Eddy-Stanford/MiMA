@@ -194,7 +194,7 @@ contains
 ! set the reference profiles to be the original profiles (for diagnostic
 ! purposes only --  you can think of this as what you're relaxing to in
 ! areas above the actual convection
-          do k = 1, max(klzb - 1, 1)
+          do k = 1, klzb - 1
             qdel(i, j, k) = 0.0
             tdel(i, j, k) = 0.0
             q_ref(i, j, k) = qin(i, j, k)
