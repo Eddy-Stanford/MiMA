@@ -931,6 +931,8 @@ contains
 
     call ocean_model_end(Ocean, grid)
     call land_model_end(Land, grid)
+! The boundaries belong to the atmosphere (Atm%lon_bnd, Atm%lat_bnd)
+    nullify (grid%lon_bnd, grid%lat_bnd)
 
   end subroutine flux_exchange_end
 

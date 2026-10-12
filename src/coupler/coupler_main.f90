@@ -449,7 +449,7 @@ contains
 
 !#######################################################################
 
-  !> Terminates the atmosphere and the surface (writing their restart files) and writes
+  !> Terminates the surface and the atmosphere (writing their restart files) and writes
   !> `RESTART/coupler.res`.
   subroutine coupler_end
 
@@ -471,9 +471,10 @@ contains
 !-----------------------------------------------------------------------
     if (Atm%pe) then
       call mpp_set_current_pelist(Atm%pelist)
-      call atmos_model_end(Atm)
-
+! The surface first: its grid points to the grid of Atm, which atmos_model_end deallocates
       call flux_exchange_end(Ocean, Land)
+
+      call atmos_model_end(Atm)
     end if
     call mpp_set_current_pelist()
 
