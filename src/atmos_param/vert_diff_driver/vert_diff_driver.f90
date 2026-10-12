@@ -108,7 +108,7 @@ contains
     real, intent(in), dimension(:, :, :), optional :: mask  !! mask for the diagnostics
     integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tt, dpg, q_2, entrop_vdif_kediss
+    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tt, dpg, entrop_vdif_kediss
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: dissipative_heat, dt_u_in, dt_v_in
     integer :: k, ntp, kx
     logical :: used
@@ -149,9 +149,7 @@ contains
 !---- heat/moisture diffusion (down only) ----
 !---- tracer diffusion (no surface flux) ----
 
-    q_2 = q
-
-    call gcm_vert_diff_down(is, js, delt, u, v, tt, q_2, trs(:, :, :, 1:ntp), &
+    call gcm_vert_diff_down(is, js, delt, u, v, tt, q, trs(:, :, :, 1:ntp), &
                             diff_mom, diff_heat, p_half, p_full, z_full, &
                             tau_x, tau_y, dtau_du, dtau_dv, &
                             dt_u, dt_v, dt_t, dt_q, dt_trs(:, :, :, 1:ntp), &
@@ -316,7 +314,7 @@ contains
     !! diagnostic axes (lon, lat, pfull, phalf)
     type(time_type), intent(in)    :: Time  !! current time
 
-    integer :: unit, io, ierr
+    integer :: io, ierr
 
 !-----------------------------------------------------------------------
 !------ read namelist ------

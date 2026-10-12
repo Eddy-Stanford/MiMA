@@ -154,22 +154,6 @@ contains
 
 !#######################################################################
 
-  subroutine dealloc_surf_diff_type(Tri_surf)
-
-    type(surf_diff_type), intent(inout) :: Tri_surf
-
-    deallocate (Tri_surf%dtmass)
-    deallocate (Tri_surf%dflux_t)
-    deallocate (Tri_surf%dflux_q)
-    deallocate (Tri_surf%delta_t)
-    deallocate (Tri_surf%delta_q)
-    deallocate (Tri_surf%delta_u)
-    deallocate (Tri_surf%delta_v)
-
-  end subroutine dealloc_surf_diff_type
-
-!#######################################################################
-
   !> Deallocates the arrays of the module.
   subroutine vert_diff_end
 
@@ -230,13 +214,14 @@ contains
     integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
     real, dimension(size(u, 1), size(u, 2), size(u, 3)) :: tt, mu, nu
+    real, dimension(size(u, 1), size(u, 2), size(u, 3)) :: a, b, c, g
 
     real, dimension(size(u, 1), size(u, 2)) :: f_t_delt_n1, f_q_delt_n1, &
                                                mu_delt_n, nu_n, e_n1, delta_t_n, delta_q_n, &
                                                delta_u_n, delta_v_n
 
     real    :: gcp
-    integer :: i, j, kb, ie, je
+    integer :: ie, je
 
 !-----------------------------------------------------------------------
 
@@ -260,16 +245,18 @@ contains
                       dt_u, dt_v, dt_t, delta_u_n, delta_v_n, &
                       dissipative_heat, kbot)
 
-!  recompute nu for a different diffusivity
+!  recompute nu for a different diffusivity, and the tridiagonal coefficients for it (the
+!  same for the tracers, temperature and specific humidity)
     call compute_nu(diff_t, p_half, p_full, z_full, t, q, nu)
+    call compute_e(delt, mu, nu, e_global(is:ie, js:je, :), a, b, c, g)
 
 !  diffuse tracers
-    call tr_vert_diff(delt, mu, nu, tr, dt_tr, kbot)
+    call tr_vert_diff_coef(delt, mu, nu, e_global(is:ie, js:je, :), b, c, g, tr, dt_tr, kbot)
 
 !  downward sweep of tridiagonal solver for temperature and specific humidity
-    call vert_diff_down_2 &
+    call vert_diff_down_2_coef &
       (delt, mu, nu, tt, q, dt_t, dt_q, &
-       e_global(is:ie, js:je, :), &
+       e_global(is:ie, js:je, :), b, c, g, &
        f_t_global(is:ie, js:je, :), &
        f_q_global(is:ie, js:je, :), &
        mu_delt_n, nu_n, e_n1, f_t_delt_n1, f_q_delt_n1, &
@@ -451,7 +438,6 @@ contains
     real, dimension(size(u, 1), size(u, 2), size(u, 3)) :: dt_u_temp, dt_v_temp
 
     real, dimension(size(u, 1), size(u, 2), size(u, 3) - 1) :: e, f_u, f_v
-    integer :: i, j, kb
 
     real    :: half_delt, cp_inv
 
@@ -508,13 +494,11 @@ contains
 
     real, dimension(size(t, 1), size(t, 2)) :: mu_delt_n, nu_n, &
                                                e_n1, f_t_delt_n1, f_q_delt_n1, &
-                                               delta_t_n, delta_q_n, &
-                                               flux1, dflux1_dsurf
+                                               delta_t_n, delta_q_n
 
     real, dimension(size(t, 1), size(t, 2), size(t, 3) - 1) :: e, f_t, f_q
     real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tt
 
-    integer :: i, j, kb
     real    :: gcp
 !-----------------------------------------------------------------------
 
@@ -550,21 +534,40 @@ contains
 
     integer, intent(in), dimension(:, :), optional :: kbot
 
+    real, dimension(size(tr, 1), size(tr, 2), size(tr, 3) - 1) :: etr
+    real, dimension(size(tr, 1), size(tr, 2), size(tr, 3)) :: a, b, c, g
+
+    call compute_e(delt, mu, nu, etr, a, b, c, g)
+    call tr_vert_diff_coef(delt, mu, nu, etr, b, c, g, tr, dt_tr, kbot)
+
+  end subroutine tr_vert_diff
+
+!#######################################################################
+
+  !> Diffuses the tracers, given the tridiagonal coefficients `etr`, `b`, `c`, `g` of
+  !> `compute_e` for `mu`, `nu`.
+  subroutine tr_vert_diff_coef(delt, mu, nu, etr, b, c, g, tr, dt_tr, kbot)
+
+    real, intent(in)                        :: delt
+    real, intent(in), dimension(:, :, :)   :: mu, nu
+    real, intent(in), dimension(:, :, :)   :: etr, b, c, g
+    real, intent(in), dimension(:, :, :, :) :: tr
+    real, intent(inout), dimension(:, :, :, :) :: dt_tr
+
+    integer, intent(in), dimension(:, :), optional :: kbot
+
     real, dimension(size(tr, 1), size(tr, 2)) :: mu_delt_n, nu_n, e_n1
 
     real, dimension(size(tr, 1), size(tr, 2)) :: f_delt_n1, delta_tr_n
     real, dimension(size(tr, 1), size(tr, 2)) :: dflux_dtr, flux
     real, dimension(size(tr, 1), size(tr, 2), size(tr, 3) - 1) :: ftr
-    real, dimension(size(tr, 1), size(tr, 2), size(tr, 3) - 1) :: etr
-    real, dimension(size(tr, 1), size(tr, 2), size(tr, 3)) :: a, b, c, g
-    integer :: i, j, k, kb, n, ntr, nlev
+    integer :: i, j, kb, n, ntr, nlev
     character(len=128) :: scheme
 !-----------------------------------------------------------------------
 
     ntr = size(tr, 4) ! number of prognostic tracers
 
     dflux_dtr = 0.0
-    call compute_e(delt, mu, nu, etr, a, b, c, g)
     if (present(kbot)) then
       do j = 1, size(tr, 2)
       do i = 1, size(tr, 1)
@@ -613,7 +616,7 @@ contains
 
 !-----------------------------------------------------------------------
 
-  end subroutine tr_vert_diff
+  end subroutine tr_vert_diff_coef
 
 !#######################################################################
 
@@ -637,7 +640,7 @@ contains
 
     real, dimension(size(tr, 1), size(tr, 2), size(tr, 3)) :: a, b, c, g
 
-    integer :: i, j, k, kb, nlev
+    integer :: i, j, kb, nlev
 
 !-----------------------------------------------------------------------
 
@@ -696,10 +699,46 @@ contains
 
     integer, intent(in), dimension(:, :), optional :: kbot
 
-    real, dimension(size(xi_1, 1), size(xi_1, 2), size(xi_1, 3)) :: a, b, c, g, &
-                                                                    dt_xi_11, dt_xi_22
+    real, dimension(size(xi_1, 1), size(xi_1, 2), size(xi_1, 3)) :: a, b, c, g
 
-    integer :: i, j, k, kb, nlev
+!-----------------------------------------------------------------------
+
+    call compute_e(delt, mu, nu, e, a, b, c, g)
+
+    call vert_diff_down_2_coef &
+      (delt, mu, nu, xi_1, xi_2, dt_xi_1, dt_xi_2, e, b, c, g, f_1, f_2, &
+       mu_delt_n, nu_n, e_n1, f_1_delt_n1, f_2_delt_n1, &
+       delta_1_n, delta_2_n, kbot)
+
+!-----------------------------------------------------------------------
+
+  end subroutine vert_diff_down_2
+
+!#######################################################################
+
+  !> Does the downward sweep of the tridiagonal solver for two fields, given the tridiagonal
+  !> coefficients `e`, `b`, `c`, `g` of `compute_e` for `mu`, `nu`.
+  subroutine vert_diff_down_2_coef &
+    (delt, mu, nu, xi_1, xi_2, dt_xi_1, dt_xi_2, e, b, c, g, f_1, f_2, &
+     mu_delt_n, nu_n, e_n1, f_1_delt_n1, f_2_delt_n1, &
+     delta_1_n, delta_2_n, kbot)
+
+!-----------------------------------------------------------------------
+
+    real, intent(in)                       :: delt
+    real, intent(in), dimension(:, :, :) :: mu, nu, xi_1, xi_2
+    real, intent(in), dimension(:, :, :) :: dt_xi_1, dt_xi_2
+    real, intent(in), dimension(:, :, :) :: e, b, c, g
+    real, intent(out), dimension(:, :, :) :: f_1, f_2
+    real, intent(out), dimension(:, :)   :: mu_delt_n, nu_n, e_n1, &
+                                            f_1_delt_n1, f_2_delt_n1, &
+                                            delta_1_n, delta_2_n
+
+    integer, intent(in), dimension(:, :), optional :: kbot
+
+    real, dimension(size(xi_1, 1), size(xi_1, 2), size(xi_1, 3)) :: dt_xi_11, dt_xi_22
+
+    integer :: i, j, kb, nlev
 
 !-----------------------------------------------------------------------
 
@@ -709,8 +748,6 @@ contains
 
     call explicit_tend(mu, nu, xi_1, dt_xi_11)
     call explicit_tend(mu, nu, xi_2, dt_xi_22)
-
-    call compute_e(delt, mu, nu, e, a, b, c, g)
 
     call compute_f(dt_xi_11, b, c, g, f_1)
     call compute_f(dt_xi_22, b, c, g, f_2)
@@ -741,7 +778,7 @@ contains
 
 !-----------------------------------------------------------------------
 
-  end subroutine vert_diff_down_2
+  end subroutine vert_diff_down_2_coef
 
 !#######################################################################
 
@@ -882,7 +919,7 @@ contains
 
     real, dimension(size(xi, 1), size(xi, 2), size(xi, 3)) :: fluxx
 
-    integer :: k, nlev
+    integer :: nlev
 
 !-----------------------------------------------------------------------
 
