@@ -31,7 +31,8 @@ ctest --test-dir build -R guard_ -V               # some tests, with their outpu
 ```
 
 `MIMA_TEST_NPES` (default 4) sets the ranks per model run; it is capped at the
-number of physical cores. The tests need `mpirun`, `ncdump`, `md5sum` or `md5`,
+number of physical cores (`-DMIMA_TEST_CORES=logical` caps at the logical cores instead,
+for small CI runners whose two cores show four threads). The tests need `mpirun`, `ncdump`, `md5sum` or `md5`,
 bash and awk. `ctest` only calls `tests/run_case.sh`, which you can also run by hand:
 
 ```sh
@@ -87,3 +88,10 @@ commit you name.
   `field_table` (missing files are taken from `cases/rrtm/`). Use one `atmos_avg`
   file with output frequency `-1` and packing 1, and keep the outputs small. Add it
   to the `foreach` lists in `CMakeLists.txt`.
+
+## Continuous integration
+
+`.github/workflows/tests.yml` builds MiMA and runs this suite on every push to `v2` and
+`main` and on pull requests (FMS is built once and cached). The `ctest` step has a hard
+budget of a few minutes (`TEST_BUDGET_MINUTES` in the workflow): if the suite outgrows it,
+the job fails and the suite has to be trimmed, not the budget raised.

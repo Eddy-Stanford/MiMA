@@ -1,8 +1,14 @@
 # MiMA tests, added by -DMIMA_TESTING=ON. Run them with: ctest --test-dir <build>
 # What each test proves, and the disk and CPU rules: tests/README.md.
 
-cmake_host_system_information(RESULT ncores QUERY NUMBER_OF_PHYSICAL_CORES)
-set(MIMA_TEST_NPES 4 CACHE STRING "MPI ranks per model test (capped at the physical cores)")
+set(MIMA_TEST_CORES physical CACHE STRING "Cap the ranks at the 'physical' or the 'logical' cores (logical: small CI runners)")
+set_property(CACHE MIMA_TEST_CORES PROPERTY STRINGS physical logical)
+if(MIMA_TEST_CORES STREQUAL logical)
+  cmake_host_system_information(RESULT ncores QUERY NUMBER_OF_LOGICAL_CORES)
+else()
+  cmake_host_system_information(RESULT ncores QUERY NUMBER_OF_PHYSICAL_CORES)
+endif()
+set(MIMA_TEST_NPES 4 CACHE STRING "MPI ranks per model test (capped at the cores, see MIMA_TEST_CORES)")
 set(MIMA_TEST_REFERENCE "" CACHE PATH "Directory of .digest files of a reference build (adds the compare_* tests)")
 set(npes ${MIMA_TEST_NPES})
 if(npes GREATER ncores)
