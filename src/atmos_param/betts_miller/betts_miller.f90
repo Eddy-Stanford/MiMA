@@ -27,7 +27,7 @@ module betts_miller_mod
                      check_nml_error, mpp_pe, mpp_root_pe, &
                      FATAL, stdlog
 
-  use sat_vapor_pres_mod, only: escomp
+  use sat_vapor_pres_mod, only: lookup_es
   use constants_mod, only: HLv, HLf, Cp_air, Grav, rdgas, rvgas, &
                            kappa, es0
 
@@ -36,7 +36,7 @@ module betts_miller_mod
 !---------------------------------------------------------------------
 !  ---- public interfaces ----
 
-  public betts_miller, betts_miller_init
+  public betts_miller, betts_miller_init, capecalcnew
 
 !-----------------------------------------------------------------------
 !   ---- local/private data ----
@@ -154,7 +154,7 @@ contains
 ! sets reference spec hum to a certain relative hum (change to vapor pressure,
 ! multiply by rhbm, then back to spec humid)
             if (do_envsat) then
-              call escomp(tin(i, j, k), es)
+              call lookup_es(tin(i, j, k), es)
               es = es*rhbm
               rpc(k) = rdgas/rvgas*es/pfull(i, j, k)
               q_ref(i, j, k) = rpc(k)/(1 + rpc(k))
@@ -394,9 +394,10 @@ contains
 !all new cape calculation.
 
   !> Computes CAPE, CIN, the level of zero buoyancy and the profile of a parcel lifted
-  !> from the lowest level.
+  !> from the lowest level. Also used by moist_processes for the `cape` and `cin`
+  !> diagnostics (with `kick = 0`).
   subroutine capecalcnew(kx, p, phalf, cp_air, rdgas, rvgas, hlv, kappa, tin, rin, &
-                         cape, cin, tp, rp, klzb)
+                         cape, cin, tp, rp, klzb, kick)
 
 !
 !    Input:
@@ -412,6 +413,8 @@ contains
 !    kappa       the constant kappa
 !    tin         temperature of the environment
 !    rin         specific humidity of the environment
+!    kick        optional: temperature added to the surface parcel [K]
+!                (default: buoyancy_kick of betts_miller_nml)
 !
 !    Output:
 !    cape        Convective available potential energy
@@ -439,6 +442,7 @@ contains
     integer, intent(out)                   :: klzb
     real, intent(out), dimension(:)        :: tp, rp
     real, intent(out)                      :: cape, cin
+    real, intent(in), optional             :: kick
 
     integer            :: k, klcl
     logical            :: nocape
@@ -459,11 +463,15 @@ contains
     rp(1:kx) = rin(1:kx)
 
 ! start with surface parcel (plus a buoyancy kick to temperature)
-    t0 = tin(kx) + buoyancy_kick
+    if (present(kick)) then
+      t0 = tin(kx) + kick
+    else
+      t0 = tin(kx) + buoyancy_kick
+    end if
     r0 = rin(kx)
 ! calculate the lifting condensation level by the following:
 ! are you saturated to begin with?
-    call escomp(t0, es)
+    call lookup_es(t0, es)
     rs = rdgas/rvgas*es/p(kx)
     if (r0 .ge. rs) then
 ! if you're already saturated, set lcl to be the surface value.
@@ -473,7 +481,7 @@ contains
 ! saturate out to get the parcel temp and humidity at this level
 ! first order (in delta T) accurate expression for change in temp
       tp(kx) = t0 + (r0 - rs)/(cp_air/(hlv + small) + hlv*rs/rvgas/t0**2.)
-      call escomp(tp(kx), es)
+      call lookup_es(tp(kx), es)
       rp(kx) = rdgas/rvgas*es/p(kx)
     else
 ! if not saturated to begin with, use the analytic expression to calculate the
@@ -496,22 +504,15 @@ contains
         end if
         k = kx
       else
-! if the parcel sp hum is zero or negative, set lcl to top level
-        plcl = p(1)
-        tlcl = theta0*(plcl/pstar)**kappa
-        do k = 1, kx
-          tp(k) = theta0*(p(k)/pstar)**kappa
-          rp(k) = 0.
-! this definition of CIN contains everything below the LCL
-          cin = cin + rdgas*(tin(k) - tp(k))*log(phalf(k + 1)/phalf(k))
-        end do
+! a parcel with zero or negative humidity never saturates and has no CAPE:
+! return the no-CAPE outputs set at label 11
         go to 11
       end if
 ! calculate the parcel temperature (adiabatic ascent) below the LCL.
 ! the mixing ratio stays the same
       do while (p(k) .gt. plcl)
         tp(k) = theta0*(p(k)/pstar)**kappa
-        call escomp(tp(k), es)
+        call lookup_es(tp(k), es)
         rp(k) = rdgas/rvgas*es/p(k)
 ! this definition of CIN contains everything below the LCL
         cin = cin + rdgas*(tin(k) - tp(k))*log(phalf(k + 1)/phalf(k))
@@ -531,7 +532,7 @@ contains
 ! first get temp halfway up
       tp(klcl) = tlcl + dtdlnp*log(p(klcl)/plcl)/2.
       if ((tp(klcl) .lt. 173.16) .and. nocape) go to 11
-      call escomp(tp(klcl), es)
+      call lookup_es(tp(klcl), es)
       rp(klcl) = rdgas/rvgas*es/(p(klcl) + plcl)*2.
       a = kappa*tp(klcl) + hlv/cp_air*rp(klcl)
       b = hlv**2./cp_air/rvgas*rp(klcl)/tp(klcl)**2.
@@ -539,7 +540,7 @@ contains
 ! second half of RK2
       tp(klcl) = tlcl + dtdlnp*log(p(klcl)/plcl)
       if ((tp(klcl) .lt. 173.16) .and. nocape) go to 11
-      call escomp(tp(klcl), es)
+      call lookup_es(tp(klcl), es)
       rp(klcl) = rdgas/rvgas*es/p(klcl)
 ! CAPE/CIN stuff
       if ((tp(klcl) .lt. tin(klcl)) .and. nocape) then
@@ -563,7 +564,7 @@ contains
 ! first get temp halfway up
       tp(k) = tp(k + 1) + dtdlnp*log(p(k)/p(k + 1))/2.
       if ((tp(k) .lt. 173.16) .and. nocape) go to 11
-      call escomp(tp(k), es)
+      call lookup_es(tp(k), es)
       rp(k) = rdgas/rvgas*es/(p(k) + p(k + 1))*2.
       a = kappa*tp(k) + hlv/cp_air*rp(k)
       b = hlv**2./cp_air/rvgas*rp(k)/tp(k)**2.
@@ -573,7 +574,7 @@ contains
 ! if you're below the lookup table value, just presume that there's no way
 ! you could have cape and call it quits
       if ((tp(k) .lt. 173.16) .and. nocape) go to 11
-      call escomp(tp(k), es)
+      call lookup_es(tp(k), es)
       rp(k) = rdgas/rvgas*es/p(k)
       if ((tp(k) .lt. tin(k)) .and. nocape) then
 ! if you're not yet buoyant, then add to the CIN and continue
