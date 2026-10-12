@@ -521,15 +521,13 @@ contains
           end if
 
           do n = 1, ntime
-!Assume that the times in the data file correspond to days only.
-
             if (fileyr == 0) then
 ! RSH NOTE:
 ! for this case, do not add base_time. time_slice will be sent to
 ! time_interp_list with the optional argument modtime=YEAR, so that
 ! the time that is needed in time_slice is the displacement into the
 ! year, not the displacement from a base_time.
-              clim_type%time_slice(n) = set_time(0, int(time_in(n)))
+              clim_type%time_slice(n) = days_to_time(time_in(n))
             else
 
 !--------------------------------------------------------------------
@@ -550,7 +548,7 @@ contains
 !---------------------------------------------------------------------
 !    no calendar conversion needed.
 !---------------------------------------------------------------------
-                clim_type%time_slice(n) = set_time(0, int(time_in(n))) + &
+                clim_type%time_slice(n) = days_to_time(time_in(n)) + &
                                           base_time
 
 !---------------------------------------------------------------------
@@ -558,7 +556,7 @@ contains
 !---------------------------------------------------------------------
               else if ((model_calendar == JULIAN .and. &
                         trim(file_calendar) == 'noleap')) then
-                Noleap_time = set_time(0, int(time_in(n))) + base_time
+                Noleap_time = days_to_time(time_in(n)) + base_time
                 call get_date_no_leap(Noleap_time, yr, mo, dy, hr, &
                                       mn, sc)
                 clim_type%time_slice(n) = set_date_julian(yr, mo, dy, &
@@ -579,7 +577,7 @@ contains
 !---------------------------------------------------------------------
               else if ((model_calendar == NOLEAP .and. &
                         trim(file_calendar) == 'julian')) then
-                Julian_time = set_time(0, int(time_in(n))) + base_time
+                Julian_time = days_to_time(time_in(n)) + base_time
                 call get_date_julian(Julian_time, yr, mo, dy, hr, mn, sc)
                 clim_type%time_slice(n) = set_date_no_leap(yr, mo, dy, &
                                                            hr, mn, sc)
@@ -881,6 +879,19 @@ contains
     call write_version_number(version, tagname)
 
   end subroutine interpolator_init
+!
+!#######################################################################
+!
+  !> Returns the time interval of `t` days, to the nearest second.
+  function days_to_time(t)
+    real, intent(in) :: t
+    type(time_type) :: days_to_time
+    integer :: d
+
+    d = floor(t)
+    days_to_time = set_time(nint((t - d)*86400.), d)
+
+  end function days_to_time
 !
 !#######################################################################
 !
