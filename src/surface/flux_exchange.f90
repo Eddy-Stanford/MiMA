@@ -37,7 +37,7 @@ module flux_exchange_mod
   use mima_diag_integral_mod, only: diag_integral_field_init, &
                                     sum_diag_integral_field
 
-  use fms_mod, only: input_nml_file, check_nml_error, lowercase, &
+  use fms_mod, only: input_nml_file, check_nml_error, &
                      error_mesg, FATAL, mpp_pe, mpp_root_pe, &
                      write_version_number, stdlog
   use fms2_io_mod, only: file_exists
@@ -54,7 +54,7 @@ module flux_exchange_mod
   use physics_driver_mod, only: do_local_heating, surface_is_coupled
   use local_heating_mod, only: horizontal_heating, ngauss, hamp, pcenter
 
-  use surface_types_mod, only: surface_grid_type, surface_exchange_type
+  use surface_types_mod, only: surface_grid_type, surface_exchange_type, nml_has_group
   use surface_albedo_mod, only: surface_albedo_init
   use ocean_model_mod, only: ocean_data_type, ocean_model_init, ocean_model_end
   use land_model_mod, only: land_data_type, land_model_read_nml_and_mask, &
@@ -722,16 +722,13 @@ contains
   ! groups and diagnostic modules are otherwise ignored without a message.
   subroutine check_v1_input
 
-    integer :: i, unit, io
+    integer :: unit, io
     character(len=1024) :: line
 
-    do i = 1, size(input_nml_file)
-      line = adjustl(lowercase(input_nml_file(i)))
-      if (index(line, '&simple_surface_nml') == 1) &
-        call error_mesg('flux_exchange_init', 'input.nml contains the v1 namelist simple_surface_nml, '// &
-                        'which is no longer read; convert it to the v2 surface namelists '// &
-                        '(see Migration_v2.md)', FATAL)
-    end do
+    if (nml_has_group('simple_surface_nml')) &
+      call error_mesg('flux_exchange_init', 'input.nml contains the v1 namelist simple_surface_nml, '// &
+                      'which is no longer read; convert it to the v2 surface namelists '// &
+                      '(see Migration_v2.md)', FATAL)
 
     if (mpp_pe() == mpp_root_pe() .and. file_exists('diag_table')) then
       open (newunit=unit, file='diag_table', form='formatted', action='read', status='old')

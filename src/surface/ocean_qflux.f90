@@ -102,7 +102,7 @@ module ocean_qflux_mod
   use mpp_domains_mod, only: domain2d, mpp_global_sum, BITWISE_EXACT_SUM
   use time_manager_mod, only: time_type
   use mima_interpolator_mod, only: interpolate_type, interpolator_init, CONSTANT, interpolator
-  use surface_types_mod, only: surface_grid_type
+  use surface_types_mod, only: surface_grid_type, nml_sets
 
   implicit none
 
@@ -741,33 +741,16 @@ contains
 
   !> Stops with a migration message if `input.nml` still sets a `qflux_nml` key that was
   !> removed in v2.0 (the namelist read would otherwise only report an unknown variable).
+  !> A mention of the key in a comment is ignored.
   subroutine check_removed_keys()
-    integer :: i
-    character(len=len(input_nml_file)) :: line
 
-    do i = 1, size(input_nml_file)
-      line = adjustl(input_nml_file(i))
-      call to_lower(line)
-      if (line(1:1) == '!') cycle
-      if (index(line, 'warmpool_localization_choice') > 0) &
-        call error_mesg('ocean_qflux_init', 'qflux_nml: warmpool_localization_choice was replaced '// &
-                        "by warmpool_pattern ('garfinkel2020' for choice 3, 'warm_pool' for choice 1; "// &
-                        'choice 2 was removed); see Migration_v2.md', FATAL)
-      if (index(line, 'north_sea_heat') > 0) &
-        call error_mesg('ocean_qflux_init', 'qflux_nml: north_sea_heat was removed with '// &
-                        'warmpool_localization_choice = 2; delete it (see Migration_v2.md)', FATAL)
-    end do
-
-  contains
-
-    subroutine to_lower(s)
-      character(len=*), intent(inout) :: s
-      integer :: k, c
-      do k = 1, len_trim(s)
-        c = iachar(s(k:k))
-        if (c >= iachar('A') .and. c <= iachar('Z')) s(k:k) = achar(c + 32)
-      end do
-    end subroutine to_lower
+    if (nml_sets('warmpool_localization_choice')) &
+      call error_mesg('ocean_qflux_init', 'qflux_nml: warmpool_localization_choice was replaced '// &
+                      "by warmpool_pattern ('garfinkel2020' for choice 3, 'warm_pool' for choice 1; "// &
+                      'choice 2 was removed); see Migration_v2.md', FATAL)
+    if (nml_sets('north_sea_heat')) &
+      call error_mesg('ocean_qflux_init', 'qflux_nml: north_sea_heat was removed with '// &
+                      'warmpool_localization_choice = 2; delete it (see Migration_v2.md)', FATAL)
 
   end subroutine check_removed_keys
 !########################################################
