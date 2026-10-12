@@ -38,11 +38,11 @@ module surface_flux_mod
 ! or see:   http://www.gnu.org/licenses/gpl.html
 !-----------------------------------------------------------------------
 
-  use fms_mod, only: FATAL, mpp_pe, mpp_root_pe, write_version_number
+  use fms_mod, only: mpp_pe, mpp_root_pe, write_version_number
   use fms_mod, only: check_nml_error, input_nml_file, stdlog
-  use mima_monin_obukhov_mod, only: mo_drag, mo_profile
+  use mima_monin_obukhov_mod, only: mo_drag
   use sat_vapor_pres_mod, only: lookup_es
-  use constants_mod, only: cp_air, hlv, stefan, rdgas, rvgas, grav, vonkarm
+  use constants_mod, only: cp_air, stefan, rdgas, rvgas, grav, vonkarm
 
   implicit none
   private
@@ -68,8 +68,6 @@ module surface_flux_mod
 
   real, parameter :: d622 = rdgas/rvgas
   real, parameter :: d378 = 1.-d622
-  real, parameter :: hlars = hlv/rvgas
-  real, parameter :: gcp = grav/cp_air
   real, parameter :: kappa = rdgas/cp_air
   real            :: d608 = d378/d622
   ! d608 set to zero at initialization if the use of
@@ -169,7 +167,7 @@ contains
       q_atm, q_surf0, dw_atmdu, dw_atmdv
     logical, dimension(size(t_atm(:))) :: evap_clipped
 
-    integer :: i, nbad
+    integer :: i
 
     !epg: these coefficients allow one to zero out the surface fluxes
     !     by default, nothing happens
@@ -233,7 +231,6 @@ contains
       th_atm = t_atm*p_ratio                ! potential T, using p_surf as refernce
       thv_atm = tv_atm*p_ratio                ! virt. potential T, using p_surf as reference
       thv_surf = t_surf0*(1.0 + d608*q_surf0) ! surface virtual (potential) T
-!     thv_surf= t_surf0                        ! surface virtual (potential) T -- just for testing tun off the q_surf
 
       u_dif = u_surf - u_atm                    ! velocity components relative to surface
       v_dif = v_surf - v_atm
@@ -317,7 +314,6 @@ contains
       end where
 
       q_star = flux_q/(u_star*rho)             ! moisture scale
-      ! ask Chris and Steve K if we still want to keep this for diagnostics
       q_surf = q_atm + flux_q/(rho*cd_q*w_atm)   ! surface specific humidity
 
       ! epg: cfr is 1.0 by default, but set to 0.0 when no_surface_radiative_flux is activated
@@ -348,9 +344,6 @@ contains
       q_surf = 0.0
       w_atm = 0.0
     end where
-
-    !CIG - diagnose negative evaporation  - may 31 2018
-    !    write (*,*) "delq",   MINVAL( (flux_q) )
 
     ! calculate d(stress component)/d(atmos wind component)
     dtaudu_atm = 0.0
@@ -424,7 +417,7 @@ contains
   subroutine surface_flux_init
 
 ! ---- local vars ----------------------------------------------------------
-    integer :: unit, ierr, io
+    integer :: ierr, io
 
     ! read namelist
     read (input_nml_file, nml=surface_flux_nml, iostat=io)
@@ -455,7 +448,7 @@ contains
     real :: cd_n10, ce_n10, ch_n10, cd_n10_rt    ! neutral 10m drag coefficients
     real :: cd_rt                                ! full drag coefficients @ z
     real :: zeta, x2, x, psi_m, psi_h            ! stability parameters
-    real :: u, u10, tv, tstar, qstar, z0, xx, stab
+    real :: u, u10, tv, tstar, qstar, xx, stab
     integer, parameter :: n_itts = 2
     integer i, j
 
@@ -499,7 +492,6 @@ contains
           ce_n10 = 34.6*cd_n10_rt/1e3; ! L-Y eqn. 6b again
           stab = 0.5 + sign(0.5, zeta)
           ch_n10 = (18.0*stab + 32.7*(1 - stab))*cd_n10_rt/1e3; ! L-Y eqn. 6c again
-          z0 = 10*exp(-vonkarm/cd_n10_rt); ! diagnostic
 
           xx = (log(z(i)/10) - psi_m)/vonkarm; 
           cd(i) = cd_n10/(1 + cd_n10_rt*xx)**2; ! L-Y 10a
