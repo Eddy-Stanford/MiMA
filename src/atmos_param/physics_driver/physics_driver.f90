@@ -38,9 +38,8 @@ module physics_driver_mod
                      input_nml_file, stdlog, &
                      write_version_number, &
                      error_mesg, FATAL, &
-                     WARNING, NOTE, check_nml_error, &
-                     mpp_pe, mpp_root_pe, &
-                     mpp_error, mpp_chksum
+                     NOTE, check_nml_error, &
+                     mpp_pe, mpp_root_pe
   use mpp_domains_mod, only: domain2d
   use restart_file_mod, only: restart_file_type, open_restart_read, &
                               open_restart_write, close_restart, &
@@ -137,57 +136,16 @@ module physics_driver_mod
 !------- private data ------
 
 !--------------------------------------------------------------------
-! list of restart versions readable by this module:
-!
-! version 1: initial implementation 1/2003, contains diffusion coef-
-!            ficient contribution from cu_mo_trans_mod. This variable
-!            is generated in physics_driver_up (moist_processes) and
-!            used on the next step in vert_diff_down, necessitating
-!            its storage.
-!
-! version 2: adds pbltop as generated in vert_turb_driver_mod. This
-!            variable is then used on the next timestep by topo_drag
-!            (called from damping_driver_mod), necessitating its
-!            storage.
-!
-! version 3: adds the diffusion coefficients which are passed to
-!            vert_diff_driver.  These diffusion are saved should
-!            smoothing of vertical diffusion coefficients be turned
-!            on.
-!
-! version 4: adds a logical variable, convect, which indicates whether
-!            or not the grid column is convecting. This diagnostic is
-!            needed by the entrain_module in vert_turb_driver.
-!
-! version 5: adds radturbten when strat_cloud_mod is active, adds
-!            lw_tendency when edt_mod or entrain_mod is active.
-!
-!---------------------------------------------------------------------
-  integer, dimension(5) :: restart_versions = (/1, 2, 3, 4, 5/)
-
-!--------------------------------------------------------------------
-!    the following allocatable arrays are either used to hold physics
-!    data between timesteps when required, or hold physics data between
-!    physics_down and physics_up.
+!    the restart file RESTART/physics_driver.res.nc holds the vertical
+!    diffusion coefficients, which may be smoothed in time and so must
+!    be kept between steps:
 !
 !    diff_t         vertical diffusion coefficient for temperature
-!                   which optionally may be time smoothed, meaning
-!                   values must be saved between steps
 !    diff_m         vertical diffusion coefficient for momentum
-!                   which optionally may be time smoothed, meaning
-!                   values must be saved between steps
-!    lw_tendency    longwave heating rate, generated in radiation and
-!                   needed in vert_turb_driver when either edt_mod
-!                   or entrain_mod is active. must be saved because
-!                   radiation is not calculated on each step.
-!    pbltop         top of boundary layer obtained from vert_turb_driver
-!                   and then used on the next timestep in topo_drag_mod
-!                   called from damping_driver_down
-!    convect        flag indicating whether convection is occurring in
-!                   a grid column. generated in physics_driver_up and
-!                   then used in vert_turb_driver called from
-!                   physics_driver_down on the next step.
+!
+!    and the restart version vers (written for compatibility; not read).
 !----------------------------------------------------------------------
+  integer, parameter :: restart_version = 5  !! written to the restart file as `vers`
   real, dimension(:, :, :), allocatable :: diff_t, diff_m
 
   type(domain2d) :: domain  ! grid domain, for the restart file
@@ -251,7 +209,7 @@ contains
 
     real, dimension(size(lonb(:)) - 1, size(latb(:)) - 1) :: sgsmtn
     integer          ::  id, jd, kd
-    integer          ::  ierr, io, unit
+    integer          ::  ierr, io
     integer          ::  ndum
 
 !---------------------------------------------------------------------
@@ -262,7 +220,6 @@ contains
 !       id,jd,kd      model dimensions on the processor
 !       ierr          error code
 !       io            io status returned from an io call
-!       unit          unit number used for an i/ operation
 
 !---------------------------------------------------------------------
 !    if routine has already been executed, return.
@@ -778,7 +735,7 @@ contains
       call error_mesg('physics_driver_mod', 'Writing netCDF formatted restart file: RESTART/physics_driver.res.nc', NOTE)
     end if
     call open_restart_write(rst, 'RESTART/physics_driver.res.nc', domain)
-    call write_restart_field(rst, 'vers', real(restart_versions(size(restart_versions(:)))))
+    call write_restart_field(rst, 'vers', real(restart_version))
     !--------------------------------------------------------------------
     !    write out the data fields that are relevant for this experiment.
     !--------------------------------------------------------------------
@@ -883,8 +840,8 @@ contains
     type(restart_file_type) :: rst
 
     if (open_restart_read(rst, 'INPUT/physics_driver.res.nc', domain)) then
-      if (mpp_pe() == mpp_root_pe()) call mpp_error('physics_driver_mod', &
-                                                    'Reading NetCDF formatted restart file: INPUT/physics_driver.res.nc', NOTE)
+      if (mpp_pe() == mpp_root_pe()) call error_mesg('physics_driver_mod', &
+                                                     'Reading NetCDF formatted restart file: INPUT/physics_driver.res.nc', NOTE)
       call read_restart_field(rst, 'diff_t', diff_t)
       call read_restart_field(rst, 'diff_m', diff_m)
       call close_restart(rst)
