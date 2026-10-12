@@ -38,8 +38,7 @@ module flux_exchange_mod
                                     sum_diag_integral_field
 
   use fms_mod, only: input_nml_file, check_nml_error, &
-                     error_mesg, FATAL, mpp_pe, mpp_root_pe, &
-                     write_version_number, stdlog
+                     error_mesg, FATAL, mpp_pe, mpp_root_pe, stdlog
   use fms2_io_mod, only: file_exists
   use restart_file_mod, only: restart_file_type, open_restart_read, close_restart, &
                               read_restart_field, restart_field_exists
@@ -70,9 +69,6 @@ module flux_exchange_mod
             flux_up_to_atmos, flux_exchange_end
 
 !-----------------------------------------------------------------------
-  character(len=128) :: version = '$Id: flux_exchange.f90 (MiMA) $'
-  character(len=128) :: tagname = '$Name:  $'
-
   character(len=4), parameter :: mod_name = 'flux'
 
   integer :: id_drag_moist, id_drag_heat, id_drag_mom, &
@@ -492,7 +488,6 @@ contains
     read (input_nml_file, nml=flux_exchange_nml, iostat=io)
     ierr = check_nml_error(io, 'flux_exchange_nml')
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=flux_exchange_nml)
     end if

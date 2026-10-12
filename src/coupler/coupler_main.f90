@@ -64,8 +64,7 @@ program coupler_main
                               operator(/=), operator(/), THIRTY_DAY_MONTHS, &
                               JULIAN, NOLEAP, NO_CALENDAR
   use fms_mod, only: input_nml_file, check_nml_error, &
-                     uppercase, error_mesg, write_version_number, &
-                     fms_init, fms_end
+                     uppercase, error_mesg, fms_init, fms_end
   use fms2_io_mod, only: file_exists
 
   use field_manager_mod, only: field_manager_init
@@ -100,11 +99,6 @@ program coupler_main
   use coupler_mod, only: dt_atmos
 
   implicit none
-
-!-----------------------------------------------------------------------
-
-  character(len=128) :: version = '$Id: coupler_main.f90,v 11.0.10.4 2005/05/25 15:47:50 pjp Exp $'
-  character(len=128) :: tag = '$Name:  $'
 
 !-----------------------------------------------------------------------
 !---- model defined-types ----
@@ -251,7 +245,6 @@ contains
     ierr = check_nml_error(io, 'coupler_nml')
 
 !----- write namelist to logfile -----
-    call write_version_number(version, tag)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=coupler_nml)
 
 !----- read date and calendar type from restart file -----

@@ -20,7 +20,7 @@ module atmos_model_mod
   use mpp_mod, only: mpp_clock_end, CLOCK_COMPONENT, mpp_error
   use mpp_domains_mod, only: domain2d
   use fms_mod, only: error_mesg, FATAL, NOTE
-  use fms_mod, only: write_version_number, stdlog
+  use fms_mod, only: stdlog
   use fms_mod, only: clock_flag_default
   use fms_mod, only: input_nml_file, check_nml_error
   use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write
@@ -101,11 +101,6 @@ module atmos_model_mod
 
 !Balaji
   integer :: atmClock
-!-----------------------------------------------------------------------
-
-  character(len=128) :: version = '$Id: atmos_model.f90,v 12.0 2005/04/14 15:35:34 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
-
 !-----------------------------------------------------------------------
   logical           :: restart_tbot_qbot = .false.
   !! also store the lowest-level temperature and humidity (`t_bot`, `q_bot`) in `atmos_coupled.res.nc`,
@@ -273,9 +268,6 @@ contains
     call get_bottom_wind(Atmos%u_bot, Atmos%v_bot)
 
 !-----------------------------------------------------------------------
-!---- print version number to logfile ----
-
-    call write_version_number(version, tagname)
 !  write the namelist to a log file
     if (mpp_pe() == 0) then
       unit = stdlog()
