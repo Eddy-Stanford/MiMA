@@ -199,7 +199,7 @@ contains
     type(time_type), intent(in) :: Time_init, Time, Time_step
     !! initial time of the experiment, current time and atmospheric time step
 
-    integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
+    integer :: ntrace, ntprog, ntdiag, ntfamily
     integer :: nlon, nlat
     integer :: ierr, io
     type(restart_file_type) :: rst
@@ -247,12 +247,8 @@ contains
               Atmos%lprec(nlon, nlat), &
               Atmos%fprec(nlon, nlat))
 
-    do j = 1, nlat
-      do i = 1, nlon
-        Atmos%flux_sw(i, j) = 0.0
-        Atmos%flux_lw(i, j) = 0.0
-      end do
-    end do
+    Atmos%flux_sw = 0.0
+    Atmos%flux_lw = 0.0
 !-----------------------------------------------------------------------
 !------ get initial state for dynamics -------
 
@@ -269,10 +265,7 @@ contains
 
 !-----------------------------------------------------------------------
 !  write the namelist to a log file
-    if (mpp_pe() == 0) then
-      unit = stdlog()
-      write (unit, nml=atmos_model_nml)
-    end if
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=atmos_model_nml)
 
 !  number of tracers
     if (mpp_pe() == mpp_root_pe()) then

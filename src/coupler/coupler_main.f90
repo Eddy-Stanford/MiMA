@@ -177,7 +177,7 @@ program coupler_main
 
       Time_atmos = Time_atmos + Time_step_atmos
 
-      call sfc_boundary_layer(float(dt_atmos), Time_atmos, Atm, Ocean, Land, &
+      call sfc_boundary_layer(real(dt_atmos), Time_atmos, Atm, Ocean, Land, &
                               Land_ice_atmos_boundary)
 
 !      ---- atmosphere down ----
