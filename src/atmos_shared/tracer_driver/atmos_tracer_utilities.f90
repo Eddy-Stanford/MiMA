@@ -17,7 +17,7 @@ module atmos_tracer_utilities_mod
                      mpp_pe, &
                      mpp_root_pe, &
                      error_mesg, &
-                     NOTE
+                     NOTE, FATAL
   use time_manager_mod, only: time_type
   use diag_manager_mod, only: send_data, &
                               register_diag_field
@@ -202,7 +202,7 @@ contains
   !> 1. Wind-driven dry deposition velocity. The deposition is modelled as a resistance
   !>    problem: the total resistance is `R = Ra + Rb`, with the aerodynamic resistance
   !>    `Ra = |u|/u_star**2` and the surface resistance `Rb = surfr/u_star` (laminar layer plus
-  !>    uptake; `u_star` is at least 0.1 m/s), and the deposition velocity is `Vd = 1/R`.
+  !>    uptake), where `u_star` is at least 0.1 m/s, and the deposition velocity is `Vd = 1/R`.
   !> 2. Fixed dry deposition velocity. The deposition velocity does not change, but the
   !>    variation of the depth of the surface layer implies that there is variation in the
   !>    amount deposited.
@@ -228,13 +228,12 @@ contains
     !! amount of tracer in the lowest model level which is dry deposited per second (tracer
     !! mixing ratio per second)
 
-    real, dimension(size(u, 1), size(u, 2)) :: hwindv, frictv, resisa, xxfm, dz, dry_data
-    integer :: i, j, flagsr
+    real, dimension(size(u, 1), size(u, 2)) :: hwindv, frictv, resisa, dz
+    integer :: flagsr
     real    :: land_dry_dep_vel, sea_dry_dep_vel, surfr
     logical :: used, flag
-    integer :: flag_species
     character(len=10) ::units, names
-    character(len=80) :: name, control, scheme, speciesname
+    character(len=80) :: name, control, scheme
 
 ! Default zero
     dsinku = 0.0
@@ -261,8 +260,9 @@ contains
       if (flagsr == 0) surfr = 500.
       hwindv = sqrt(u**2 + v**2)
       frictv = u_star
-      resisa = hwindv/(u_star*u_star)
-      where (frictv .lt. 0.1) frictv = 0.1
+      where (frictv < 0.1) frictv = 0.1
+      ! with the clamped u_star also here, as u_star = 0 with no wind gave 0/0
+      resisa = hwindv/(frictv*frictv)
       dsinku = (1./(surfr/frictv + resisa))/dz
 
     case ('fixed')
@@ -279,16 +279,8 @@ contains
       end where
 
     case ('file')
-      flag_species = parse(control, 'name', speciesname)
-      if (flag_species > 0) then
-        name = trim(speciesname)
-      else
-        call get_tracer_names(MODEL_ATMOS, n, name)
-      end if
-!chemistry start
-!        call interpolator(dry,Time,dry_data, trim(name),is,js)
-      dsinku(:, :) = dry_data(:, :)/dz(:, :)
-!chemistry end
+      ! the deposition velocities from a file were never read
+      call error_mesg('dry_deposition', 'the dry deposition scheme ''file'' is not available', FATAL)
     case ('default')
     end select
 
