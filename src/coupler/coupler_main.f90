@@ -21,7 +21,8 @@ end module coupler_mod
 !> calls that correspond to the down and up sweeps of the tridiagonal elimination. Each
 !> time step calls
 !>
-!> 1. `sfc_boundary_layer`: surface fluxes at the current surface temperature;
+!> 1. `sfc_boundary_layer`: surface fluxes at the current surface temperature (without a
+!>    coupled surface only if a diagnostic or a tracer needs them);
 !> 2. `update_atmos_model_down`: radiation and vertical diffusion down to the surface;
 !> 3. `flux_down_from_atmos`, `update_ocean_model_fast`, `update_land_model_fast` and
 !>    `flux_up_to_atmos`: new ocean and land surface temperatures and the updated fluxes

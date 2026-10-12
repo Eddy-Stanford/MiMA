@@ -47,6 +47,8 @@ module flux_exchange_mod
   use diag_manager_mod, only: register_diag_field, send_data
 
   use time_manager_mod, only: time_type
+  use field_manager_mod, only: MODEL_ATMOS
+  use tracer_manager_mod, only: get_number_tracers, query_method
 
   use constants_mod, only: cp_air, hlv, hlf
 
@@ -86,6 +88,7 @@ module flux_exchange_mod
 
   logical :: do_init = .true.
   logical :: do_surface_heating = .false.
+  logical :: need_fluxes = .true.  ! sfc_boundary_layer computes the fluxes (see there)
 
 !-----------------------------------------------------------------------
 
@@ -129,6 +132,11 @@ contains
   !> multiplied by `beta`; the surface humidity of the diagnostics becomes
   !> `q_atm + beta*(q_surf - q_atm)`. The buoyancy in `surface_flux` still uses the saturated
   !> surface humidity (an approximation).
+  !>
+  !> Without a coupled surface (`surface_is_coupled`, e.g. Held-Suarez) the atmosphere uses
+  !> only the surface temperature and albedo, and the fluxes are skipped unless a diagnostic
+  !> of the module `flux` is requested or a tracer has a `dry_deposition` method (which uses
+  !> `u_star`); `Boundary%u_star` and the other flux fields then stay 0.
   subroutine sfc_boundary_layer(dt, Time, Atm, Ocean, Land, Boundary)
 
     real, intent(in)  :: dt  !! time step [s]
@@ -159,14 +167,16 @@ contains
       call land_model_boundary(Land, Boundary%albedo)
     end if
 
-! surface_flux reads q_surf only at its land points (there are none here, see below)
-    q_surf = 0.0
-
     where (Land%mask)
       Boundary%t = Land%t_surf
     elsewhere
       Boundary%t = Ocean%t_surf
     end where
+
+    if (.not. need_fluxes) return
+
+! surface_flux reads q_surf only at its land points (there are none here, see below)
+    q_surf = 0.0
 
 ! Every point, land included, is a saturated surface at Boundary%t for surface_flux: no
 ! point is passed as land, so t_ca and the input q_surf are not used and dedq_surf is 0
@@ -506,6 +516,7 @@ contains
 
     call diag_integral_field_init('evap', 'f6.3')
     call diag_field_init(Time, grid%axes)
+    need_fluxes = surface_is_coupled() .or. any_flux_diagnostic() .or. any_dry_deposition()
 
 !------ components: land mask, then ocean, then land state ------
 
@@ -744,6 +755,37 @@ contains
     end if
 
   end subroutine check_v1_input
+
+!#######################################################################
+
+  ! Whether a diagnostic of the module flux is requested (called after diag_field_init)
+  logical function any_flux_diagnostic()
+
+    any_flux_diagnostic = any([id_drag_moist, id_drag_heat, id_drag_mom, &
+                               id_rough_moist, id_rough_heat, id_rough_mom, &
+                               id_u_star, id_b_star, id_u_flux, id_v_flux, &
+                               id_t_atm, id_u_atm, id_v_atm, id_wind, &
+                               id_t_ref, id_rh_ref, id_u_ref, id_v_ref, &
+                               id_del_h, id_del_m, id_del_q, id_albedo, &
+                               id_t_surf, id_t_flux, id_q_flux, id_r_flux, id_heat, &
+                               id_entrop_evap, id_entrop_shflx, id_entrop_lwflx] > 0)
+
+  end function any_flux_diagnostic
+
+  ! Whether a prognostic tracer has a dry_deposition method, which uses u_star
+  ! (atmos_tracer_driver)
+  logical function any_dry_deposition()
+
+    integer :: n, ntprog
+    character(len=128) :: name, control
+
+    any_dry_deposition = .false.
+    call get_number_tracers(MODEL_ATMOS, num_prog=ntprog)
+    do n = 1, ntprog
+      if (query_method('dry_deposition', MODEL_ATMOS, n, name, control)) any_dry_deposition = .true.
+    end do
+
+  end function any_dry_deposition
 
 !#######################################################################
 
