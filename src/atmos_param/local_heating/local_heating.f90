@@ -10,30 +10,18 @@
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#local_heating_nml)).
 module local_heating_mod
 
-  use fms_mod, only: error_mesg, FATAL, &
-                     input_nml_file, &
-                     check_nml_error, &
-                     mpp_pe, mpp_root_pe, &
-                     write_version_number, stdlog, &
-                     uppercase, &  !pjk
-                     mpp_clock_id, mpp_clock_begin, mpp_clock_end, CLOCK_COMPONENT!,mpp_chksum
-
+  use fms_mod, only: input_nml_file, check_nml_error, mpp_pe, mpp_root_pe, stdlog
   use diag_manager_mod, only: register_diag_field, send_data
-  use time_manager_mod, only: time_type
-
   use time_manager_mod, only: time_type, get_time, length_of_year
-
-  use diag_manager_mod, only: register_diag_field, send_data
-
-  use field_manager_mod, only: MODEL_ATMOS, parse
-
   use constants_mod, only: RADIAN, PI
 
   implicit none
+  private
 
   !-----------------------------------------------------------------------
   !---------- interfaces ------------
   public :: local_heating, local_heating_init, horizontal_heating
+  public :: ngauss, hamp, pcenter
 
   !---------------------------------------------------------------------------------------------------------------
   !
@@ -71,27 +59,30 @@ module local_heating_mod
     , twidth, tphase, tperiod
 
   ! local variables
-  real, dimension(ngauss) :: logpc  !! not used
   integer                :: daysperyear  !! number of days in a year
-  logical                :: do_3d_heating  !! true if any source has `pcenter` > 0
+  logical                :: do_3d_heating = .false.  !! true if any source has `pcenter` > 0
+  logical                :: module_is_initialized = .false.
 
 contains
 
-  !> Initializes the module: reads `local_heating_nml`, converts the namelist values to
-  !> SI units and radians, and registers the diagnostic `tdt_lheat` if any source heats
-  !> the atmosphere.
+  !> Initializes the module: reads `local_heating_nml`, writes it to the log file, converts
+  !> the namelist values to SI units and radians, and registers the diagnostic `tdt_lheat` if
+  !> any source heats the atmosphere. Later calls do nothing.
   subroutine local_heating_init(axes, Time)
     implicit none
     integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
     type(time_type), intent(in)       :: Time  !! current time
     !-----------------------------------------------------------------------
     integer :: seconds
-    integer :: unit, io, ierr, n
+    integer :: io, ierr, n
+
+    if (module_is_initialized) return
 
     !     ----- read namelist -----
 
     read (input_nml_file, nml=local_heating_nml, iostat=io)
     ierr = check_nml_error(io, 'local_heating_nml')
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=local_heating_nml)
 
     ! ---- convert input units to code units  -----
     call get_time(length_of_year(), seconds, daysperyear)
@@ -123,6 +114,8 @@ contains
     else
       id_tdt_lheat = 0
     end if
+
+    module_is_initialized = .true.
 
   end subroutine local_heating_init
 
