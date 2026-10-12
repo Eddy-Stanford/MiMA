@@ -6,8 +6,11 @@ cmake_minimum_required(VERSION 3.22)
 # configure a new build directory.
 project(MiMA VERSION 2.0.0 LANGUAGES Fortran C)
 
+# Release unless another build type is given. Debug builds are unoptimised.
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build type: Release (default), Debug, RelWithDebInfo or MinSizeRel" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Release Debug RelWithDebInfo MinSizeRel)
 endif()
 
 # The model executable, mima; the subdirectories add its sources

@@ -122,7 +122,7 @@ The CMake options are:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `CMAKE_BUILD_TYPE` | `Debug` | Use `Release` for production runs (enables compiler optimisation). `Debug` builds are much slower. |
+| `CMAKE_BUILD_TYPE` | `Release` | `Release` enables compiler optimisation. `Debug` builds are unoptimised and much slower. |
 | `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
 | `MIMA_RUN_CONFIG` | `input` | With `INSTALL_EXEC=ON`, the directory whose `input.nml`, `diag_table` and `field_table` are installed in `exec/`, relative to the top of the repository, e.g. `examples/gray` (see [Running the examples](#running-the-examples)). `INPUT/` always comes from `input/INPUT/`. |
 | `MIMA_OPENMP` | `OFF` | Compile with OpenMP, which threads the radiation (RRTM), the spectral transforms, the FFTs and the grid-point dynamics within each MPI process (see [OpenMP](#openmp)). |

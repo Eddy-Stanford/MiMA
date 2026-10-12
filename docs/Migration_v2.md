@@ -56,6 +56,7 @@ See [Getting started](GettingStarted.md#dependencies) for the full instructions.
 | How FMS is provided | built with MiMA | an installed FMS is used if CMake finds it (`CMAKE_PREFIX_PATH` or `FMS_ROOT`); otherwise FMS 2026.02 is downloaded (pinned by SHA256) and built with MiMA; offline: `-DFETCHCONTENT_SOURCE_DIR_FMS=/path/to/FMS-2026.02` |
 | CMake | 3.16 or later | 3.22 or later |
 | MPI | any MPI library | must provide the Fortran `mpi_f08` module for FMS 2026.02 and later, including the downloaded copy |
+| Default `CMAKE_BUILD_TYPE` | `Debug` | `Release` |
 | New CMake option | | `MIMA_OPENMP` (default `OFF`): OpenMP threads within each MPI process ([OpenMP](GettingStarted.md#openmp)). |
 | `mppnccombine` | needed to join per-processor output | not needed by default ([Output files](#output-files)) |
 
