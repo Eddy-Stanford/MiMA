@@ -502,6 +502,8 @@ contains
 ! Local variables
     integer k, j, i, ij, j1, i1, ij1, kend, dyofyr, seconds, days
     integer(kind=8) :: t_now
+    integer :: dloc
+    real(kind=rb) :: tsec
     integer si, sj, sk, locmin(3)
     real(kind=rb), dimension(size(q, 1), size(q, 2), size(q, 3)) :: o3f
     real(kind=rb), dimension(ncols_rrt, nlay_rrt) :: pfull, tfull &
@@ -550,8 +552,11 @@ contains
     if (solday > 0) then
       Time_loc = set_time(seconds, solday)
     elseif (slowdown_rad .ne. 1.0) then
-      seconds = days*86400 + seconds
-      Time_loc = set_time(int(seconds*slowdown_rad))
+      ! in real arithmetic, as days*86400 overflows a default integer after 68 years
+      tsec = (real(days, rb)*86400._rb + real(seconds, rb))*slowdown_rad
+      dloc = int(tsec/86400._rb)
+      if (tsec - real(dloc, rb)*86400._rb < 0._rb) dloc = dloc - 1
+      Time_loc = set_time(int(tsec - real(dloc, rb)*86400._rb), dloc)
     else
       Time_loc = Time
     end if
