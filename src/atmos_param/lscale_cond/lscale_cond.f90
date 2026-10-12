@@ -101,7 +101,9 @@ contains
     call escomp(tin, esat)
     call descomp(tin, desat)
 
+! condensation at hc times saturation: scale the derivative of esat with it too
     esat(:, :, :) = esat(:, :, :)*hc
+    desat(:, :, :) = desat(:, :, :)*hc
 
     do k = 1, kx
     do j = 1, size(tin, 2)
