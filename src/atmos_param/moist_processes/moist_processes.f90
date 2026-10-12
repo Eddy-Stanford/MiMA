@@ -117,13 +117,13 @@ module moist_processes_mod
 !-----------------------------------------------------------------------
 !-------------------- diagnostics fields -------------------------------
 
-  integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
-             id_tdt_ls, id_qdt_ls, id_prec_ls, id_snow_ls, &
-             id_precip, id_WVP, id_gust_conv, id_rh, &
-             id_q_conv_col, id_q_ls_col, id_t_conv_col, id_t_ls_col, &
-             id_cape, id_cin, id_tref, id_qref, id_rhsurf, &
-             id_bmflag, id_klzbs, id_invtaubmt, id_invtaubmq, &
-             id_entrop_ls
+  integer :: id_tdt_conv = 0, id_qdt_conv = 0, id_prec_conv = 0, id_snow_conv = 0, &
+             id_tdt_ls = 0, id_qdt_ls = 0, id_prec_ls = 0, id_snow_ls = 0, &
+             id_precip = 0, id_WVP = 0, id_gust_conv = 0, id_rh = 0, &
+             id_q_conv_col = 0, id_q_ls_col = 0, id_t_conv_col = 0, id_t_ls_col = 0, &
+             id_cape = 0, id_cin = 0, id_tref = 0, id_qref = 0, id_rhsurf = 0, &
+             id_bmflag = 0, id_klzbs = 0, id_invtaubmt = 0, id_invtaubmq = 0, &
+             id_entrop_ls = 0
 
   integer, dimension(:), allocatable :: id_tracerdt_conv, &
                                         id_tracerdt_conv_col, &
@@ -1388,8 +1388,8 @@ contains
 !    register the diagnostics associated with convective tracer
 !    transport.
 !---------------------------------------------------------------------
-    allocate (id_tracerdt_conv(num_tracers))
-    allocate (id_tracerdt_conv_col(num_tracers))
+    allocate (id_tracerdt_conv(num_tracers)); id_tracerdt_conv = 0
+    allocate (id_tracerdt_conv_col(num_tracers)); id_tracerdt_conv_col = 0
     allocate (id_conv_tracer(num_tracers))
     allocate (id_conv_tracer_col(num_tracers))
 
