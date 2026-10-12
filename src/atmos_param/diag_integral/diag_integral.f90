@@ -255,6 +255,12 @@ contains
 !-----------------------------------------------------------------------
       read (input_nml_file, nml=diag_integral_nml, iostat=io)
       ierr = check_nml_error(io, 'diag_integral_nml')
+      select case (time_units(1:3))
+      case ('sec', 'min', 'hou', 'day')
+      case default
+        call error_mesg('diag_integral_init', 'invalid time_units = "'//trim(time_units)// &
+                        '"; use seconds, minutes, hours or days', FATAL)
+      end select
 
 !---------------------------------------------------------------------
 !    write version number and namelist to logfile.
