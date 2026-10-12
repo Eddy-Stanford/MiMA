@@ -55,7 +55,6 @@ module surface_flux_mod
   !>
   !> The arguments are described in `surface_flux_1d`.
   interface surface_flux
-!    module procedure surface_flux_0d
     module procedure surface_flux_1d
     module procedure surface_flux_2d
   end interface
@@ -375,108 +374,6 @@ contains
   end subroutine surface_flux_1d
 
 !#######################################################################
-
-  subroutine surface_flux_0d( &
-    t_atm_0, q_atm_0, u_atm_0, v_atm_0, p_atm_0, z_atm_0, &
-    p_surf_0, t_surf_0, t_ca_0, q_surf_0, &
-    u_surf_0, v_surf_0, &
-    rough_mom_0, rough_heat_0, rough_moist_0, rough_scale_0, gust_0, &
-    flux_t_0, flux_q_0, flux_r_0, flux_u_0, flux_v_0, &
-    cd_m_0, cd_t_0, cd_q_0, &
-    w_atm_0, u_star_0, b_star_0, q_star_0, &
-    dhdt_surf_0, dedt_surf_0, dedq_surf_0, drdt_surf_0, &
-    dhdt_atm_0, dedq_atm_0, dtaudu_atm_0, dtaudv_atm_0, &
-    dt, land_0, seawater_0, avail_0)
-
-    ! ---- arguments -----------------------------------------------------------
-    logical, intent(in) :: land_0, seawater_0, avail_0
-    real, intent(in) :: &
-      t_atm_0, q_atm_0, u_atm_0, v_atm_0, &
-      p_atm_0, z_atm_0, t_ca_0, &
-      p_surf_0, t_surf_0, u_surf_0, v_surf_0, &
-      rough_mom_0, rough_heat_0, rough_moist_0, rough_scale_0, gust_0
-    real, intent(out) :: &
-      flux_t_0, flux_q_0, flux_r_0, flux_u_0, flux_v_0, &
-      dhdt_surf_0, dedt_surf_0, dedq_surf_0, drdt_surf_0, &
-      dhdt_atm_0, dedq_atm_0, dtaudu_atm_0, dtaudv_atm_0, &
-      w_atm_0, u_star_0, b_star_0, q_star_0, &
-      cd_m_0, cd_t_0, cd_q_0
-    real, intent(inout) :: q_surf_0
-    real, intent(in)    :: dt
-
-    ! ---- local vars ----------------------------------------------------------
-    logical, dimension(1) :: land, seawater, avail
-    real, dimension(1) :: &
-      t_atm, q_atm, u_atm, v_atm, &
-      p_atm, z_atm, t_ca, &
-      p_surf, t_surf, u_surf, v_surf, &
-      rough_mom, rough_heat, rough_moist, rough_scale, gust
-    real, dimension(1) :: &
-      flux_t, flux_q, flux_r, flux_u, flux_v, &
-      dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
-      dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm, &
-      w_atm, u_star, b_star, q_star, &
-      cd_m, cd_t, cd_q
-    real, dimension(1) :: q_surf
-
-    avail = .true.
-
-    t_atm(1) = t_atm_0
-    q_atm(1) = q_atm_0
-    u_atm(1) = u_atm_0
-    v_atm(1) = v_atm_0
-    p_atm(1) = p_atm_0
-    z_atm(1) = z_atm_0
-    t_ca(1) = t_ca_0
-    p_surf(1) = p_surf_0
-    t_surf(1) = t_surf_0
-    u_surf(1) = u_surf_0
-    v_surf(1) = v_surf_0
-    rough_mom(1) = rough_mom_0
-    rough_heat(1) = rough_heat_0
-    rough_moist(1) = rough_moist_0
-    rough_scale(1) = rough_scale_0
-    gust(1) = gust_0
-    q_surf(1) = q_surf_0
-    land(1) = land_0
-    seawater(1) = seawater_0
-    avail(1) = avail_0
-
-    call surface_flux_1d( &
-      t_atm, q_atm, u_atm, v_atm, p_atm, z_atm, &
-      p_surf, t_surf, t_ca, q_surf, &
-      u_surf, v_surf, &
-      rough_mom, rough_heat, rough_moist, rough_scale, gust, &
-      flux_t, flux_q, flux_r, flux_u, flux_v, &
-      cd_m, cd_t, cd_q, &
-      w_atm, u_star, b_star, q_star, &
-      dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
-      dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm, &
-      dt, land, seawater, avail)
-
-    flux_t_0 = flux_t(1)
-    flux_q_0 = flux_q(1)
-    flux_r_0 = flux_r(1)
-    flux_u_0 = flux_u(1)
-    flux_v_0 = flux_v(1)
-    dhdt_surf_0 = dhdt_surf(1)
-    dedt_surf_0 = dedt_surf(1)
-    dedq_surf_0 = dedq_surf(1)
-    drdt_surf_0 = drdt_surf(1)
-    dhdt_atm_0 = dhdt_atm(1)
-    dedq_atm_0 = dedq_atm(1)
-    dtaudu_atm_0 = dtaudu_atm(1)
-    dtaudv_atm_0 = dtaudv_atm(1)
-    w_atm_0 = w_atm(1)
-    u_star_0 = u_star(1)
-    b_star_0 = b_star(1)
-    q_star_0 = q_star(1)
-    q_surf_0 = q_surf(1)
-    cd_m_0 = cd_m(1)
-    cd_t_0 = cd_t(1)
-    cd_q_0 = cd_q(1)
-
-  end subroutine surface_flux_0d
 
   !> Computes the surface fluxes for a 2-D array of points, calling `surface_flux_1d` for
   !> each row; the arguments are as in `surface_flux_1d`.
