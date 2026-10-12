@@ -273,6 +273,15 @@ contains
     logunit = stdlog()
     if (mpp_pe() == mpp_root_pe()) write (logunit, nml=cg_drag_nml)
 
+!---------------------------------------------------------------------
+!    the latitude bands of the source flux must cover every latitude
+!    (and dphin, dphis are also widths, so they must not be zero).
+!---------------------------------------------------------------------
+    if (.not. (phi0s <= dphis .and. dphis < 0. .and. 0. < dphin .and. dphin <= phi0n)) then
+      call error_mesg('cg_drag_init', 'cg_drag_nml needs phi0s <= dphis < 0 < dphin <= phi0n', &
+                      FATAL)
+    end if
+
 !-------------------------------------------------------------------
 !  define the grid dimensions. idf and jdf are the (i,j) dimensions of
 !  domain on this processor, kmax is the number of model layers.
@@ -297,6 +306,7 @@ contains
 !    specified via namelist input, or the top level if there is none.
 !--------------------------------------------------------------------
     klevel_of_damp = 1
+    klevel_of_source = 0
     do k = 1, kmax
       if (pref(k) < damp_level_pressure) then
         klevel_of_damp = k
@@ -306,6 +316,10 @@ contains
         exit
       end if
     end do
+    if (klevel_of_source == 0) then
+      call error_mesg('cg_drag_init', 'no model level has a reference pressure greater than '// &
+                      'source_level_pressure', FATAL)
+    end if
 
     do j = 1, jdf
 !mj change of dimensions
@@ -339,6 +353,12 @@ contains
     end do
     source_level = min(source_level, kmax - 1)
     damp_level = min(damp_level, kmax)
+!    the flux reaching the top is deposited over levels 1..damp_level, which uses the density
+!    up to damp_level+1: gwfc defines it only up to source_level+1.
+    if (any(damp_level > source_level)) then
+      call error_mesg('cg_drag_init', 'damp_level_pressure must not be below the source '// &
+                      'level (source_level_pressure)', FATAL)
+    end if
 
 !cig: make sure everyhing is ok
 !          write (*,*) "damp",pref(klevel_of_damp), '  ', klevel_of_damp, '  ', damp_level_pressure, '  ', &
