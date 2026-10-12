@@ -582,42 +582,43 @@ contains
 !    in the code below alpha = dt / tau_diff
 !---------------------------------------------------------------------
     if (do_boundary_layer) then
-    if (diffusion_smooth) then
-      call get_time(Time_next - Time, sec, day)
-      dt2 = real(sec + day*86400)
-      alpha = dt2/tau_diff
-      diff_m(is:ie, js:je, :) = (diff_m(is:ie, js:je, :) + &
-                                 alpha*diff_m_vert(:, :, :))/ &
-                                (1.+alpha)
-      where (diff_m(is:ie, js:je, :) < diff_min)
-        diff_m(is:ie, js:je, :) = 0.0
-      end where
-      diff_t(is:ie, js:je, :) = (diff_t(is:ie, js:je, :) + &
-                                 alpha*diff_t_vert(:, :, :))/ &
-                                (1.+alpha)
-      where (diff_t(is:ie, js:je, :) < diff_min)
-        diff_t(is:ie, js:je, :) = 0.0
-      end where
-    else
-      diff_t(is:ie, js:je, :) = diff_t_vert
-      diff_m(is:ie, js:je, :) = diff_m_vert
-    end if
+      if (diffusion_smooth) then
+        call get_time(Time_next - Time, sec, day)
+        dt2 = real(sec + day*86400)
+        alpha = dt2/tau_diff
+        diff_m(is:ie, js:je, :) = (diff_m(is:ie, js:je, :) + &
+                                   alpha*diff_m_vert(:, :, :))/ &
+                                  (1.+alpha)
+        where (diff_m(is:ie, js:je, :) < diff_min)
+          diff_m(is:ie, js:je, :) = 0.0
+        end where
+        diff_t(is:ie, js:je, :) = (diff_t(is:ie, js:je, :) + &
+                                   alpha*diff_t_vert(:, :, :))/ &
+                                  (1.+alpha)
+        where (diff_t(is:ie, js:je, :) < diff_min)
+          diff_t(is:ie, js:je, :) = 0.0
+        end where
+      else
+        diff_t(is:ie, js:je, :) = diff_t_vert
+        diff_m(is:ie, js:je, :) = diff_m_vert
+      end if
 
 !-----------------------------------------------------------------------
 !    call vert_diff_driver_down to calculate the first pass atmos-
 !    pheric vertical diffusion.
 !-----------------------------------------------------------------------
-    call mpp_clock_begin(diff_down_clock)
-    call vert_diff_driver_down(is, js, Time_next, dt, p_half, &
-                               p_full, z_full, &
-                               diff_m(is:ie, js:je, :), &
-                               diff_t(is:ie, js:je, :), &
-                               um, vm, tm, qm, rm(:, :, :, 1:ntp), &
-                               dtau_du, dtau_dv, tau_x, tau_y, &
-                               udt, vdt, tdt, qdt, rdt, &
-                               Surf_diff, &
-                               mask=mask, kbot=kbot)
-    end if ! do_boundary_layer
+      call mpp_clock_begin(diff_down_clock)
+      call vert_diff_driver_down(is, js, Time_next, dt, p_half, &
+                                 p_full, z_full, &
+                                 diff_m(is:ie, js:je, :), &
+                                 diff_t(is:ie, js:je, :), &
+                                 um, vm, tm, qm, rm(:, :, :, 1:ntp), &
+                                 dtau_du, dtau_dv, tau_x, tau_y, &
+                                 udt, vdt, tdt, qdt, rdt, &
+                                 Surf_diff, &
+                                 mask=mask, kbot=kbot)
+      call mpp_clock_end(diff_down_clock)
+    end if
 
 !---------------------------------------------------------------------
 !    if desired, return diff_m and diff_t to calling routine.
@@ -628,8 +629,6 @@ contains
     if (present(diffm)) then
       diffm = diff_m(is:ie, js:je, :)
     end if
-
-    call mpp_clock_end(diff_down_clock)
 
   end subroutine physics_driver_down
 
