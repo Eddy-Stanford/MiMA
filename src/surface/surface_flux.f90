@@ -48,7 +48,7 @@ module surface_flux_mod
   private
 
 ! ==== public interface ======================================================
-  public surface_flux
+  public surface_flux, surface_flux_init
 ! ==== end of public interface ===============================================
 
   !> Computes the surface fluxes and their derivatives, for 1-D or 2-D arrays of points.
@@ -398,12 +398,14 @@ contains
   end subroutine surface_flux_2d
 
 ! ============================================================================
-!  Initialization of the surface flux module--reads the nml.
-!
+  !> Reads `surface_flux_nml`. Called by `flux_exchange_init`, or else by the first call of
+  !> `surface_flux`; later calls do nothing.
   subroutine surface_flux_init
 
 ! ---- local vars ----------------------------------------------------------
     integer :: ierr, io
+
+    if (.not. do_init) return
 
     ! read namelist
     read (input_nml_file, nml=surface_flux_nml, iostat=io)
