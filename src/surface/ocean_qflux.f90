@@ -1,5 +1,3 @@
-
-
 !> Prescribed ocean heat fluxes (Q-fluxes) for the slab ocean.
 !>
 !> The Q-flux is the sum of the sources selected in `qflux_nml`: with
@@ -105,6 +103,9 @@ module ocean_qflux_mod
   use surface_types_mod, only: surface_grid_type, nml_sets
 
   implicit none
+  private
+
+  public :: ocean_qflux_init, ocean_qflux_update
 
   real ::    qflux_amp = 26., & !! [W/m2] amplitude of the meridional Q-flux; with
           !! `warmpool_pattern = 'garfinkel2020'` it also scales several regional terms (Caribbean
@@ -618,10 +619,6 @@ module ocean_qflux_mod
     gauss_t(ON_TA, lin_t(10.8), 0, W_NATL, 10., 52., &
             gfac_t(1., -2., 220., 10.), gfac_t(1., 1., 335., 25.))]
 
-  private
-
-  public :: ocean_qflux_init, ocean_qflux_update
-
 contains
 
 !########################################################
@@ -637,7 +634,6 @@ contains
   !> applied Q-flux are written to the log file. With a file, `ocean_qflux_update` repeats
   !> this at every step.
   subroutine ocean_qflux_init(grid, mask, Time, flux)
-    implicit none
     type(surface_grid_type), intent(in) :: grid  !! the surface grid
     logical, dimension(:, :), intent(in) :: mask  !! ocean points
     type(time_type), intent(in) :: Time  !! current time (for the file field)
@@ -698,7 +694,7 @@ contains
       flux = flux + q_static
     else
 !mj q-flux as in Merlis et al (2013) [Part II]
-      if (trim(qflux_source) == 'analytic') call qflux(grid%lat_bnd, flux)
+      if (trim(qflux_source) == 'analytic') call merlis_qflux(grid%lat_bnd, flux)
 !mj q-flux to create a tropical temperature perturbation
       if (do_warmpool) call warmpool(grid%lon_bnd, grid%lat_bnd, flux)
     end if
@@ -762,7 +758,6 @@ contains
   !> `do_warmpool`), and `qflux_ocean_only` and `qflux_remove_mean` are applied as in
   !> `ocean_qflux_init`, with bitwise reproducible global sums.
   logical function ocean_qflux_update(Time, flux) result(updated)
-    implicit none
     type(time_type), intent(in) :: Time  !! time of the step
     real, dimension(:, :), intent(inout) :: flux
     !! Q-flux applied at each point; unchanged unless it is read from a file [W/m2]
@@ -784,7 +779,6 @@ contains
   !> at the ocean points; the global sum is bitwise independent of the domain
   !> decomposition.
   subroutine apply_switches(domain, area, mask, area_ocean, flux, removed)
-    implicit none
     type(domain2d), intent(in) :: domain  !! domain of the surface grid
     real, dimension(:, :), intent(in) :: area  !! relative grid-box area
     logical, dimension(:, :), intent(in) :: mask  !! ocean points
@@ -809,16 +803,15 @@ contains
 !########################################################
 
   !> Subtracts the meridional Q-flux of Merlis et al. (2013, Part II) from `flux`.
-  subroutine qflux(latb, flux)
-    implicit none
+  subroutine merlis_qflux(latb, flux)
     real, dimension(:), intent(in)    :: latb   !! latitudes of the cell boundaries [rad]
     real, dimension(:, :), intent(inout) :: flux   !! total ocean heat flux [W/m2]
-!
-    integer j
-    real lat, coslat
+
+    integer :: j
+    real :: lat, coslat
 
     if (.not. qflux_initialized) then
-      call error_mesg('qflux', 'qflux module not initialized', FATAL)
+      call error_mesg('merlis_qflux', 'ocean_qflux_mod is not initialized', FATAL)
     end if
 
     do j = 1, size(latb) - 1
@@ -829,14 +822,13 @@ contains
                    exp(-((lat)**2/(qflux_width)**2))/coslat
     end do
 
-  end subroutine qflux
+  end subroutine merlis_qflux
 
 !########################################################
 
   !> Adds the zonally asymmetric Q-flux `warmpool_pattern` to `flux` (see the module
   !> documentation).
   subroutine warmpool(lonb, latb, flux)
-    implicit none
     real, dimension(:), intent(in)   :: lonb, latb  !! longitudes and latitudes of the cell boundaries [rad]
     real, dimension(:, :), intent(inout):: flux       !! total ocean heat flux [W/m2]
 
