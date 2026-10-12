@@ -73,6 +73,11 @@ module surface_flux_mod
   ! d608 set to zero at initialization if the use of
   ! virtual temperatures is turned off in namelist
 
+  ! epg: factors on the momentum, moisture, sensible heat and radiative fluxes: 1, or 0 to
+  ! switch the flux off (no_surface_*_flux; useful e.g. for eddy life cycle experiments);
+  ! set in surface_flux_init
+  real :: cfm = 1.0, cfq = 1.0, cft = 1.0, cfr = 1.0
+
 ! ---- namelist with default values ------------------------------------------
   logical :: no_neg_q = .false.  !! set negative lowest-level humidity to zero
   ! for backwards compatibility
@@ -169,21 +174,7 @@ contains
 
     integer :: i
 
-    !epg: these coefficients allow one to zero out the surface fluxes
-    !     by default, nothing happens
-    real :: cfm = 1.0
-    real :: cfq = 1.0
-    real :: cft = 1.0
-    real :: cfr = 1.0
-
     if (do_init) call surface_flux_init
-
-    ! epg: this allows you to turn off surface fluxes, which can be useful in
-    ! running eddy life cycle experiments
-    if (no_surface_momentum_flux) cfm = 0.0
-    if (no_surface_moisture_flux) cfq = 0.0
-    if (no_surface_heat_flux) cft = 0.0
-    if (no_surface_radiative_flux) cfr = 0.0
 
     !---- use local value of surf temp ----
 
@@ -270,10 +261,8 @@ contains
     end if
 
     where (avail)
-      ! surface layer drag coefficients
-
-      ! epg: the coeffieciets cft, cfq, and cfm default to 1.0, but are set to
-      !      0.0 if no_surface_fluxes has turned on
+      ! surface layer drag coefficients (the factors cft, cfq and cfm are 1, or 0 with
+      ! no_surface_*_flux)
       drag_t = cft*cd_t*w_atm
       drag_q = cfq*cd_q*w_atm
       drag_m = cfm*cd_m*w_atm
@@ -316,7 +305,7 @@ contains
       q_star = flux_q/(u_star*rho)             ! moisture scale
       q_surf = q_atm + flux_q/(rho*cd_q*w_atm)   ! surface specific humidity
 
-      ! epg: cfr is 1.0 by default, but set to 0.0 when no_surface_radiative_flux is activated
+      ! cfr is 1, or 0 with no_surface_radiative_flux
       flux_r = cfr*stefan*t_surf**4               ! (W/m**2)
       drdt_surf = cfr*4*stefan*t_surf**3               ! d(upward longwave)/d(surface temperature)
 
@@ -429,6 +418,10 @@ contains
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=surface_flux_nml)
 
     if (.not. use_virtual_temp) d608 = 0.0
+    cfm = merge(0.0, 1.0, no_surface_momentum_flux)
+    cfq = merge(0.0, 1.0, no_surface_moisture_flux)
+    cft = merge(0.0, 1.0, no_surface_heat_flux)
+    cfr = merge(0.0, 1.0, no_surface_radiative_flux)
 
     do_init = .false.
 
