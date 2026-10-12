@@ -47,7 +47,7 @@ Typical ways to install them:
 | Ubuntu / Debian | `sudo apt install gfortran libopenmpi-dev openmpi-bin libnetcdf-dev libnetcdff-dev cmake` |
 | HPC cluster | load the equivalent modules, e.g. `module load gcc openmpi netcdf-c netcdf-fortran cmake` (names vary between systems) |
 
-CMake finds netCDF using `nc-config`/`nf-config` on your `PATH`. If netCDF is installed somewhere non-standard, point CMake at it by setting `NetCDF_ROOT` (or `NetCDF_C_ROOT` and `NetCDF_Fortran_ROOT` if they are installed separately), either as an environment variable or with `-DNetCDF_ROOT=/path/to/netcdf`.
+CMake looks for netCDF in the standard locations and in `CMAKE_PREFIX_PATH`. If netCDF is installed somewhere else, point CMake at it with `NetCDF_ROOT` (or `NetCDF_C_ROOT` and `NetCDF_Fortran_ROOT` if the two libraries are installed separately), either as an environment variable or with `-DNetCDF_ROOT=/path/to/netcdf`. The `NETCDF` and `NETCDF_DIR` variables that many HPC modules set work too.
 
 ### FMS
 

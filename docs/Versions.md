@@ -11,7 +11,7 @@ The newest changes should be on the top of this list.
 
 A clean break from v1: results are not bit-for-bit identical to v1, and `input.nml`, `diag_table` and output-processing scripts need updating. See the [migration guide](Migration_v2.md).
 
-* Unreleased:
+* v2.0.0 (release candidate, date to be set):
     * The model is trimmed to its idealized configurations: RRTM radiation with the mixed-layer surface (the default), gray radiation, and Held-Suarez. Unused physics (the AM2 radiation, Donner, RAS, stratiform clouds, Mellor-Yamada, EDT, dry adjustment, `topo_drag` and others) and their namelist variables and diagnostics are removed.
     * Built against the external [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.01.01 or later, instead of the bundled copy; CMake finds an installed FMS or downloads it. CMake 3.22 or later is required, and the default build type is `Release`. `&sat_vapor_pres_nml do_simple = .true.` is required and `&fms_io_nml` is gone.
     * The radiation scheme is chosen with [`radiation_nml`](Parameters.md#radiation_nml) `radiation_scheme` (`'rrtm'`, `'gray'` or `'none'`), replacing `do_rrtm_radiation`/`do_grey_radiation`; the radiation diagnostics of both schemes are under module `radiation` with unified names.
@@ -26,12 +26,12 @@ A clean break from v1: results are not bit-for-bit identical to v1, and `input.n
     * Output and restarts are single files by default (`spec_mpp_nml io_layout`), so `mppnccombine` is no longer needed. Axes are written in double precision, time bounds are named `time_bnds`, fields have a `_FillValue`, and units follow UDUNITS.
     * New [diagnostics reference](Diagnostics.md), generated from the source by `tools/mimadoc`, which can also check a `diag_table`. The surface stress and reference-height diagnostics (now in module `flux`) are now written.
     * New documentation site built with MkDocs, with a [Fortran API reference](FortranAPI.md) generated from doc comments added throughout the source. The [namelist reference](Parameters.md) is now generated from the source too.
+    * Also includes the changes made on the v1.2.X branch after v1.2.5, which were not released separately: documentation reorganised and updated for the CMake build; outdated Apptainer definition `mima.def` removed; Python is no longer a build dependency; the `postprocessing/` directory (`mppnccombine`, `plevel_interpolation`, `output_to_input.py`) and the `BUILD_COMBINE` CMake option removed (use `mppnccombine` and `plevel.sh` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) instead).
 
 ## v1.2.X
 
 Maintained at [Eddy-Stanford/MiMA](https://github.com/Eddy-Stanford/MiMA).
 
-* Unreleased: Documentation reorganised and updated for the CMake build. Outdated Apptainer definition `mima.def` removed. Python is no longer a build dependency. The `postprocessing/` directory (`mppnccombine`, `plevel_interpolation`, `output_to_input.py`) and the `BUILD_COMBINE` CMake option were removed. Use `mppnccombine` and `plevel.sh` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) instead.
 * v1.2.5 (March 2026): Improved initial-condition noise. `add_noise_seed`, `noise_spectral_cutoff_minimum` and `noise_spectral_cutoff_maximum` added to [`spectral_dynamics_nml`](Parameters.md#spectral_dynamics_nml). See [Adding noise to the initial conditions](Configurations.md#adding-noise-to-the-initial-conditions).
 * v1.2.3 – v1.2.4 (February 2026): `add_noise` option in `spectral_dynamics_nml` adds random thermal noise to the temperature field at start-up. Development container fixed.
 * v1.2.2 (January 2026): `diag_integral` flushes its output buffer and gives more helpful error messages. `CITATION.cff` added.

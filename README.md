@@ -6,7 +6,7 @@ Full documentation is in the [`docs/`](docs/) folder and online at <https://eddy
 
 ## Quick start
 
-You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries) and CMake ≥ 3.22. MiMA uses the [FMS](https://github.com/NOAA-GFDL/FMS) library, which CMake downloads and builds automatically if it can't find an installed copy. To combine the output you also need [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools). See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
+You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries) and CMake ≥ 3.22. MiMA uses the [FMS](https://github.com/NOAA-GFDL/FMS) library, which CMake downloads and builds automatically if it can't find an installed copy. [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools) is optional: `plevel.sh` interpolates the output to pressure levels, and `mppnccombine` is needed only if you split the output with `io_layout`. See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
 
 Compile, and create a ready-to-run test case in `exec/`:
 
@@ -35,7 +35,7 @@ Other complete configurations (gray radiation, dry Held-Suarez) are in [`example
 ## Documentation
 
 * [Getting started](docs/GettingStarted.md): dependencies, compiling, running the test case
-* [Model configurations](docs/Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
+* [Model configurations](docs/Configurations.md): radiation schemes, Held-Suarez forcing, surface options, specified initial conditions, initial-condition noise
 * [Parameter settings](docs/Parameters.md): default and recommended namelist values
 * [Diagnostics](docs/Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
 * [Fortran API reference](docs/FortranAPI.md): the modules and procedures of the source code, and how to document them

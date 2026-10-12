@@ -109,7 +109,7 @@ The Q-flux options:
 * `qflux_source = 'none'`: no base Q-flux. `do_warmpool = .true.` adds the warm-pool and related terms to **any** `qflux_source` (`'none'`, `'analytic'`, `'file'`), as in v1; masking and mean removal apply to the sum.
 * `qflux_ocean_only` and `qflux_remove_mean` (both `.true.` by default) set the Q-flux to zero over land and subtract its area-weighted ocean mean (over the whole sphere with `land_mask = 'none'`), so that it only redistributes heat. Setting both to `.false.` adds the Q-flux at every point exactly as MiMA v1 did, which is needed to reproduce setups published with v1 (see [Reproducing the v1 surface](Migration_v2.md#reproducing-the-v1-surface) and [Changes to the answers](Migration_v2.md#changes-to-the-answers)). With `qflux_ocean_only = .false.` the land heat budget receives the Q-flux as well; by default it never does. The statistics of the raw and the applied Q-flux are written to the log file at start-up.
 
-The Q-flux is written as `ocean/qflux` (output name `oflx` in the shipped `diag_table`).
+The Q-flux is written as `ocean/qflux` (v1's output name `oflx` can be kept: `"ocean", "qflux", "oflx", ...`).
 
 ### Prescribed SST with interactive land
 

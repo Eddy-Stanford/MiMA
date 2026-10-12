@@ -10,7 +10,7 @@ The source code is on [GitHub](https://github.com/Eddy-Stanford/MiMA).
 ## Contents
 
 * [Getting started](GettingStarted.md): dependencies, compiling, running the test case
-* [Model configurations](Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
+* [Model configurations](Configurations.md): radiation schemes, Held-Suarez forcing, surface options, specified initial conditions, initial-condition noise
 * [Parameter settings](Parameters.md): default and recommended namelist values
 * [Diagnostics](Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
 * [Fortran API reference](FortranAPI.md): the modules and procedures of the source code, and how to document them
