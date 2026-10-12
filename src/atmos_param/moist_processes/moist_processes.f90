@@ -242,6 +242,8 @@ contains
 
     dtinv = 1./dt
     lprec = 0.0; fprec = 0.0; precip = 0.0; rain = 0.0; snow = 0.0
+! zero convective tendencies when neither do_mca nor do_bm is set
+    ttnd = 0.0; qtnd = 0.0
 
 !------------------ setup input data -----------------------------------
 
