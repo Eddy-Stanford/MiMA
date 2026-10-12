@@ -26,23 +26,14 @@ module atmos_tracer_driver_mod
     mpp_root_pe, &
     stdlog
   use time_manager_mod, only: time_type
-  use tracer_manager_mod, only: get_tracer_index, &
-                                get_number_tracers, &
-                                get_tracer_names, &
-                                get_tracer_indices
+  use tracer_manager_mod, only: get_number_tracers
   use field_manager_mod, only: MODEL_ATMOS
-  use atmos_tracer_utilities_mod, only: wet_deposition, &
-                                        dry_deposition, &
+  use atmos_tracer_utilities_mod, only: dry_deposition, &
                                         atmos_tracer_utilities_init
   use constants_mod, only: grav
   use atmos_radon_mod, only: atmos_radon_sourcesink, &
                              atmos_radon_init, &
                              atmos_radon_end
-!chemistry start
-!use       chem_interface, only : sourcesink, &
-!                                 driver_init, &
-!                                 dries
-!chemistry end
 
   implicit none
   private
@@ -52,38 +43,15 @@ module atmos_tracer_driver_mod
   public atmos_tracer_driver, atmos_tracer_driver_init, atmos_tracer_driver_end
 
 !-----------------------------------------------------------------------
-!----------- namelist -------------------
+!  For each additional tracer, add a variable for its tracer index here.
 !-----------------------------------------------------------------------
-!
-!  When initializing additional tracers, the user needs to make the
-!  following changes.
-!
-!  Add an integer variable below for each additional tracer.
-!  This should be initialized to zero.
-!
-!-----------------------------------------------------------------------
-
-  integer :: nchem = 0  ! tracer number for chem_interface
-  integer :: nclay = 0
-  integer :: nsilt = 0
-  integer :: nseasalt = 0
 
   integer, dimension(:), pointer :: nradon
 
   integer :: nt     ! number of activated tracers
   integer :: ntp    ! number of activated prognostic tracers
 
-  character(len=6), parameter :: module_name = 'tracer'
-
   logical :: module_is_initialized = .false.
-
-  integer, allocatable :: local_indices(:)
-! This is the array of indices for the local model.
-! local_indices(1) = 5 implies that the first local tracer is the fifth
-! tracer in the tracer_manager.
-
-!-----------------------------------------------------------------------
-  type(time_type) :: Time
 
 !---- version number -----
   character(len=128) :: version = '$Id: atmos_tracer_driver.f90,v 11.0 2004/09/28 19:26:51 fms Exp $'
@@ -120,7 +88,7 @@ contains
     real, intent(inout), dimension(:, :, :, :)       :: rdt
     !! tendency of the tracer array, to which the tracer tendencies are added
     real, intent(inout), dimension(:, :, :, :)       :: rm  !! tracer array at the previous time step
-    real, intent(in)                              :: dt !! time step (used in chem_interface) [s]
+    real, intent(in)                              :: dt !! time step [s] (not used)
     real, intent(in), dimension(:, :, :)         :: z_half !! height at half levels [m]
     real, intent(in), dimension(:, :, :)         :: z_full !! height at full levels [m]
     real, intent(in), dimension(:, :)           :: t_surf_rad !! surface temperature [K]
@@ -131,7 +99,6 @@ contains
     real, dimension(size(r, 1), size(r, 2), size(r, 3)) :: rtnd, pwt
     real, dimension(size(r, 1), size(r, 2)) :: dsinku
     integer :: k, kd
-    real, dimension(size(r, 1), size(r, 2), size(r, 3), ntp) :: chem_tend
 
     integer :: nnn
 !-----------------------------------------------------------------------
@@ -159,9 +126,6 @@ contains
       call dry_deposition(k, is, js, u(:, :, kd), v(:, :, kd), t(:, :, kd), &
                           pwt(:, :, kd), pfull(:, :, kd), u_star, &
                           (land > 0.5), dsinku, r(:, :, kd, k), Time)
-!chemistry start
-!                        (land > 0.5), dsinku, r(:,:,kd,k), Time, dries(k))
-!chemistry end
       rdt(:, :, kd, k) = rdt(:, :, kd, k) - dsinku
     end do
 
@@ -175,59 +139,7 @@ contains
                                     rtnd, Time, kbot)
         rdt(:, :, :, nradon(nnn)) = rdt(:, :, :, nradon(nnn)) + rtnd(:, :, :)
       end if
-
     end do
-
-!  RSH 4/8/04
-!  note that if there are no diagnostic tracers, that argument in the
-!  call to sourcesink should be made optional and omitted in the calls
-!  below. note the switch in argument order to make this argument
-!  optional.
-    if (nt == ntp) then  ! implies no diagnostic tracers
-!chemistry start
-!   if(nchem > 0 .and. nchem <= nt) then
-!      if(present(kbot)) then
-!        call sourcesink(lon,lat,land,pwt,r,chem_tend,Time,phalf,pfull,t,is,js,je,dt,&
-!        call sourcesink(lon,lat,land,pwt,r+rdt*dt,chem_tend,Time,phalf,pfull,t,is,js,je,dt,&
-!                          z_half, z_full,q,t_surf_rad,albedo,coszen, Time_next,&
-!                          rdiag,u,v,u_star,&
-!                          u,v,u_star,&
-!                          kbot)
-!      else
-!       call sourcesink(lon,lat,land,pwt,r,chem_tend,Time,phalf,pfull,t,is,js,je,dt, &
-!       call sourcesink(lon,lat,land,pwt,r+rdt*dt,chem_tend,Time,phalf,pfull,t,is,js,je,dt, &
-!                          z_half, z_full,q, t_surf_rad, albedo, coszen, Time_next, &
-!                          rdiag,u,v,u_star &
-!                          u,v,u_star,&
-!                          )
-!      endif
-!      rdt(:,:,:,:) = rdt(:,:,:,:) + chem_tend(:,:,:,:)
-!   endif
-!chemistry end
-    else   ! case of diagnostic tracers being present
-!chemistry start
-!   if(nchem > 0 .and. nchem <= nt) then
-!      if(present(kbot)) then
-!        call sourcesink(lon,lat,land,pwt,r,chem_tend,Time,phalf,pfull,t,is,js,je,dt,&
-!        call sourcesink(lon,lat,land,pwt,r+rdt*dt,chem_tend,Time,phalf,pfull,t,is,js,je,dt,&
-!                          z_half, z_full,q,t_surf_rad,albedo,coszen, Time_next,&
-!                          rdiag,u,v,u_star,&
-!                          u,v,u_star,&
-!       rdiag=rm(:,:,:,nt+1:ntp),  &  ! (the diagnostic tracers)
-!                   kbot=kbot)
-!      else
-!       call sourcesink(lon,lat,land,pwt,r,chem_tend,Time,phalf,pfull,t,is,js,je,dt, &
-!       call sourcesink(lon,lat,land,pwt,r+rdt*dt,chem_tend,Time,phalf,pfull,t,is,js,je,dt, &
-!                          z_half, z_full,q, t_surf_rad, albedo, coszen, Time_next, &
-!                          rdiag,u,v,u_star &
-!                          u,v,u_star,&
-!        rdiag=rm(:,:,:,nt+1:ntp),  & ! (the diagnostic tracers)
-!                          )
-!      endif
-!      rdt(:,:,:,:) = rdt(:,:,:,:) + chem_tend(:,:,:,:)
-!   endif
-    end if  ! (no diagnostic tracers)
-!chemistry end
 
   end subroutine atmos_tracer_driver
 
@@ -246,7 +158,7 @@ contains
     real, intent(inout), dimension(:, :, :, :)         :: r  !! tracer fields (nlon, nlat, nlev, ntrace)
     type(time_type), intent(in)                                :: Time  !! model time
     integer, intent(in)                                :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
-    real, intent(in), dimension(:, :, :)           :: phalf  !! pressure at half levels [Pa]
+    real, intent(in), dimension(:, :, :)           :: phalf  !! pressure at half levels [Pa] (not used)
     real, intent(in), dimension(:, :, :), optional :: mask
     !! 1. above the ground, 0. below (nlon, nlat, nlev)
 
@@ -267,13 +179,6 @@ contains
 !----- set initial value of radon ------------
 
     call atmos_radon_init(r, axes, Time, nradon, mask)
-
-!chemistry start
-!      nchem = get_tracer_index(MODEL_ATMOS,'CO')
-!      if (nchem > 0) then
-!        call driver_init(r, mask, axes, Time, lonb, latb, phalf)
-!      endif
-!chemistry end
 
     call get_number_tracers(MODEL_ATMOS, num_tracers=nt, &
                             num_prog=ntp)
