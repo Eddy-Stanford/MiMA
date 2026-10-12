@@ -50,7 +50,6 @@ module damping_driver_mod
 !---------------------- namelist ---------------------------------------
 
   real     :: trayfric = -0.5  !! Rayleigh friction time scale: [s] if > 0, [days] if < 0
-! mj pk02-like sponge   integer  :: nlev_rayfric = 1
   integer  :: nlev_rayfric
   ! number of levels at the top of the model where Rayleigh friction is applied; set in
   ! damping_driver_init from sponge_pbottom
@@ -95,8 +94,6 @@ module damping_driver_mod
   character(len=7) :: mod_name = 'damping'
 
 !-----------------------------------------------------------------------
-!mj actively choose rayleigh - is now in namelist
-! logical :: do_rayleigh
 
   real, parameter ::  daypsec = 1./86400.
   logical :: module_is_initialized = .false.
@@ -108,9 +105,6 @@ module damping_driver_mod
 
   character(len=128) :: version = '$Id: damping_driver.f90,v 10.0 2003/10/24 22:00:25 fms Exp $'
   character(len=128) :: tagname = '$Name: lima $'
-
-!mj cg_drag alarm
-  integer :: Time_lastcall, dt_integer, days, seconds
 !-----------------------------------------------------------------------
 
 contains
@@ -150,10 +144,7 @@ contains
     real, dimension(size(udt, 1), size(udt, 2), size(udt, 3)) :: utnd, vtnd, &
                                                                  ttnd, pmass
     logical :: used
-
-    real, dimension(size(udt, 1), size(udt, 2), size(udt, 3) + 1) :: p_pass, &
-                                                                     t_pass
-    integer :: k, j, i
+    integer :: k
 !-----------------------------------------------------------------------
 !mj constant drag TOA
     real :: pmin, minp, cosday
@@ -256,12 +247,9 @@ contains
 !   Alexander-Dunkerton gravity wave drag
 
     if (do_cg_drag) then
-!mj updating call to riga version of cg_drag
-      !call cg_drag_calc (is, js, lat, pfull, zfull, t, u, Time,    &
-      !                  delt, utnd)
       call cg_drag_calc(is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)
       udt = udt + utnd
-      vdt = vdt + vtnd !mj
+      vdt = vdt + vtnd
 
 !----- diagnostics -----
 
@@ -329,7 +317,7 @@ contains
     type(time_type), intent(in) :: Time  !! current time
     real, dimension(:, :), intent(out) :: sgsmtn
     !! sub-grid scale topography variance (from `mg_drag_init`; only set if `do_mg_drag`) [m]
-    integer :: unit, ierr, io
+    integer :: ierr, io
     logical :: used
 !mj
     integer :: raylev(1)
@@ -347,10 +335,6 @@ contains
 !-----------------------------------------------------------------------
 !--------- rayleigh friction ----------
 
-!mj actively choose rayleigh friction
-!   do_rayleigh=.false.
-
-!   if (abs(trayfric) > 0.0001 .and. nlev_rayfric > 0) then
     if (do_rayleigh) then
 ! mj automatically determine nlev_rayfric
       raylev = minloc(abs(pref(:) - 2*sponge_pbottom))
@@ -361,10 +345,6 @@ contains
         rfactr = (1./abs(trayfric))*daypsec
       end if
     end if
-!      do_rayleigh=.true.
-!   else
-!      rfactr=0.0
-!   endif
 
 !-----------------------------------------------------------------------
 !----- mountain gravity wave drag -----
@@ -516,10 +496,6 @@ contains
         vdt(:, :, k) = -v(:, :, k)*fact(:, :)
       end where
     end do
-!   do k = nlev_rayfric+1, size(u,3)
-!     udt(:,:,k) = 0.0
-!     vdt(:,:,k) = 0.0
-!   enddo
 
 !  total energy conservation
 !  compute temperature change loss due to ke dissipation
@@ -530,11 +506,6 @@ contains
         tdt(:, :, k) = -((u(:, :, k) + .5*dt*udt(:, :, k))*udt(:, :, k) + &
                          (v(:, :, k) + .5*dt*vdt(:, :, k))*vdt(:, :, k))/cp_air
       end do
-!       do k = nlev_rayfric+1, size(u,3)
-!          tdt(:,:,k) = 0.0
-!       enddo
-!   else
-!       tdt = 0.0
     end if
 !-----------------------------------------------------------------------
 
