@@ -12,7 +12,7 @@ module grid_fourier_mod
   private
 
   public :: grid_fourier_init, grid_fourier_end, trans_grid_to_fourier, trans_fourier_to_grid
-  public :: get_lon_max, get_longitude_origin, get_deg_lon
+  public :: get_lon_max, get_deg_lon
 
   !> Returns the Fourier coefficients (zonal wavenumbers 0 to `num_lon`/2) of a grid field
   !> with `num_lon` longitudes in its first dimension.
@@ -252,22 +252,6 @@ contains
 
     return
   end subroutine get_lon_max
-
-!------------------------------------------------------------------------------------------------------
-
-  !> Returns the longitude of the first grid point.
-  subroutine get_longitude_origin(longitude_origin_out)
-
-    real, intent(out) :: longitude_origin_out  !! longitude of the first grid point [rad]
-
-    if (.not. module_is_initialized) then
-      call error_mesg('get_longitude_origin', 'module grid_fourier not initialized', FATAL)
-    end if
-
-    longitude_origin_out = longitude_origin_local
-
-    return
-  end subroutine get_longitude_origin
 
 !------------------------------------------------------------------------------------------------------
 

@@ -11,22 +11,19 @@
 !>
 !> Original authors: V. Balaji.
 module spec_mpp_mod
-  use fms_mod, only: mpp_pe, mpp_root_pe, mpp_npes, write_version_number, mpp_error, FATAL, &
+  use fms_mod, only: mpp_pe, mpp_root_pe, mpp_npes, mpp_error, FATAL, &
                      input_nml_file, check_nml_error, stdlog
 
-  use mpp_domains_mod, only: mpp_domains_init, domain1D, domain2D, GLOBAL_DATA_DOMAIN, &
+  use mpp_domains_mod, only: mpp_domains_init, domain1D, domain2D, &
                              mpp_define_domains, mpp_get_compute_domain, mpp_get_compute_domains, &
                              mpp_get_domain_components, mpp_get_pelist, mpp_define_io_domain
 
   implicit none
   private
 
-  character(len=128), private :: version = '$Id: spec_mpp.f90,v 10.0 2003/10/24 22:01:02 fms Exp $'
-  character(len=128), private :: tagname = '$Name: lima $'
-  type(domain2D), save, public :: grid_domain, spectral_domain, global_spectral_domain
-  !! `grid_domain`: decomposition of the Gaussian grid; `spectral_domain`: decomposition of the
-  !! spectral coefficients (m, n); `global_spectral_domain`: as `spectral_domain`, with global data
-  !! boundaries
+  type(domain2D), save, public :: grid_domain, spectral_domain
+  !! `grid_domain`: decomposition of the Gaussian grid (layout `1, npes`); `spectral_domain`:
+  !! decomposition of the spectral coefficients (m, n) (layout `npes, 1`)
   logical, private :: module_is_initialized = .false.
   integer, private :: pe, npes
 
@@ -65,19 +62,15 @@ contains
 !=======================================================================================================================
 
   !> Reads `spec_mpp_nml` and defines the grid and spectral domains and their I/O domains.
-  subroutine spec_mpp_init(num_fourier, num_spherical, num_lon, lat_max, grid_layout, spectral_layout, &
-                           fourier_inc, triang_trunc)
+  subroutine spec_mpp_init(num_fourier, num_spherical, num_lon, lat_max, fourier_inc, triang_trunc)
     integer, intent(in) ::  num_fourier, num_spherical, num_lon, lat_max
     !! `num_fourier`, `num_spherical`: largest spectral indices m and n; `num_lon`, `lat_max`:
     !! numbers of longitudes and latitudes
-    integer, intent(in), optional :: grid_layout(2), spectral_layout(2)
-    !! `grid_layout`, `spectral_layout`: processor layouts of the grid and spectral domains (default:
-    !! `1, npes` and `npes, 1`)
     integer, intent(in), optional :: fourier_inc
     !! zonal wavenumber increment (default 1); `spectral_decomposition = 'balanced'` needs 1
     logical, intent(in), optional :: triang_trunc
     !! triangular truncation (default `.true.`); `spectral_decomposition = 'balanced'` needs it
-    integer :: i, io, ierr
+    integer :: io, ierr
     integer :: layout(2)
     integer, allocatable :: xextent(:)
     logical :: balanced
@@ -95,19 +88,16 @@ contains
                      trim(spectral_decomposition)//'''')
     if (spectral_cost_per_m < 0.) call mpp_error(FATAL, 'SPEC_MPP_INIT: spectral_cost_per_m must not be negative')
 
-    call write_version_number(version, tagname)
     if (pe == mpp_root_pe()) write (stdlog(), nml=spec_mpp_nml)
 
-!grid domain: by default, 1D decomposition along Y
+!grid domain: 1D decomposition along Y (transforms_mod relies on whole latitude rows on each PE)
     layout = (/1, npes/)
-    if (present(grid_layout)) layout = grid_layout
     call mpp_define_domains((/1, num_lon, 1, lat_max/), layout, grid_domain)
     if (pe == mpp_root_pe()) call print_decomp(npes, layout, grid_domain, 'ATMOS MODEL DOMAIN DECOMPOSITION')
 
 !requirement of equal domains: can be generalized to retain mirror symmetry between N/S if unequal.
 !the equal-domains requirement permits us to eliminate one buffer/unbuffer in the transpose_fourier routines.
-    if (mod(lat_max, layout(2)) .ne. 0) then
-!       call mpp_error( FATAL, 'SPEC_MPP_INIT: currently requires equal grid domains on all PEs.' )
+    if (mod(lat_max, layout(2)) /= 0) then
       write (chtmp1, '(i4)') layout(2)
       write (chtmp2, '(i4)') lat_max
       call mpp_error(FATAL, 'SPEC_MPP_INIT:Requires num_lat_rows/num_pes=int;num_pes='&
@@ -115,9 +105,8 @@ contains
     end if
     call mpp_define_io_domain(grid_domain, io_layout)
 
-!spectral domain: by default, 1D decomposition along M
+!spectral domain: 1D decomposition along M (transforms_mod relies on all n on each PE)
     layout = (/npes, 1/)
-    if (present(spectral_layout)) layout = spectral_layout
     balanced = spectral_decomposition == 'balanced' .and. layout(1) > 1 .and. layout(1) <= num_fourier + 1
     if (present(fourier_inc)) balanced = balanced .and. fourier_inc == 1
     if (present(triang_trunc)) balanced = balanced .and. triang_trunc
@@ -130,15 +119,6 @@ contains
     end if
     call mpp_define_io_domain(spectral_domain, (/io_layout(2), io_layout(1)/))
     if (pe == mpp_root_pe()) call print_decomp(npes, layout, spectral_domain, 'SPECTRAL DOMAIN DECOMPOSITION (X = M, Y = N)')
-
-!global spectral domains (may be used for I/O) are the same as spectral domains, with global data boundaries
-    if (balanced) then
-      call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, global_spectral_domain, &
-                              xflags=GLOBAL_DATA_DOMAIN, yflags=GLOBAL_DATA_DOMAIN, xextent=xextent)
-    else
-      call mpp_define_domains((/0, num_fourier, 0, num_spherical/), layout, global_spectral_domain, &
-                              xflags=GLOBAL_DATA_DOMAIN, yflags=GLOBAL_DATA_DOMAIN)
-    end if
 
     module_is_initialized = .true.
     return

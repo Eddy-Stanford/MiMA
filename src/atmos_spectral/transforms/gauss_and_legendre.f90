@@ -1,18 +1,12 @@
 !> Gaussian latitudes and weights, and the associated Legendre functions.
 module gauss_and_legendre_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                     write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use constants_mod, only: pi
 
   implicit none
   private
-
-  character(len=128), parameter :: version = '$Id: gauss_and_legendre.f90,v 10.0 2003/10/24 22:01:02 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
-
-  logical :: entry_to_logfile_done = .false.
 
   public :: compute_legendre, compute_gaussian
 
@@ -40,11 +34,6 @@ contains
     real, dimension(0:num_fourier*fourier_inc) :: b
     real, dimension(n_lat) :: cos_lat
 
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
-
     fourier_max = num_fourier*fourier_inc
 
     do j = 1, n_lat
@@ -61,7 +50,7 @@ contains
     eps = sqrt((l2 - m2)/(4.0*l2 - 1.0))
 
     do m = 1, fourier_max
-      b(m) = sqrt(0.5*(2.0*float(m) + 1.0)/float(m))
+      b(m) = sqrt(0.5*(2.0*real(m) + 1.0)/real(m))
     end do
 
     poly(0, 0) = sqrt(0.5)
@@ -106,28 +95,9 @@ contains
     integer :: itermax
     integer :: i, iter, j, n, nprec
     real :: pp, p1, p2, p3, z, z1
+    logical :: converged
 
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
-
-! must use a more relaxed convergence criteria on the
-! workstations than that for the cray T90
-! fez code is commented out
-
-!if(kind(converg).eq.8) then
-!  converg = 1.0E-15
-!else if(kind(converg).eq.4) then
-!  converg = 1.0E-7
-!else
-!  call error_mesg('compute_gaussian','dont know what value to use for converg', FATAL)
-!end if
-
-! The 2 lines of code below will yeild a different result than the fez code
-! when kind(converg)=4. converg is 1.0E-6 instead of 1.0E-7
-! This should be investigated further, but it's OK for now because it yeilds
-! the same result on the HPCS. -- pjp
+    ! convergence criterion from the decimal precision of the reals (1e-15 for 64-bit reals)
     nprec = precision(converg)
     converg = .1**nprec
 
@@ -136,6 +106,7 @@ contains
     n = 2*n_hem
     do i = 1, n_hem
       z = cos(pi*(i - 0.25)/(n + 0.5))
+      converged = .false.
       do iter = 1, itermax
         p1 = 1.0
         p2 = 0.0
@@ -149,11 +120,13 @@ contains
         pp = n*(z*p1 - p2)/(z*z - 1.0e+00)
         z1 = z
         z = z1 - p1/pp
-        if (abs(z - z1) .lt. converg) go to 10
+        if (abs(z - z1) < converg) then
+          converged = .true.
+          exit
+        end if
       end do
-      call error_mesg('compute_gaussian', 'abscissas failed to converge in itermax iterations', FATAL)
-
-10    continue
+      if (.not. converged) &
+        call error_mesg('compute_gaussian', 'abscissas failed to converge in itermax iterations', FATAL)
 
       sin_hem(i) = z
       wts_hem(i) = 2.0/((1.0 - z*z)*pp*pp)

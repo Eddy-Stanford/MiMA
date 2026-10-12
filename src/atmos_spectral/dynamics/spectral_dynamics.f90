@@ -43,7 +43,6 @@ module spectral_dynamics_mod
                             get_grid_boundaries, area_weighted_global_mean, &
                             compute_gradient_cos, trans_spherical_to_grid, &
                             trans_grid_to_spherical, divide_by_cos, &
-                            triangular_truncation, rhomboidal_truncation, &
                             compute_laplacian, get_eigen_laplacian, &
                             get_spherical_wave, get_sin_lat, &
                             vor_div_from_uv_grid, uv_grid_from_vor_div, &

@@ -6,12 +6,13 @@
 !> total wavenumber is `L = M + n`. Fourier fields are complex, dimension(0:num_fourier,
 !> lat_max). The transforms use the symmetry of the Legendre functions about the equator,
 !> so each latitude is handled together with its mirror latitude. The module also makes
-!> the public procedures of `spherical_mod` and `gauss_and_legendre_mod` available.
+!> the public procedures of `spherical_mod` and `compute_legendre` of
+!> `gauss_and_legendre_mod` available to `transforms_mod`.
 !>
 !> Original authors: V. Balaji (parallel version, transpose method).
 module spherical_fourier_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use mpp_mod, only: mpp_error
 
@@ -22,9 +23,7 @@ module spherical_fourier_mod
   use spec_mpp_mod, only: get_grid_domain, grid_domain, get_spec_domain
 
   use spherical_mod, only: spherical_init, spherical_end, &
-                           compute_lon_deriv_cos, compute_lat_deriv_cos, &
-                           compute_laplacian, compute_vor, compute_div, &
-                           get_spherical_wave, get_fourier_wave, &
+                           compute_laplacian, get_spherical_wave, &
                            get_eigen_laplacian, compute_gradient_cos, &
                            compute_ucos_vcos, compute_vor_div, &
                            triangular_truncation, rhomboidal_truncation
@@ -35,9 +34,6 @@ module spherical_fourier_mod
 
   implicit none
   private
-
-  character(len=128), parameter :: version = '$Id: spherical_fourier.f90,v 11.0 2004/09/28 19:31:02 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
 
   !> Transforms spherical harmonic coefficients `spherical` (this processor's m and n range)
   !> to Fourier coefficients `fourier` at all latitudes; the last dimension of `fourier` is
@@ -61,26 +57,21 @@ module spherical_fourier_mod
 
   public :: spherical_fourier_init, spherical_fourier_end
   public :: trans_spherical_to_fourier, trans_fourier_to_spherical
-  public :: get_south_to_north
-  public :: get_sin_lat, get_cos_lat, get_cosm_lat, get_cosm2_lat
+  public :: get_sin_lat, get_cosm_lat
   public :: get_deg_lat, get_wts_lat
 
 ! ---------------------------------------------------
 
 !  public interfaces carried forward from used modules
 
-  public :: spherical_init, spherical_end
-  public :: compute_lon_deriv_cos, compute_lat_deriv_cos
-  public :: compute_laplacian, compute_vor, compute_div
-  public :: get_spherical_wave, get_fourier_wave
+  public :: compute_laplacian, get_spherical_wave
   public :: get_eigen_laplacian, compute_gradient_cos
   public :: compute_ucos_vcos, compute_vor_div
   public :: triangular_truncation, rhomboidal_truncation
 
-  public :: compute_legendre, compute_gaussian
+  public :: compute_legendre
 
 ! ---------------------------------------------------
-  integer :: fourier_max
   integer :: fourier_inc
   logical :: south_to_north_local
 
@@ -91,7 +82,6 @@ module spherical_fourier_mod
   real, allocatable, dimension(:) :: sin_lat
   real, allocatable, dimension(:) :: cos_lat
   real, allocatable, dimension(:) :: cosm_lat
-  real, allocatable, dimension(:) :: cosm2_lat
   real, allocatable, dimension(:) :: deg_lat
   real, allocatable, dimension(:) :: wts_lat
   real, allocatable, dimension(:) :: sin_hem
@@ -100,7 +90,6 @@ module spherical_fourier_mod
 
   type(domain1D), save :: grid_domain_y !used by the trans_s_f anfd f_s routines
   integer :: grid_layout(2)
-  logical, private :: debug = .false.
 
   logical :: module_is_initialized = .false.
   integer :: is, ie, js, je, ms, me, ns, ne
@@ -121,8 +110,6 @@ contains
     integer, intent(in) :: num_spherical_in  !! number of meridional waves retained
     logical, intent(in), optional :: south_to_north  !! order the latitudes from south to north (default `.true.`)
 
-    call write_version_number(version, tagname)
-
     if (present(south_to_north)) then
       south_to_north_local = south_to_north
     else
@@ -137,7 +124,6 @@ contains
     fourier_inc = fourier_inc_in
     num_spherical = num_spherical_in
     num_fourier = num_fourier_in
-    fourier_max = num_fourier*fourier_inc
 
     call spherical_init(radius, num_fourier, fourier_inc, num_spherical)
     call define_gaussian
@@ -167,19 +153,18 @@ contains
     integer :: jd, joff, nd, nj
     integer, dimension(grid_layout(2)) :: jstart
 
-    if (size(spherical, 1) .ne. me - ms + 1) &
-      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,1).NE.me-ms+1.')
-    if (size(spherical, 2) .ne. ne - ns + 1) &
-      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,2).NE.ne-ns+1.')
-    if (size(fourier, 2)*size(fourier, 4) .ne. lat_max) &
-      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(fourier,2)*size(fourier,4).NE.lat_max.')
+    if (size(spherical, 1) /= me - ms + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,1) /= me-ms+1.')
+    if (size(spherical, 2) /= ne - ns + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,2) /= ne-ns+1.')
+    if (size(fourier, 2)*size(fourier, 4) /= lat_max) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(fourier,2)*size(fourier,4) /= lat_max.')
 
     num_levels = size(spherical, 3)
     nd = grid_layout(2)   !also equal to size(fourier,4), could put in an error check
     nj = je - js + 1 !this version requires grid domains equal in Y
-    if (debug) write (0, '(a,i2,2i4)') 'pe, nd, nj=', mpp_pe(), nd, nj
 
-    if (mod(ns, 2) .eq. 0) then
+    if (mod(ns, 2) == 0) then
       neven = ns
       nodd = ns + 1
     else
@@ -202,7 +187,7 @@ contains
 !exact zeros to the sums, so they are skipped
         n_last = ns - 1
         do n = ne, ns, -1
-          if (spherical(m, n, k) .ne. cmplx(0., 0.)) then
+          if (spherical(m, n, k) /= cmplx(0., 0.)) then
             n_last = n
             exit
           end if
@@ -226,11 +211,10 @@ contains
         DOMAIN_LOOP: do jd = 1, nd/2 + 1
 !each domain jd has a mirror domain nd+1-jd
 !if nd is even we stop at jd=nd/2; if nd is odd we stop at j=nj/2
-          if (jd .eq. nd/2 + 1 .and. mod(nd, 2) .eq. 0) exit DOMAIN_LOOP
+          if (jd == nd/2 + 1 .and. mod(nd, 2) == 0) exit DOMAIN_LOOP
           joff = jstart(jd) - 1
-          if (debug .and. m .eq. ms .and. k .eq. 1) write (0, '(a,i2,2i4)') 'pe, jd, joff=', mpp_pe(), jd, joff
           do j = 1, nj
-            if (jd .eq. nd/2 + 1 .and. j .gt. nj/2) exit DOMAIN_LOOP
+            if (jd == nd/2 + 1 .and. j > nj/2) exit DOMAIN_LOOP
             if (south_to_north_local) then !how long are we going to keep carrying around S2N and N2S?
               fourier(m, j, k, jd) = x_even(j + joff) - x_odd(j + joff)
               fourier(m, nj + 1 - j, k, nd + 1 - jd) = x_even(j + joff) + x_odd(j + joff)
@@ -266,18 +250,18 @@ contains
     integer :: jd, joff
     integer, dimension(grid_layout(2)) :: jstart
 
-    if (size(spherical, 1) .ne. me - ms + 1) &
-      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,1).NE.me-ms+1.')
-    if (size(spherical, 2) .ne. ne - ns + 1) &
-      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,2).NE.ne-ns+1.')
-    if (size(fourier, 2)*size(fourier, 4) .ne. lat_max) &
-      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(fourier,2)*size(fourier,4).NE.lat_max.')
+    if (size(spherical, 1) /= me - ms + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,1) /= me-ms+1.')
+    if (size(spherical, 2) /= ne - ns + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,2) /= ne-ns+1.')
+    if (size(fourier, 2)*size(fourier, 4) /= lat_max) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(fourier,2)*size(fourier,4) /= lat_max.')
 
     num_levels = size(spherical, 3)
     nd = grid_layout(2)   !also equal to size(fourier,4), could put in an error check
     nj = je - js + 1 !this version requires grid domains equal in Y
 
-    if (mod(ns, 2) .eq. 0) then
+    if (mod(ns, 2) == 0) then
       neven = ns
       nodd = ns + 1
     else
@@ -306,10 +290,10 @@ contains
       DOMAIN_LOOP: do jd = 1, nd/2 + 1
 !each domain jd has a mirror domain nd+1-jd
 !if nd is even we stop at jd=nd/2; if nd is odd we stop at j=nj/2
-        if (jd .eq. nd/2 + 1 .and. mod(nd, 2) .eq. 0) exit DOMAIN_LOOP
+        if (jd == nd/2 + 1 .and. mod(nd, 2) == 0) exit DOMAIN_LOOP
         joff = jstart(jd) - 1
         do j = 1, nj
-          if (jd .eq. nd/2 + 1 .and. j .gt. nj/2) exit DOMAIN_LOOP
+          if (jd == nd/2 + 1 .and. j > nj/2) exit DOMAIN_LOOP
           if (south_to_north_local) then
             x_even(k1:k2) = fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd) + fourier(m, j, k1:k2, jd)
             x_odd(k1:k2) = fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd) - fourier(m, j, k1:k2, jd)
@@ -380,13 +364,14 @@ contains
   subroutine define_legendre
 !-----------------------------------------------------------------------
 
-    integer j, m, n, nn
-    real, dimension(0:num_spherical, 0:num_spherical) :: norm
-    real, dimension(0:num_fourier, 0:num_spherical, lat_max/2) :: legendre_global
+    integer :: j, m, n
+    real, allocatable :: legendre_global(:, :, :)   ! (0:num_fourier, 0:num_spherical, lat_max/2): too large for the stack at high resolution
 
     allocate (legendre(lat_max/2, ms:me, ns:ne))
 
     allocate (legendre_wts(ms:me, ns:ne, lat_max/2))
+
+    allocate (legendre_global(0:num_fourier, 0:num_spherical, lat_max/2))
 
     call compute_legendre(legendre_global, num_fourier, fourier_inc, num_spherical, sin_hem, lat_max/2)
     do n = ns, ne
@@ -399,6 +384,8 @@ contains
       legendre_wts(:, :, j) = legendre_global(ms:me, ns:ne, j)*wts_lat(j)
     end do
 
+    deallocate (legendre_global)
+
     return
   end subroutine define_legendre
 
@@ -406,13 +393,12 @@ contains
   subroutine define_gaussian
 !----------------------------------------------------------------------
 
-    integer j, n_s
+    integer :: j
     real, dimension(lat_max/2) :: wts_hem
 
     allocate (sin_lat(lat_max))
     allocate (cos_lat(lat_max))
     allocate (cosm_lat(lat_max))
-    allocate (cosm2_lat(lat_max))
     allocate (wts_lat(lat_max))
     allocate (deg_lat(lat_max))
     allocate (sin_hem(lat_max/2))
@@ -433,27 +419,10 @@ contains
 
     cos_lat = sqrt(1 - sin_lat*sin_lat)
     cosm_lat = 1./cos_lat
-    cosm2_lat = 1./(cos_lat*cos_lat)
     deg_lat = asin(sin_lat)*180.0/pi
 
     return
   end subroutine define_gaussian
-
-!-----------------------------------------------------------------------
-  !> Returns whether the latitudes are ordered from south to north.
-  subroutine get_south_to_north(south_to_north_out)
-!-----------------------------------------------------------------------
-
-    logical, intent(out) :: south_to_north_out  !! `.true.` if the latitudes are ordered from south to north
-
-    if (.not. module_is_initialized) then
-      call error_mesg('get_south_to_north', 'failed to define package', FATAL)
-    end if
-
-    south_to_north_out = south_to_north_local
-
-    return
-  end subroutine get_south_to_north
 
 !-----------------------------------------------------------------------
   !> Returns the sines of the Gaussian latitudes, of the whole grid or (if the size is not
@@ -467,7 +436,7 @@ contains
       call error_mesg('get_sin_lat', 'failed to define package', FATAL)
     end if
 
-    if (size(sin_lat_out, 1) .eq. lat_max) then
+    if (size(sin_lat_out, 1) == lat_max) then
       sin_lat_out = sin_lat
     else                            !assume grid compute domain
       sin_lat_out = sin_lat(js:je)
@@ -475,27 +444,6 @@ contains
 
     return
   end subroutine get_sin_lat
-
-!-----------------------------------------------------------------------
-  !> Returns the cosines of the Gaussian latitudes, of the whole grid or (if the size is not
-  !> `lat_max`) of this processor's part.
-  subroutine get_cos_lat(cos_lat_out)
-!-----------------------------------------------------------------------
-
-    real, intent(out), dimension(:) :: cos_lat_out  !! cosines of the latitudes
-
-    if (.not. module_is_initialized) then
-      call error_mesg('get_cos_lat', 'failed to define package', FATAL)
-    end if
-
-    if (size(cos_lat_out, 1) .eq. lat_max) then
-      cos_lat_out = cos_lat
-    else                            !assume grid compute domain
-      cos_lat_out = cos_lat(js:je)
-    end if
-
-    return
-  end subroutine get_cos_lat
 
 !-----------------------------------------------------------------------
   !> Returns 1/cos of the Gaussian latitudes, of the whole grid or (if the size is not
@@ -509,7 +457,7 @@ contains
       call error_mesg('get_cosm_lat', 'failed to define package', FATAL)
     end if
 
-    if (size(cosm_lat_out, 1) .eq. lat_max) then
+    if (size(cosm_lat_out, 1) == lat_max) then
       cosm_lat_out = cosm_lat
     else                            !assume grid compute domain
       cosm_lat_out = cosm_lat(js:je)
@@ -517,27 +465,6 @@ contains
 
     return
   end subroutine get_cosm_lat
-
-!-----------------------------------------------------------------------
-  !> Returns 1/cos**2 of the Gaussian latitudes, of the whole grid or (if the size is not
-  !> `lat_max`) of this processor's part.
-  subroutine get_cosm2_lat(cosm2_lat_out)
-!-----------------------------------------------------------------------
-
-    real, intent(out), dimension(:) :: cosm2_lat_out  !! 1/cos(latitude)**2
-
-    if (.not. module_is_initialized) then
-      call error_mesg('get_cosm2_lat', 'failed to define package', FATAL)
-    end if
-
-    if (size(cosm2_lat_out, 1) .eq. lat_max) then
-      cosm2_lat_out = cosm2_lat
-    else                            !assume grid compute domain
-      cosm2_lat_out = cosm2_lat(js:je)
-    end if
-
-    return
-  end subroutine get_cosm2_lat
 
 !-----------------------------------------------------------------------
   !> Returns the Gaussian latitudes in degrees, of the whole grid or (if the size is not
@@ -551,7 +478,7 @@ contains
       call error_mesg('get_deg_lat', 'failed to define package', FATAL)
     end if
 
-    if (size(deg_lat_out, 1) .eq. lat_max) then
+    if (size(deg_lat_out, 1) == lat_max) then
       deg_lat_out = deg_lat
     else                            !assume grid compute domain
       deg_lat_out = deg_lat(js:je)
@@ -572,7 +499,7 @@ contains
       call error_mesg('get_wts_lat', 'failed to define package', FATAL)
     end if
 
-    if (size(wts_lat_out, 1) .eq. lat_max) then
+    if (size(wts_lat_out, 1) == lat_max) then
       wts_lat_out = wts_lat
     else                            !assume grid compute domain
       wts_lat_out = wts_lat(js:je)
@@ -587,7 +514,7 @@ contains
 
     if (.not. module_is_initialized) return
 
-    deallocate (sin_lat, cos_lat, cosm_lat, cosm2_lat, wts_lat, deg_lat)
+    deallocate (sin_lat, cos_lat, cosm_lat, wts_lat, deg_lat)
     deallocate (sin_hem, legendre, legendre_wts)
     call spherical_end
     module_is_initialized = .false.

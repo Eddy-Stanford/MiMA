@@ -10,16 +10,12 @@
 !> Original authors: V. Balaji (parallel version, transpose method).
 module spherical_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                     write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use spec_mpp_mod, only: get_spec_domain
 
   implicit none
   private
-
-  character(len=128), parameter :: version = '$Id: spherical.f90,v 10.0 2003/10/24 22:01:03 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
 
   !> Returns the spectral coefficients of cos(lat) times the eastward derivative,
   !> `(1/a) d/dlon`, of a spectral field.
@@ -63,20 +59,6 @@ module spherical_mod
       compute_vor_div_3d
   end interface
 
-  !> Returns the spectral vorticity from the spectral coefficients of u/cos(lat) and
-  !> v/cos(lat).
-  interface compute_vor
-    module procedure compute_vor_2d, &
-      compute_vor_3d
-  end interface
-
-  !> Returns the spectral divergence from the spectral coefficients of u/cos(lat) and
-  !> v/cos(lat).
-  interface compute_div
-    module procedure compute_div_2d, &
-      compute_div_3d
-  end interface
-
   interface compute_alpha_operator
     module procedure compute_alpha_operator_2d, &
       compute_alpha_operator_3d
@@ -98,14 +80,13 @@ module spherical_mod
   end interface
 
   public :: spherical_init, spherical_end
-  public :: compute_lon_deriv_cos, compute_lat_deriv_cos
-  public :: compute_laplacian, compute_vor, compute_div
-  public :: get_spherical_wave, get_fourier_wave
+  public :: compute_laplacian
+  public :: get_spherical_wave
   public :: get_eigen_laplacian, compute_gradient_cos
   public :: compute_ucos_vcos, compute_vor_div
   public :: triangular_truncation, rhomboidal_truncation
 
-  real, allocatable, dimension(:, :) :: eigen_laplacian, epsilon, r_epsilon
+  real, allocatable, dimension(:, :) :: eigen_laplacian, epsilon
   integer, allocatable, dimension(:, :) :: fourier_wave, spherical_wave
 
   integer :: fourier_max, fourier_inc, num_fourier, num_spherical
@@ -138,8 +119,6 @@ contains
 
     if (module_is_initialized) return
 
-    call write_version_number(version, tagname)
-
     call get_spec_domain(ms, me, ns, ne)
 
     num_fourier = num_fourier_in
@@ -149,7 +128,6 @@ contains
 
     allocate (eigen_laplacian(0:num_fourier, 0:num_spherical))
     allocate (epsilon(0:num_fourier, 0:num_spherical))
-    allocate (r_epsilon(0:num_fourier, 0:num_spherical))
     allocate (fourier_wave(0:num_fourier, 0:num_spherical))
     allocate (spherical_wave(0:num_fourier, 0:num_spherical))
     allocate (coef_uvm(0:num_fourier, 0:num_spherical))
@@ -169,7 +147,7 @@ contains
       do m = 0, num_fourier
         fourier_wave(m, n) = m*fourier_inc
         spherical_wave(m, n) = fourier_wave(m, n) + n
-        if (spherical_wave(m, n) .gt. num_spherical - 1) triangle_mask(m, n) = 0.0
+        if (spherical_wave(m, n) > num_spherical - 1) triangle_mask(m, n) = 0.0
       end do
     end do
 
@@ -195,7 +173,7 @@ contains
       spherical_wave(:, 0:num_spherical - 1)*epsilon(:, 1:num_spherical)/radius
 
     coef_dym = (spherical_wave - 1.0)*epsilon/radius
-    coef_dx = float(fourier_wave)/radius
+    coef_dx = real(fourier_wave)/radius
     coef_dyp(:, 0:num_spherical - 1) = &
       (spherical_wave(:, 0:num_spherical - 1) + 2.0)*epsilon(:, 1:num_spherical)/radius
 
@@ -209,9 +187,9 @@ contains
 
     integer, intent(out), dimension(:, :) :: spherical_wave_out  !! total wavenumber `L = m*fourier_inc + n`
 
-    if (size(spherical_wave_out, 1) .eq. num_fourier + 1 .and. size(spherical_wave_out, 2) .eq. num_spherical + 1) then
+    if (size(spherical_wave_out, 1) == num_fourier + 1 .and. size(spherical_wave_out, 2) == num_spherical + 1) then
       spherical_wave_out = spherical_wave
-    else if (size(spherical_wave_out, 1) .eq. me - ms + 1 .and. size(spherical_wave_out, 2) .eq. ne - ns + 1) then
+    else if (size(spherical_wave_out, 1) == me - ms + 1 .and. size(spherical_wave_out, 2) == ne - ns + 1) then
       spherical_wave_out = spherical_wave(ms:me, ns:ne)
     else
       call error_mesg('get_spherical_wave', 'invalid argument size', FATAL)
@@ -221,24 +199,6 @@ contains
   end subroutine get_spherical_wave
 
 !---------------------------------------------------------------------------
-  !> Returns the zonal wavenumber M of each coefficient (global or this processor's part).
-  subroutine get_fourier_wave(fourier_wave_out)
-!---------------------------------------------------------------------------
-
-    integer, intent(out), dimension(:, :) :: fourier_wave_out  !! zonal wavenumber `M = m*fourier_inc`
-
-    if (size(fourier_wave_out, 1) .eq. num_fourier + 1 .and. size(fourier_wave_out, 2) .eq. num_spherical + 1) then
-      fourier_wave_out = fourier_wave
-    else if (size(fourier_wave_out, 1) .eq. me - ms + 1 .and. size(fourier_wave_out, 2) .eq. ne - ns + 1) then
-      fourier_wave_out = fourier_wave(ms:me, ns:ne)
-    else
-      call error_mesg('get_fourier_wave', 'invalid argument size', FATAL)
-    end if
-
-    return
-  end subroutine get_fourier_wave
-
-!---------------------------------------------------------------------------
   !> Returns minus the eigenvalues of the Laplacian, L(L+1)/a**2 (global or this processor's
   !> part).
   subroutine get_eigen_laplacian(eigen_laplacian_out)
@@ -246,9 +206,9 @@ contains
 
     real, intent(out), dimension(:, :) :: eigen_laplacian_out  !! L(L+1)/a**2 [1/m2]
 
-    if (size(eigen_laplacian_out, 1) .eq. num_fourier + 1 .and. size(eigen_laplacian_out, 2) .eq. num_spherical + 1) then
+    if (size(eigen_laplacian_out, 1) == num_fourier + 1 .and. size(eigen_laplacian_out, 2) == num_spherical + 1) then
       eigen_laplacian_out = eigen_laplacian
-    else if (size(eigen_laplacian_out, 1) .eq. me - ms + 1 .and. size(eigen_laplacian_out, 2) .eq. ne - ns + 1) then
+    else if (size(eigen_laplacian_out, 1) == me - ms + 1 .and. size(eigen_laplacian_out, 2) == ne - ns + 1) then
       eigen_laplacian_out = eigen_laplacian(ms:me, ns:ne)
     else
       call error_mesg('get_eigen_laplacian', 'invalid argument size', FATAL)
@@ -270,11 +230,11 @@ contains
       call error_mesg('compute_lon_deriv', 'module spherical not initialized', FATAL)
     end if
 
-    if (size(spherical, 1) .eq. num_fourier + 1 .and. size(spherical, 2) .eq. num_spherical + 1) then
+    if (size(spherical, 1) == num_fourier + 1 .and. size(spherical, 2) == num_spherical + 1) then
       do k = 1, size(spherical, 3)
         deriv_lon(:, :, k) = coef_dx(:, :)*cmplx(-aimag(spherical(:, :, k)), real(spherical(:, :, k)))
       end do
-    else if (size(spherical, 1) .eq. me - ms + 1 .and. size(spherical, 2) .eq. ne - ns + 1) then
+    else if (size(spherical, 1) == me - ms + 1 .and. size(spherical, 2) == ne - ns + 1) then
       do k = 1, size(spherical, 3)
         deriv_lon(:, :, k) = coef_dx(ms:me, ns:ne)*cmplx(-aimag(spherical(:, :, k)), real(spherical(:, :, k)))
       end do
@@ -298,9 +258,9 @@ contains
       call error_mesg('compute_lat_deriv', 'module spherical not initialized', FATAL)
     end if
 
-    if (size(spherical, 2) .eq. num_spherical + 1) then
+    if (size(spherical, 2) == num_spherical + 1) then
 !could be global domain, or only global in N
-      if (size(spherical, 1) .eq. num_fourier + 1) then
+      if (size(spherical, 1) == num_fourier + 1) then
         deriv_lat(:, 0, :) = cmplx(0., 0.)
         do k = 1, size(spherical, 3)
           deriv_lat(:, 1:num_spherical, k) = &
@@ -308,7 +268,7 @@ contains
           deriv_lat(:, 0:num_spherical - 1, k) = deriv_lat(:, 0:num_spherical - 1, k) &
                                                  + spherical(:, 1:num_spherical, k)*coef_dyp(:, 0:num_spherical - 1)
         end do
-      else if (size(spherical, 1) .eq. me - ms + 1) then
+      else if (size(spherical, 1) == me - ms + 1) then
         deriv_lat(:, 0, :) = cmplx(0., 0.)
         do k = 1, size(spherical, 3)
           deriv_lat(:, 1:num_spherical, k) = &
@@ -316,10 +276,9 @@ contains
           deriv_lat(:, 0:num_spherical - 1, k) = deriv_lat(:, 0:num_spherical - 1, k) &
                                                  + spherical(:, 1:num_spherical, k)*coef_dyp(ms:me, 0:num_spherical - 1)
         end do
+      else
+        call error_mesg('compute_lat_deriv_cos_3d', 'invalid argument size', FATAL)
       end if
-    else if (size(spherical, 1) .eq. me - ms + 1 .and. size(spherical, 2) .eq. ne - ns + 1) then
-!need to write stuff to acquire data at ns-1,ne+1
-      call abort()
     else
       call error_mesg('compute_lat_deriv_cos_3d', 'invalid argument size', FATAL)
     end if
@@ -357,12 +316,12 @@ contains
       call error_mesg('compute_laplacian', 'module spherical not initialized', FATAL)
     end if
 
-    if (size(spherical, 1) .eq. num_fourier + 1 .and. size(spherical, 2) .eq. num_spherical + 1) then
+    if (size(spherical, 1) == num_fourier + 1 .and. size(spherical, 2) == num_spherical + 1) then
       if (present(power)) then
         if (power >= 0) then
           factor = (-eigen_laplacian)**power
         else
-          where (eigen_laplacian .ne. 0.0)
+          where (eigen_laplacian /= 0.0)
             factor = (-eigen_laplacian)**power
           else where
             factor = 0.0
@@ -371,12 +330,12 @@ contains
       else
         factor = -eigen_laplacian
       end if
-    else if (size(spherical, 1) .eq. me - ms + 1 .and. size(spherical, 2) .eq. ne - ns + 1) then
+    else if (size(spherical, 1) == me - ms + 1 .and. size(spherical, 2) == ne - ns + 1) then
       if (present(power)) then
         if (power >= 0) then
           factor = (-eigen_laplacian(ms:me, ns:ne))**power
         else
-          where (eigen_laplacian(ms:me, ns:ne) .ne. 0.0)
+          where (eigen_laplacian(ms:me, ns:ne) /= 0.0)
             factor = (-eigen_laplacian(ms:me, ns:ne))**power
           else where
             factor = 0.0
@@ -405,16 +364,16 @@ contains
     complex, intent(out), dimension(:, 0:, :) :: u_cos
     complex, intent(out), dimension(:, 0:, :) :: v_cos
 
-    integer :: k, m, n
+    integer :: k
 
     if (.not. module_is_initialized) then
       call error_mesg('compute_ucos_vcos', 'module spherical not initialized', FATAL)
     end if
 
-    if (size(vorticity, 2) .eq. num_spherical + 1) then
+    if (size(vorticity, 2) == num_spherical + 1) then
 !could be global domain, or only global in N
 !note that n indices run from 1:num_spherical+1, since input arguments are dimensioned from 1 not 0
-      if (size(vorticity, 1) .eq. num_fourier + 1) then
+      if (size(vorticity, 1) == num_fourier + 1) then
         do k = 1, size(vorticity, 3)
           u_cos(:, :, k) = coef_uvc(:, :)* &
                            cmplx(-aimag(divergence(:, :, k)), real(divergence(:, :, k)))
@@ -431,7 +390,7 @@ contains
           v_cos(:, 0:num_spherical - 1, k) = v_cos(:, 0:num_spherical - 1, k) + &
                                              coef_uvp(:, 0:num_spherical - 1)*divergence(:, 1:num_spherical, k)
         end do
-      else if (size(vorticity, 1) .eq. me - ms + 1) then
+      else if (size(vorticity, 1) == me - ms + 1) then
         do k = 1, size(vorticity, 3)
           u_cos(:, :, k) = coef_uvc(ms:me, :)* &
                            cmplx(-aimag(divergence(:, :, k)), real(divergence(:, :, k)))
@@ -448,30 +407,12 @@ contains
           v_cos(:, 0:num_spherical - 1, k) = v_cos(:, 0:num_spherical - 1, k) + &
                                              coef_uvp(ms:me, 0:num_spherical - 1)*divergence(:, 1:num_spherical, k)
         end do
+      else
+        call error_mesg('compute_ucos_vcos', 'invalid argument size', FATAL)
       end if
-    else if (size(vorticity, 1) .eq. me - ms + 1 .and. size(vorticity, 2) .eq. ne - ns + 1) then
-!need to write stuff to acquire data at ns-1,ne+1
-      call abort()
     else
       call error_mesg('compute_ucos_vcos', 'invalid argument size', FATAL)
     end if
-
-!do k=1,size(vorticity,3)
-!  u_cos(:,:,k) = coef_uvc(:,:)*                                     &
-!     cmplx(-aimag(divergence(:,:,k)),real(divergence(:,:,k)))
-!  v_cos(:,:,k) = coef_uvc(:,:)*                                     &
-!     cmplx(-aimag(vorticity(:,:,k)),real(vorticity(:,:,k)))
-!
-!  u_cos(:,1:num_spherical,k) = u_cos(:,1:num_spherical,k) +         &
-!     coef_uvm(:,1:num_spherical)*vorticity(:,0:num_spherical-1,k)
-!  v_cos(:,1:num_spherical,k) = v_cos(:,1:num_spherical,k) -         &
-!     coef_uvm(:,1:num_spherical)*divergence(:,0:num_spherical-1,k)
-!
-!  u_cos(:,0:num_spherical-1,k) = u_cos(:,0:num_spherical-1,k) -     &
-!     coef_uvp(:,0:num_spherical-1)*vorticity(:,1:num_spherical,k)
-!  v_cos(:,0:num_spherical-1,k) = v_cos(:,0:num_spherical-1,k) +     &
-!     coef_uvp(:,0:num_spherical-1)*divergence(:,1:num_spherical,k)
-!end do
 
     return
   end subroutine compute_ucos_vcos_3d
@@ -491,32 +432,6 @@ contains
     return
   end subroutine compute_vor_div_3d
 
-!-------------------------------------------------------------------------
-  function compute_vor_3d(u_cos, v_cos) result(vorticity)
-!-------------------------------------------------------------------------
-
-    complex, intent(in), dimension(:, :, :) :: u_cos
-    complex, intent(in), dimension(:, :, :) :: v_cos
-    complex, dimension(size(u_cos, 1), size(u_cos, 2), size(u_cos, 3)) :: vorticity
-
-    vorticity = compute_alpha_operator(v_cos, u_cos, -1)
-
-    return
-  end function compute_vor_3d
-
-!-------------------------------------------------------------------------
-  function compute_div_3d(u_cos, v_cos) result(divergence)
-!-------------------------------------------------------------------------
-
-    complex, intent(in), dimension(:, :, :) :: u_cos
-    complex, intent(in), dimension(:, :, :) :: v_cos
-    complex, dimension(size(u_cos, 1), size(u_cos, 2), size(u_cos, 3)) :: divergence
-
-    divergence = compute_alpha_operator(u_cos, v_cos, +1)
-
-    return
-  end function compute_div_3d
-
 !--------------------------------------------------------------------------------
   function compute_alpha_operator_3d(spherical_a, spherical_b, isign) result(alpha)
 !--------------------------------------------------------------------------------
@@ -535,9 +450,9 @@ contains
 
     alpha = cmplx(0., 0.)
 
-    if (size(spherical_a, 2) .eq. num_spherical + 1) then
+    if (size(spherical_a, 2) == num_spherical + 1) then
 !could be global domain, or only global in N
-      if (size(spherical_a, 1) .eq. num_fourier + 1) then
+      if (size(spherical_a, 1) == num_fourier + 1) then
         do k = 1, size(spherical_a, 3)
           alpha(:, :, k) = coef_dx(:, :)* &
                            cmplx(-aimag(spherical_a(:, :, k)), real(spherical_a(:, :, k)))
@@ -547,7 +462,7 @@ contains
           alpha(:, 0:num_spherical - 1, k) = alpha(:, 0:num_spherical - 1, k) + &
                                              isign*coef_alpp(:, 0:num_spherical - 1)*spherical_b(:, 1:num_spherical, k)
         end do
-      else if (size(spherical_a, 1) .eq. me - ms + 1) then
+      else if (size(spherical_a, 1) == me - ms + 1) then
         do k = 1, size(spherical_a, 3)
           alpha(:, :, k) = coef_dx(ms:me, :)* &
                            cmplx(-aimag(spherical_a(:, :, k)), real(spherical_a(:, :, k)))
@@ -557,10 +472,9 @@ contains
           alpha(:, 0:num_spherical - 1, k) = alpha(:, 0:num_spherical - 1, k) + &
                                              isign*coef_alpp(ms:me, 0:num_spherical - 1)*spherical_b(:, 1:num_spherical, k)
         end do
+      else
+        call error_mesg('compute_alpha_operator_3d', 'invalid argument size', FATAL)
       end if
-    else if (size(spherical_a, 1) .eq. me - ms + 1 .and. size(spherical_a, 2) .eq. ne - ns + 1) then
-!need to write stuff to acquire data at ns-1,ne+1
-      call abort()
     else
       call error_mesg('compute_alpha_operator_3d', 'invalid argument size', FATAL)
     end if
@@ -576,7 +490,7 @@ contains
     integer, intent(in), optional :: trunc
     integer :: k
 
-    if (size(spherical, 1) .eq. num_fourier + 1 .and. size(spherical, 2) .eq. num_spherical + 1) then
+    if (size(spherical, 1) == num_fourier + 1 .and. size(spherical, 2) == num_spherical + 1) then
       if (present(trunc)) then
         do k = 1, size(spherical, 3)
           where (spherical_wave > trunc)
@@ -588,7 +502,7 @@ contains
           spherical(:, :, k) = spherical(:, :, k)*triangle_mask
         end do
       end if
-    else if (size(spherical, 1) .eq. me - ms + 1 .and. size(spherical, 2) .eq. ne - ns + 1) then
+    else if (size(spherical, 1) == me - ms + 1 .and. size(spherical, 2) == ne - ns + 1) then
       if (present(trunc)) then
         do k = 1, size(spherical, 3)
           where (spherical_wave(ms:me, ns:ne) > trunc)
@@ -616,12 +530,12 @@ contains
 
     integer :: k, n, m
 
-    if (size(spherical, 1) .eq. num_fourier + 1 .and. size(spherical, 2) .eq. num_spherical + 1) then
+    if (size(spherical, 1) == num_fourier + 1 .and. size(spherical, 2) == num_spherical + 1) then
       if (present(trunc_fourier) .and. present(trunc_spherical)) then
         do k = 1, size(spherical, 3)
           do n = 0, size(spherical, 2) - 1
             do m = 0, size(spherical, 1) - 1
-              if (fourier_wave(m, n) .gt. trunc_fourier .or. n .gt. trunc_spherical) &
+              if (fourier_wave(m, n) > trunc_fourier .or. n > trunc_spherical) &
                 spherical(m, n, k) = cmplx(0., 0.)
             end do
           end do
@@ -629,20 +543,20 @@ contains
       else
         spherical(:, num_spherical, :) = cmplx(0., 0.)
       end if
-    else if (size(spherical, 1) .eq. me - ms + 1 .and. size(spherical, 2) .eq. ne - ns + 1) then
+    else if (size(spherical, 1) == me - ms + 1 .and. size(spherical, 2) == ne - ns + 1) then
 !wavenumbers are numbered from (0,0) which is actually (ms,ns)
       if (present(trunc_fourier) .and. present(trunc_spherical)) then
         do k = 1, size(spherical, 3)
           do n = 0, size(spherical, 2) - 1
             do m = 0, size(spherical, 1) - 1
-              if (fourier_wave(m + ms, n + ns) .gt. trunc_fourier .or. n + ns .gt. trunc_spherical) &
+              if (fourier_wave(m + ms, n + ns) > trunc_fourier .or. n + ns > trunc_spherical) &
                 spherical(m, n, k) = cmplx(0., 0.)
             end do
           end do
         end do
       else
 !truncate on n=num_spherical, only on domain containing n=num_spherical
-        if (ne .eq. num_spherical) spherical(:, ne - ns, :) = cmplx(0., 0.)
+        if (ne == num_spherical) spherical(:, ne - ns, :) = cmplx(0., 0.)
       end if
     else
       call error_mesg('rhomboid_trunc', 'invalid argument size', FATAL)
@@ -740,8 +654,6 @@ contains
     complex, dimension(size(vorticity, 1), size(vorticity, 2), 1) :: u_cos_3d
     complex, dimension(size(vorticity, 1), size(vorticity, 2), 1) :: v_cos_3d
 
-    integer :: m, n
-
     vorticity_3d(:, :, 1) = vorticity(:, :)
     divergence_3d(:, :, 1) = divergence(:, :)
     call compute_ucos_vcos_3d(vorticity_3d, divergence_3d, u_cos_3d, v_cos_3d)
@@ -773,46 +685,6 @@ contains
 
     return
   end subroutine compute_vor_div_2d
-
-!-------------------------------------------------------------------------
-  function compute_vor_2d(u_div_cos, v_div_cos) result(vorticity)
-!-------------------------------------------------------------------------
-
-    complex, intent(in), dimension(:, :) :: u_div_cos
-    complex, intent(in), dimension(:, :) :: v_div_cos
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2)) :: vorticity
-
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2), 1) :: u_div_cos_3d
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2), 1) :: v_div_cos_3d
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2), 1) :: vorticity_3d
-
-    u_div_cos_3d(:, :, 1) = u_div_cos(:, :)
-    v_div_cos_3d(:, :, 1) = v_div_cos(:, :)
-    vorticity_3d = compute_vor_3d(u_div_cos_3d, v_div_cos_3d)
-    vorticity(:, :) = vorticity_3d(:, :, 1)
-
-    return
-  end function compute_vor_2d
-
-!-------------------------------------------------------------------------
-  function compute_div_2d(u_div_cos, v_div_cos) result(divergence)
-!-------------------------------------------------------------------------
-
-    complex, intent(in), dimension(:, :) :: u_div_cos
-    complex, intent(in), dimension(:, :) :: v_div_cos
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2)) :: divergence
-
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2), 1) :: u_div_cos_3d
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2), 1) :: v_div_cos_3d
-    complex, dimension(size(u_div_cos, 1), size(u_div_cos, 2), 1) :: divergence_3d
-
-    u_div_cos_3d(:, :, 1) = u_div_cos(:, :)
-    v_div_cos_3d(:, :, 1) = v_div_cos(:, :)
-    divergence_3d = compute_div_3d(u_div_cos_3d, v_div_cos_3d)
-    divergence(:, :) = divergence_3d(:, :, 1)
-
-    return
-  end function compute_div_2d
 
 !--------------------------------------------------------------------------------
   function compute_alpha_operator_2d(spherical_a, spherical_b, isign) result(alpha)
@@ -873,7 +745,7 @@ contains
 
     if (.not. module_is_initialized) return
 
-    deallocate (eigen_laplacian, epsilon, r_epsilon, fourier_wave, spherical_wave)
+    deallocate (eigen_laplacian, epsilon, fourier_wave, spherical_wave)
     deallocate (coef_uvm, coef_uvc, coef_uvp, coef_alpm, coef_alpp, coef_dym, coef_dx, coef_dyp, triangle_mask)
     module_is_initialized = .false.
 

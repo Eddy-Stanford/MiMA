@@ -26,7 +26,7 @@ module atmosphere_mod
   use constants_mod, only: grav
 
   use transforms_mod, only: trans_grid_to_spherical, trans_spherical_to_grid, get_deg_lon, get_deg_lat, &
-                            get_wts_lat, get_grid_boundaries, compute_ucos_vcos, divide_by_cos, get_lon_max, &
+                            get_wts_lat, get_grid_boundaries, divide_by_cos, get_lon_max, &
                             get_lat_max, get_grid_domain
 
   use spec_mpp_mod, only: grid_domain
