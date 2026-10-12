@@ -38,8 +38,8 @@ jobs:
       - name: Check the shipped diag_tables
         run: |
           python3 tools/mimadoc validate input/diag_table --nml input/input.nml
-          for d in input/examples/*/; do
-            python3 tools/mimadoc validate "$d/diag_table" --nml "$d/input.nml"
+          for d in examples/*/; do
+            python3 tools/mimadoc validate "${d%/}/diag_table" --nml "${d%/}/input.nml"
           done
 
       - name: Build the site

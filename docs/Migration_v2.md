@@ -255,7 +255,7 @@ Behaviour that depended on defaults of **removed** switches also changes:
 9. Optionally set `&spec_mpp_nml io_layout` if you want per-processor files (e.g. for very large runs).
 10. Do a short test run (e.g. `days = 1`) and check `logfile.000000.out`: every namelist is written there with the values actually used.
 
-The shipped `input/input.nml` (RRTM), `input/examples/gray/input.nml` and `input/examples/held_suarez/input.nml` are complete v2.0 examples.
+The shipped `input/input.nml` (RRTM), `examples/gray/input.nml` and `examples/held_suarez/input.nml` are complete v2.0 examples.
 
 ## Surface components
 
@@ -660,8 +660,8 @@ These do not change the answers of the shipped configurations.
 ## New features
 
 * **Radiation scheme selection** with `&radiation_nml radiation_scheme = 'rrtm' | 'gray' | 'none'`, one module (`radiation`) and one set of names for the radiation diagnostics.
-* **Held-Suarez (1994) forcing** (`do_held_suarez`, `&held_suarez_nml`), with new switches `do_boundary_layer` and `do_moist_physics`. It works at any resolution and with any vertical levels, and can be combined with the Rayleigh sponge, `cg_drag`, topography, and MiMA's moist physics and surface (moist variants). Example: `input/examples/held_suarez/` (dry HS94, T42 L20). See [Held-Suarez forcing](Configurations.md#held-suarez-forcing).
-* **Gray radiation example** `input/examples/gray/`: the default test case with gray radiation, and a `diag_table` with the gray fluxes.
+* **Held-Suarez (1994) forcing** (`do_held_suarez`, `&held_suarez_nml`), with new switches `do_boundary_layer` and `do_moist_physics`. It works at any resolution and with any vertical levels, and can be combined with the Rayleigh sponge, `cg_drag`, topography, and MiMA's moist physics and surface (moist variants). Example: `examples/held_suarez/` (dry HS94, T42 L20). See [Held-Suarez forcing](Configurations.md#held-suarez-forcing).
+* **Gray radiation example** `examples/gray/`: the default test case with gray radiation, and a `diag_table` with the gray fluxes.
 * **Diagnostics reference** [Diagnostics](Diagnostics.md), generated from the source by `tools/mimadoc`, which can also **validate a diag_table** against the source and an `input.nml`.
 * **Surface stress and reference-height diagnostics** in module `flux` (was `simple_surface`): `tau_x`, `tau_y`, `t_ref`, `rh_ref`, `u_ref`, `v_ref`, `del_h`, `del_m`, `del_q`.
 * **More shared radiation fields**: RRTM `swdn_toa`, `lwup_sfc`; gray `swnet_toa`, `albedo_rad`.

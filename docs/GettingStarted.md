@@ -8,6 +8,8 @@ This page explains how to compile MiMA and run the test case that ships with the
     * [Installing FRE-NCtools](#installing-fre-nctools)
 * [Compiling](#compiling)
 * [Running the test case](#running-the-test-case)
+    * [Starting a new run directory](#starting-a-new-run-directory)
+    * [Running the examples](#running-the-examples)
 * [Output](#output)
 * [Restarting a run](#restarting-a-run)
 * [Adding files to the build](#adding-files-to-the-build)
@@ -122,6 +124,7 @@ The CMake options are:
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | `Debug` | Use `Release` for production runs (enables compiler optimisation). `Debug` builds are much slower. |
 | `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
+| `MIMA_RUN_CONFIG` | `input` | With `INSTALL_EXEC=ON`, the directory whose `input.nml`, `diag_table` and `field_table` are installed in `exec/`, relative to the top of the repository, e.g. `examples/gray` (see [Running the examples](#running-the-examples)). `INPUT/` always comes from `input/INPUT/`. |
 | `MIMA_OPENMP` | `OFF` | Compile with OpenMP, which threads the radiation (RRTM), the spectral transforms, the FFTs and the grid-point dynamics within each MPI process (see [OpenMP](#openmp)). |
 
 ### OpenMP
@@ -163,7 +166,7 @@ exec/
 └── RESTART/        # restart files are written here at the end of the run
 ```
 
-These files are copied from the [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/main/input) directory of the repository. **Note:** re-running `cmake --install build` overwrites `input.nml`, `diag_table` and `field_table` in `exec/`. For your own experiments, copy `exec/` (or `input/` plus the executable) to a separate run directory.
+These files are copied from the [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/main/input) directory of the repository, and `RESTART/` is created empty. **Note:** re-running `cmake --install build` overwrites `input.nml`, `diag_table` and `field_table` in `exec/`. For your own experiments, use a separate run directory (see [Starting a new run directory](#starting-a-new-run-directory)).
 
 To run the model:
 
@@ -198,6 +201,44 @@ The test run is one 360-day year (12 months of 30 days) with the following setup
 * surface albedo of 0.23, increasing to 0.8 in polar regions, with brighter Sahara, Gobi and Australian deserts ([`surface_albedo_mod`](https://eddy-stanford.github.io/MiMA/api/surface_albedo_mod/))
 * Betts-Miller convection and large-scale condensation ([`betts_miller_mod`](https://eddy-stanford.github.io/MiMA/api/betts_miller_mod/), [`lscale_cond_mod`](https://eddy-stanford.github.io/MiMA/api/lscale_cond_mod/), called from [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/))
 * parameterized non-orographic gravity-wave drag ([`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/))
+
+### Starting a new run directory
+
+A run directory needs `input.nml`, `diag_table` and `field_table`, the data files in `INPUT/` that the configuration reads, and an existing `RESTART/` directory: the model stops at start-up if it cannot write to `RESTART/`. Git does not keep empty directories, so `input/` has no `RESTART/`; create it yourself. For example, from the top of the repository:
+
+```bash
+mkdir -p ~/runs/myexp/RESTART
+cp input/input.nml input/diag_table input/field_table ~/runs/myexp/
+cp -r input/INPUT ~/runs/myexp/
+cp build/mima ~/runs/myexp/
+```
+
+Then run the model in `~/runs/myexp` as above. Copying a freshly installed `exec/` works too.
+
+### Running the examples
+
+The [`examples/`](https://github.com/Eddy-Stanford/MiMA/tree/main/examples) directory holds other complete configurations, each with its own `input.nml`, `diag_table` and `field_table`:
+
+* `examples/gray/`: the test case with gray radiation instead of RRTM (see [Radiation options](Configurations.md#radiation-options)). It needs `navy_topography.data.nc` and `navy_pctwater.data.nc` from `input/INPUT/`.
+* `examples/held_suarez/`: the dry Held-Suarez (1994) benchmark at T42 with 20 levels (see [Held-Suarez forcing](Configurations.md#held-suarez-forcing)). It needs no input data.
+
+To install an example in `exec/` in place of the test case, choose it with `MIMA_RUN_CONFIG` when configuring:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DINSTALL_EXEC=ON -DMIMA_RUN_CONFIG=examples/gray
+cmake --build build -j 8
+cmake --install build
+```
+
+`exec/INPUT/` still gets the data files of `input/INPUT/`, which the Held-Suarez example does not read. Or set up a run directory by hand, as above, with the three files of the example:
+
+```bash
+mkdir -p ~/runs/hs/RESTART
+cp examples/held_suarez/input.nml examples/held_suarez/diag_table examples/held_suarez/field_table ~/runs/hs/
+cp build/mima ~/runs/hs/
+```
+
+For the gray example, also copy `input/INPUT` to the run directory.
 
 ## Output
 

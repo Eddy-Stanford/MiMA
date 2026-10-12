@@ -22,7 +22,7 @@ The radiation scheme is chosen with `radiation_scheme` in [`radiation_nml`](Para
 * `'none'`: no radiative heating and no radiative surface fluxes.
 
 In the code, [`radiation_mod`](https://eddy-stanford.github.io/MiMA/api/radiation_mod/) reads `radiation_nml` and passes the physics driver's calls on to the chosen scheme: [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) (which calls RRTMG, with the solar zenith angle from [`rrtm_astro`](https://eddy-stanford.github.io/MiMA/api/rrtm_astro/)) or [`gray_radiation_mod`](https://eddy-stanford.github.io/MiMA/api/gray_radiation_mod/).
-The two schemes provide different diagnostics (the shared ones, such as `olr` and `tdt_rad`, have the same names); see the `radiation` module in [Diagnostics](Diagnostics.md#module-radiation). A complete gray-radiation setup is in `input/examples/gray/`: its `input.nml` is the default test case with `radiation_scheme = 'gray'` and `gray_radiation_nml` in place of `rrtm_radiation_nml` and `astro_nml`, and its `diag_table` writes daily and 30-day means including the gray radiative fluxes. It uses the same `INPUT/` files as the test case.
+The two schemes provide different diagnostics (the shared ones, such as `olr` and `tdt_rad`, have the same names); see the `radiation` module in [Diagnostics](Diagnostics.md#module-radiation). A complete gray-radiation setup is in `examples/gray/`: its `input.nml` is the default test case with `radiation_scheme = 'gray'` and `gray_radiation_nml` in place of `rrtm_radiation_nml` and `astro_nml`, and its `diag_table` writes daily and 30-day means including the gray radiative fluxes. It needs `navy_topography.data.nc` and `navy_pctwater.data.nc` from `input/INPUT/` (see [Running the examples](GettingStarted.md#running-the-examples)).
 
 ## Held-Suarez forcing
 
@@ -39,7 +39,7 @@ MiMA can run the [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994
 
 The forcing depends only on latitude and sigma, so it works at any horizontal resolution and with any vertical levels.
 
-For the standard **dry** benchmark, switch off radiation, moist physics and the boundary layer, which also leaves the surface state unchanged. A complete example (T42, 20 evenly spaced sigma levels, flat topography) is in `input/examples/held_suarez/`; it needs no input data files:
+For the standard **dry** benchmark, switch off radiation, moist physics and the boundary layer, which also leaves the surface state unchanged. A complete example (T42, 20 evenly spaced sigma levels, flat topography) is in `examples/held_suarez/`; it needs a `RESTART/` directory but no `INPUT/` data files (see [Running the examples](GettingStarted.md#running-the-examples)):
 
 ```fortran
 &radiation_nml
@@ -238,7 +238,7 @@ Diagnostics: bucket: `land/water`, `land/beta`, `land/runoff`, `land/water_clip`
 | `land_mask` | Land is | Needs |
 |---|---|---|
 | `'navy'` (default) | the Navy land-sea mask, interpolated to the model grid: land where at least 50 % of the cell is land | `INPUT/navy_pctwater.data.nc` |
-| `'file'` | where the variable `land_mask_file` of the file `INPUT/<land_mask_file>.nc` (default `'lmask'`, so `INPUT/lmask.nc`; the variable has the same name as the file) is positive, on the model grid | the file |
+| `'file'` | where the variable `land_mask_file` of the file `INPUT/<land_mask_file>.nc` (default `'lmask'`, so `INPUT/lmask.nc`; the variable has the same name as the file) is positive, on the model grid | the file; the shipped `input/INPUT/lmask.nc` is an Earth land-sea mask (0 or 1) for T42 (128 × 64), so `land_mask = 'file'` works at T42 without further files |
 | `'boxes'` | inside the longitude-latitude boxes `slandlon`, `slandlat`, `elandlon`, `elandlat` (degrees; up to 10 boxes) | |
 | `'height'` | where the surface height (from the topography) exceeds `land_height_limit` (default 10, **metres**) | |
 | `'none'` | nowhere: an aquaplanet. The restart files are still written. | |
