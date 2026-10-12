@@ -85,8 +85,9 @@ module rrtm_radiation
   ! dimension (ncols_rrt x nlay_rrt)
   real(kind=rb), allocatable, dimension(:, :)   :: zeros                ! place holder for any species set
   !  to zero
-  real(kind=rb), allocatable, dimension(:, :)   :: ones                 ! place holder for secondary species
-  ! the following species are only set if use_secondary_gases=.true.
+  real(kind=rb), allocatable, dimension(:, :)   :: reff                 ! cloud particle effective radius
+  ! (10 microns; not used without clouds)
+  ! the following species are zero unless include_secondary_gases=.true.
   real(kind=rb), allocatable, dimension(:, :)   :: ch4                  ! CH4 [vmr]
   ! dimension (ncols_rrt x nlay_rrt)
   real(kind=rb), allocatable, dimension(:, :)   :: n2o                  ! N2O [vmr]
@@ -106,6 +107,8 @@ module rrtm_radiation
   ! =1 for black body
   ! clouds stuff
   !  cloud & aerosol optical depths, cloud and aerosol specific parameters. Set to zero
+  !  LW: taucld (nbndlw x ncols_rrt x nlay_rrt), tauaer (ncols_rrt x nlay_rrt x nbndlw)
+  !  SW: sw_zro (nbndsw x ncols_rrt x nlay_rrt), zro_sw (ncols_rrt x nlay_rrt x nbndsw)
   real(kind=rb), allocatable, dimension(:, :, :) :: taucld, tauaer, sw_zro, zro_sw
   ! heating rates and fluxes, zenith angle when in-between radiation time steps
   real(kind=rb), allocatable, dimension(:, :)   :: sw_flux, lw_flux, zencos! surface fluxes, cos(zenith angle)
@@ -143,6 +146,7 @@ module rrtm_radiation
 ! no clouds in the radiative scheme
   integer(kind=im) :: icld = 0, idrv = 0, &
                       inflglw = 0, iceflglw = 0, liqflglw = 0, &
+                      inflgsw = 0, iceflgsw = 0, liqflgsw = 0, &
                       iaer = 0
 !---------------------------------------------------------------------------------------------------------------
 !                                namelist values
@@ -355,8 +359,11 @@ contains
 
     allocate (h2o(ncols_rrt, nlay_rrt), o3(ncols_rrt, nlay_rrt), &
               co2(ncols_rrt, nlay_rrt))
-    allocate (ones(ncols_rrt, nlay_rrt), &
+    allocate (reff(ncols_rrt, nlay_rrt), &
               zeros(ncols_rrt, nlay_rrt))
+    allocate (ch4(ncols_rrt, nlay_rrt), n2o(ncols_rrt, nlay_rrt), o2(ncols_rrt, nlay_rrt), &
+              cfc11(ncols_rrt, nlay_rrt), cfc12(ncols_rrt, nlay_rrt), cfc22(ncols_rrt, nlay_rrt), &
+              ccl4(ncols_rrt, nlay_rrt))
     allocate (emis(ncols_rrt, nbndlw))
     allocate (taucld(nbndlw, ncols_rrt, nlay_rrt), &
               tauaer(ncols_rrt, nlay_rrt, nbndlw))
@@ -369,7 +376,24 @@ contains
     o3 = o3_val !this will be set by an input file if do_read_ozone=.true.
     co2 = co2ppmv*1.e-6 ! convert ppmv
     zeros = 0. ! gases and clouds
-    ones = 1. ! gases and clouds
+    reff = 10. ! clouds
+    if (include_secondary_gases) then
+      ch4 = ch4_val
+      n2o = n2o_val
+      o2 = o2_val
+      cfc11 = cfc11_val
+      cfc12 = cfc12_val
+      cfc22 = cfc22_val
+      ccl4 = ccl4_val
+    else
+      ch4 = 0.
+      n2o = 0.
+      o2 = 0.
+      cfc11 = 0.
+      cfc12 = 0.
+      cfc22 = 0.
+      ccl4 = 0.
+    end if
 
     emis = 1. !black body: 1.0
 
@@ -667,35 +691,19 @@ contains
     hr = 0.
     dflx = 0.
     uflx = 0.
-    if (include_secondary_gases) then
-      call rrtmg_lw &
-        (ncols_rrt, nlay_rrt, icld, idrv, &
-         pfull, phalf, tfull, thalf, tsrf, &
-         h2o, o3, co2, &
-         ! secondary gases
-         ch4_val*ones, n2o_val*ones, o2_val*ones, &
-         cfc11_val*ones, cfc12_val*ones, cfc22_val*ones, ccl4_val*ones, &
-         ! emissivity and cloud composition
-         emis, inflglw, iceflglw, liqflglw, &
-         ! cloud parameters
-         zeros, taucld, zeros, zeros, 10*ones, 10*ones, &
-         tauaer, &
-         ! output
-         uflx, dflx, hr, uflxc, dflxc, hrc, iaerlw=iaer)
-    else
-      call rrtmg_lw &
-        (ncols_rrt, nlay_rrt, icld, idrv, &
-         pfull, phalf, tfull, thalf, tsrf, &
-         h2o, o3, co2, zeros, zeros, zeros, &
-         zeros, zeros, zeros, zeros, &
-         ! emissivity and cloud composition
-         emis, inflglw, iceflglw, liqflglw, &
-         ! cloud parameters
-         zeros, taucld, zeros, zeros, 10*ones, 10*ones, &
-         tauaer, &
-         ! output
-         uflx, dflx, hr, uflxc, dflxc, hrc, iaerlw=iaer)
-    end if
+    call rrtmg_lw &
+      (ncols_rrt, nlay_rrt, icld, idrv, &
+       pfull, phalf, tfull, thalf, tsrf, &
+       h2o, o3, co2, &
+       ! secondary gases
+       ch4, n2o, o2, cfc11, cfc12, cfc22, ccl4, &
+       ! emissivity and cloud composition
+       emis, inflglw, iceflglw, liqflglw, &
+       ! cloud parameters
+       zeros, taucld, zeros, zeros, reff, reff, &
+       tauaer, &
+       ! output
+       uflx, dflx, hr, uflxc, dflxc, hrc, iaerlw=iaer)
 
     lwijk = reshape(hr(:, sk:1:-1), (/si/lonstep, sj, sk/))*daypersec
     olrijk = reshape(uflx(:, sk + 1), (/si/lonstep, sj/))
@@ -780,6 +788,7 @@ contains
   subroutine sw_columns(n, pfull, phalf, tfull, thalf, tsrf, h2o_c, o3_c, co2_c, albedo_c, cosz, dyofyr, &
                         swuflx, swdflx, swhr)
     use rrtmg_sw_rad, only: rrtmg_sw
+    use parrrsw, only: naerec
     use rrtm_astro, only: solr_cnst, solrad
     implicit none
     integer, intent(in) :: n, dyofyr
@@ -789,35 +798,20 @@ contains
     real(kind=rb), dimension(n, nlay_rrt + 1) :: swuflxc, swdflxc
     real(kind=rb), dimension(n, nlay_rrt) :: swhrc
 
-    if (include_secondary_gases) then
-      call rrtmg_sw &
-        (n, nlay_rrt, icld, iaer, &
-         pfull, phalf, tfull, thalf, tsrf, &
-         h2o_c, o3_c, co2_c, ch4_val*ones(1:n, :), n2o_val*ones(1:n, :), o2_val*ones(1:n, :), &
-         albedo_c, albedo_c, albedo_c, albedo_c, &
-         cosz, solrad, dyofyr, solr_cnst, &
-         inflglw, iceflglw, liqflglw, &
-         ! cloud parameters
-         zeros(1:n, :), taucld(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), &
-         zeros(1:n, :), zeros(1:n, :), 10*ones(1:n, :), 10*ones(1:n, :), &
-         tauaer(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), &
-         ! output
-         swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
-    else
-      call rrtmg_sw &
-        (n, nlay_rrt, icld, iaer, &
-         pfull, phalf, tfull, thalf, tsrf, &
-         h2o_c, o3_c, co2_c, zeros(1:n, :), zeros(1:n, :), zeros(1:n, :), &
-         albedo_c, albedo_c, albedo_c, albedo_c, &
-         cosz, solrad, dyofyr, solr_cnst, &
-         inflglw, iceflglw, liqflglw, &
-         ! cloud parameters
-         zeros(1:n, :), taucld(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), &
-         zeros(1:n, :), zeros(1:n, :), 10*ones(1:n, :), 10*ones(1:n, :), &
-         tauaer(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), &
-         ! output
-         swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
-    end if
+    call rrtmg_sw &
+      (n, nlay_rrt, icld, iaer, &
+       pfull, phalf, tfull, thalf, tsrf, &
+       h2o_c, o3_c, co2_c, ch4(1:n, :), n2o(1:n, :), o2(1:n, :), &
+       albedo_c, albedo_c, albedo_c, albedo_c, &
+       cosz, solrad, dyofyr, solr_cnst, &
+       inflgsw, iceflgsw, liqflgsw, &
+       ! cloud parameters
+       zeros(1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), &
+       zeros(1:n, :), zeros(1:n, :), reff(1:n, :), reff(1:n, :), &
+       ! aerosol parameters
+       zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, 1:naerec), &
+       ! output
+       swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
   end subroutine sw_columns
 
 !*****************************************************************************************
@@ -1065,7 +1059,8 @@ contains
     call write_restart_rrtm
 
     if (allocated(t_half)) deallocate (t_half)
-    if (allocated(h2o)) deallocate (h2o, o3, co2, ones, zeros, emis, &
+    if (allocated(h2o)) deallocate (h2o, o3, co2, reff, zeros, emis, &
+                                    ch4, n2o, o2, cfc11, cfc12, cfc22, ccl4, &
                                     taucld, tauaer, sw_zro, zro_sw)
     if (allocated(zencos)) deallocate (zencos)
     if (allocated(sw_flux)) deallocate (sw_flux)
