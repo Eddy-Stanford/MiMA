@@ -149,12 +149,11 @@ contains
     ! if local heating is 2D only it is done via horizontal_heating
     !  within flux_exchange.f90
     if (do_3d_heating) then
-      ! horizontal heating first
-      call horizontal_heating(Time, lon, lat, horiz_tdt, tcenter)
-      ! then vertical heating
       do n = 1, ngauss
         if (hamp(n) .ne. 0. .and. pcenter(n) .gt. 0.) then
-          ! add vertical component
+          ! horizontal and temporal part of this source
+          call horizontal_heating(Time, lon, lat, horiz_tdt, tcenter, only=n)
+          ! times its vertical profile
           do k = 1, size(p_full, 3)
             do j = 1, size(lon, 2)
               do i = 1, size(lon, 1)
@@ -192,8 +191,8 @@ contains
   !>
   !> Without `tcenter` (the call from `flux_exchange`) it sums the surface sources
   !> (`pcenter` < 0); with `tcenter` it sums the atmospheric sources (`pcenter` > 0) and
-  !> returns their current centres.
-  subroutine horizontal_heating(Time, lon, lat, horiz_tdt, tcenter)
+  !> returns their current centres. With `only`, only source `only` is included.
+  subroutine horizontal_heating(Time, lon, lat, horiz_tdt, tcenter, only)
     implicit none
     type(time_type), intent(in)       :: Time  !! current time
     real, dimension(:, :), intent(in)  :: lon, lat  !! longitudes and latitudes [rad]
@@ -201,6 +200,7 @@ contains
     real, dimension(3, ngauss), intent(out), optional :: tcenter
     !! current centre of each source: longitude [rad], latitude [rad] and log10 of the
     !! pressure [log10(Pa)] (zero for sources that are not used)
+    integer, intent(in), optional :: only  !! include only this source
     ! local variables
     integer :: i, j, d, n, deltasecs
     integer :: seconds, days, fullseconds
@@ -216,6 +216,9 @@ contains
       tcenter = 0.0
     end if
     do n = 1, ngauss
+      if (present(only)) then
+        if (n /= only) cycle
+      end if
       ! check if heating should be added
       do_horiz = .false.
       !  first, is the amplitude non-zero?
