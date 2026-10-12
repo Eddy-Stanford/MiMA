@@ -469,7 +469,7 @@ contains
 !    artificial local heating if required
 !----------------------------------------------------------------------
     if (do_local_heating) then
-      call local_heating(is, js, Time, lon, lat, p_full, tdt)
+      call local_heating(is, js, Time, Time_next, lon, lat, p_full, tdt)
     end if
 
 !----------------------------------------------------------------------

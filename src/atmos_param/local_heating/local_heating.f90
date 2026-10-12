@@ -124,10 +124,11 @@ contains
   !-----------------------------------------------------------------------
 
   !> Adds the heating of the atmosphere by the sources with `pcenter` > 0 to `tdt_tot`.
-  subroutine local_heating(is, js, Time, lon, lat, p_full, tdt_tot)
+  subroutine local_heating(is, js, Time, Time_next, lon, lat, p_full, tdt_tot)
     implicit none
     integer, intent(in)                  :: is, js  !! starting subdomain i, j indices of the physics window
-    type(time_type), intent(in)           :: Time  !! current time
+    type(time_type), intent(in)           :: Time  !! current time (the heating is evaluated at this time)
+    type(time_type), intent(in)           :: Time_next  !! time at the end of the step (the diagnostic time stamp)
     real, dimension(:, :), intent(in)    :: lon, lat  !! longitudes and latitudes [rad]
     real, dimension(:, :, :), intent(in)    :: p_full  !! pressure at full levels [Pa]
     real, dimension(:, :, :), intent(inout) :: tdt_tot  !! temperature tendency, to which the heating is added [K/s]
@@ -170,7 +171,7 @@ contains
 
     !------- diagnostics ------------
     if (id_tdt_lheat > 0) then
-      used = send_data(id_tdt_lheat, tdt, Time, is, js, 1)
+      used = send_data(id_tdt_lheat, tdt, Time_next, is, js, 1)
     end if
 
   end subroutine local_heating
