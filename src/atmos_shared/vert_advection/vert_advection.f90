@@ -7,8 +7,7 @@
 !> (in any units, usually pressure). The schemes are second- and fourth-order centered
 !> differences (for uniform or unequal level spacing) and finite-volume schemes with
 !> piecewise-linear (van Leer) or piecewise-parabolic (PPM) reconstruction. The equation
-!> can be solved in flux or advective form. `vert_advection_end` prints the maximum CFL
-!> numbers and the number of CFL errors of the finite-volume schemes.
+!> can be solved in flux or advective form.
 !>
 !> References:
 !>
@@ -20,13 +19,12 @@ module vert_advection_mod
 
 !-------------------------------------------------------------------------------
 
-  use fms_mod, only: error_mesg, FATAL, write_version_number, stdout
-  use mpp_mod, only: mpp_sum, mpp_max, mpp_pe, mpp_sync
+  use fms_mod, only: error_mesg, FATAL
 
   implicit none
   private
 
-  public :: vert_advection, vert_advection_end
+  public :: vert_advection
 ! for optional argument: scheme
   integer, parameter, public :: SECOND_CENTERED = 101  !! `scheme`: second-order centered
   integer, parameter, public :: FOURTH_CENTERED = 102  !! `scheme`: fourth-order centered
@@ -55,11 +53,6 @@ module vert_advection_mod
   !! `flags`: advection is computed at the top and bottom for outflow boundaries (finite
   !! volume schemes only)
 
-  character(len=128), parameter :: version = '$Id: vert_advection.f90,v 11.0 2004/09/28 19:27:01 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
-
-  logical :: module_is_initialized = .false.
-
   !> Computes the vertical advective tendency of a quantity, for 1-D (one column), 2-D
   !> or 3-D arrays (the vertical is the last dimension).
   !>
@@ -71,11 +64,6 @@ module vert_advection_mod
   interface vert_advection
     module procedure vert_advection_1d, vert_advection_2d, vert_advection_3d
   end interface
-
-! for cfl diagnostics with finite volume schemes
-  real    :: cflmaxc = 0.
-  real    :: cflmaxx = 0.
-  integer :: cflerr = 0
 
 contains
 
@@ -112,14 +100,7 @@ contains
 
     real :: cn, rsum, dzsum, dtw
     integer :: kk
-    real :: cnmax, xxmax
-    integer :: nerr
-    logical :: any_flux, use_threads
-
-    if (.not. module_is_initialized) then
-      call write_version_number(version, tagname)
-      module_is_initialized = .true.
-    end if
+    logical :: use_threads
 
     ! set default values for optional arguments
     diff_scheme = VAN_LEER_LINEAR
@@ -160,17 +141,12 @@ contains
       flux(:, :, ke + 1) = w(:, :, ke + 1)*r(:, :, ke)
     end if
 
-    cnmax = cflmaxc
-    xxmax = cflmaxx
-    nerr = 0
-    any_flux = .false.
-
     ! the centered schemes are too cheap to gain from threads
     use_threads = size(r, 1)*size(r, 2) > 1 .and. diff_scheme /= SECOND_CENTERED .and. &
                   diff_scheme /= FOURTH_CENTERED .and. diff_scheme /= SECOND_CENTERED_WTS
 
 ! each loop below is shared out over one dimension, so each output element is computed by one
-! thread as in serial; the CFL maxima and error count are exact reductions
+! thread as in serial
 !$omp parallel if(use_threads) default(shared) &
 !$omp private(i, j, k, kk, xx, a, b, rm, r6, rst, wt, tt, c1, c2, test_1, cn, rsum, dzsum, dtw)
     select case (diff_scheme)
@@ -299,7 +275,7 @@ contains
     case (FINITE_VOLUME_LINEAR)
       ! slope along the z-axis
       call slope_z(r, dz, slp)
-!$omp do reduction(max:cnmax) reduction(+:nerr) reduction(.or.:any_flux)
+!$omp do
       do k = kstart, kend
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
@@ -313,9 +289,6 @@ contains
           rst = r(i, j, k) - 0.5*slp(i, j, k)*(1.-cn)
         end if
         flux(i, j, k) = w(i, j, k)*rst
-        if (cn > 1.) nerr = nerr + 1
-        cnmax = max(cnmax, cn)
-        any_flux = .true.
       end do
       end do
       end do
@@ -338,7 +311,7 @@ contains
       end do
 !$omp end do nowait
 
-      ! boundary values  ! masks ???????
+      ! boundary values (mask is not used by the finite-volume schemes)
 
 !$omp do
       do j = 1, size(r, 2)
@@ -403,7 +376,7 @@ contains
       ! compute fluxes at interfaces
 
       tt = 2./3.
-!$omp do reduction(max:cnmax, xxmax) reduction(+:nerr)
+!$omp do
       do k = kstart, kend
       do j = 1, size(r, 2)
       do i = 1, size(r, 1)
@@ -463,9 +436,6 @@ contains
           if (cn > 1.) rst = (xx*rst + rsum)/cn
         end if
         flux(i, j, k) = w(i, j, k)*rst
-        if (xx > 1.) nerr = nerr + 1
-        xxmax = max(xxmax, xx)
-        cnmax = max(cnmax, cn)
       end do
       end do
       end do
@@ -509,33 +479,7 @@ contains
     end select
 !$omp end parallel
 
-    cflerr = cflerr + nerr
-    cflmaxc = cnmax
-    if (diff_scheme == FINITE_VOLUME_LINEAR) then
-      if (any_flux) cflmaxx = cflmaxc ! same for linear scheme
-    else
-      cflmaxx = xxmax
-    end if
-
   end subroutine vert_advection_3d
-
-!-------------------------------------------------------------------------------
-
-  !> Prints the maximum CFL numbers and the number of CFL errors of the finite-volume schemes.
-  subroutine vert_advection_end
-
-    ! cfl diagnostics
-    call mpp_max(cflmaxc)
-    call mpp_max(cflmaxx)
-    call mpp_sum(cflerr) ! integer sum
-    if (cflmaxc > 0.) then
-      write (stdout(), 10) cflmaxc, cflmaxx, cflerr
-    end if
-10  format(/, ' Vertical advection (atmosphere):', &
-            /, '     maximum CFL =', f10.6, '; ', f10.6, &
-            /, '     number of CFL errors =', i5,/)
-
-  end subroutine vert_advection_end
 
 !-------------------------------------------------------------------------------
 
@@ -714,10 +658,6 @@ contains
     character(len=*), intent(in) :: message
 
     call error_mesg('vert_advection', trim(message), FATAL)
-
-!  print *, 'FATAL ERROR in vert_advection'
-!  print *, trim(message)
-!  stop 111
 
   end subroutine error_handler
 
