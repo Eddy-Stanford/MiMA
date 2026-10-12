@@ -140,7 +140,7 @@ contains
       u_surf, v_surf, q_star, q_surf, cd_q, cd_t, cd_m, wind
 
     logical, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
-      mask, glacier, seawater
+      mask, seawater
 
     logical :: used
 
@@ -155,7 +155,6 @@ contains
     v_surf = 0.0
 
     mask = .true.
-    glacier = .false.
     ! ocean points, where surface_flux uses the NCAR ocean fluxes if ncar_ocean_flux is set
     seawater = Ocean%mask
 
@@ -175,26 +174,21 @@ contains
       Boundary%t = Ocean%t_surf
     end where
 
-    call surface_flux(Atm%t_bot, Atm%q_bot, Atm%u_bot, Atm%v_bot, & ! Lima
-                      Atm%p_bot, Atm%z_bot, Atm%p_surf, Boundary%t, &
-                      Boundary%t, & ! Required argument, intent(in). t_surf instead of Land%t_ca
+! Every point, land included, is a saturated surface at Boundary%t for surface_flux: no
+! point is passed as land, so t_ca and the input q_surf are not used and dedq_surf is 0
+    call surface_flux(Atm%t_bot, Atm%q_bot, Atm%u_bot, Atm%v_bot, &
+                      Atm%p_bot, Atm%z_bot, Atm%p_surf, &
+                      Boundary%t, &  ! t_surf
+                      Boundary%t, &  ! t_ca (not used)
                       q_surf, u_surf, v_surf, &
-                      Boundary%rough_mom, rough_heat, rough_moist, &
-                      Atm%gust, flux_t, flux_q, flux_lw, flux_u, flux_v, &
+                      Boundary%rough_mom, rough_heat, rough_moist, Atm%gust, &
+                      flux_t, flux_q, flux_lw, flux_u, flux_v, &
                       cd_m, cd_t, cd_q, wind, Boundary%u_star, Boundary%b_star, q_star, &
-                      dhdt_surf, dedt_surf, &
-                      dedq_surf, & ! Required argument, intent(out), but not needed by this model.
-                      drdt_surf, dhdt_atm, dedq_atm, &
-                      Boundary%dtaudu, & ! returned to the coupler for the implicit zonal stress
-                      Boundary%dtaudv, & ! Looks like it should be .false. everywhere.
-                      .not. mask, &
-                      seawater, & ! ocean points (used only with ncar_ocean_flux)
-                      mask) ! Required argument, intent(in). Looks like it should be .true. everywhere.
-
-! intent(out):: flux_t, flux_q, flux_lw, flux_u, flux_v, cd_m, cd_t, cd_q, wind, u_star, b_star, q_star,
-! intent(out):: dhdt_surf, dedt_surf, dedq_surf, drdt_surf, dhdt_atm, dedq_atm, dtaudu_atm, dtaudv_atm
-! intent(inout) :: q_surf
-! All others intent(in)
+                      dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
+                      dhdt_atm, dedq_atm, Boundary%dtaudu, Boundary%dtaudv, &
+                      .not. mask, &  ! land: none
+                      seawater, &    ! ocean points (used only with ncar_ocean_flux)
+                      mask)          ! avail: all points
 
 ! Bucket: the land evaporates beta times the potential (saturated) rate
     if (Land%do_bucket) then
@@ -760,8 +754,7 @@ contains
     integer :: iref
     character(len=6) :: label_zm, label_zh
     real, dimension(2) :: trange = (/100., 400./), &
-                          vrange = (/-400., 400./), &
-                          frange = (/-0.01, 1.01/)
+                          vrange = (/-400., 400./)
 !-----------------------------------------------------------------------
 !  initializes diagnostic fields that may be output from this module
 !  (the id numbers may be referenced anywhere in this module)
