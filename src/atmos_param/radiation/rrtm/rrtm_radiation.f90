@@ -529,10 +529,9 @@ contains
     integer :: dloc, calday
     real(kind=rb) :: tsec
     integer si, sj, sk, locmin(3)
-    real(kind=rb), dimension(size(q, 1), size(q, 2), size(q, 3)) :: o3f
+    real(kind=rb), allocatable, dimension(:, :, :) :: o3f, tdt_rrtm  ! ozone, radiative heating
     real(kind=rb), dimension(ncols_rrt, nlay_rrt) :: pfull, tfull &
                                                      , hr, hrc, swhr
-    real(kind=rb), dimension(size(tdt, 1), size(tdt, 2), size(tdt, 3)) :: tdt_rrtm
     real(kind=rb), dimension(ncols_rrt, nlay_rrt + 1) :: uflx, dflx, uflxc, dflxc &
                                                          , swuflx, swdflx
     real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2), size(q, 3)) :: swijk, lwijk
@@ -543,7 +542,8 @@ contains
     real(kind=rb) :: dlon, dlat, dj, di
     type(time_type) :: Time_loc
     real(kind=rb), dimension(size(q, 1), size(q, 2)) :: albedo_loc
-    real(kind=rb), dimension(size(q, 1), size(q, 2), size(q, 3)) :: q_tmp
+    real(kind=rb), dimension(size(q, 2), size(q, 3)) :: q_zm, tdt_zm  ! zonal means
+    real(kind=rb), dimension(size(q, 2)) :: precip_zm, swflx_zm, lwflx_zm
 ! debug
     integer :: indx2(2), indx(3), ii, ji, ki
 !---------------------------------------------------------------------------------------------------------------
@@ -560,15 +560,13 @@ contains
       t_last = t_now
     else
       if (store_intermediate_rad) then
-        tdt_rrtm = tdt_rad
+        tdt = tdt + tdt_rad
         flux_sw = sw_flux
         flux_lw = lw_flux
       else
-        tdt_rrtm = 0.
         flux_sw = 0.
         flux_lw = 0.
       end if
-      tdt = tdt + tdt_rrtm
       call write_diag_rrtm(Time_diag, is, js)
       return !not time yet
     end if
@@ -610,6 +608,7 @@ contains
     end if
 
     !get ozone
+    allocate (o3f(si, sj, sk))
     if (do_read_ozone) then
       call interpolator(o3_interp, Time_loc, p_half, o3f, trim(ozone_file))
       o3f = o3f*scale_ozone
@@ -622,9 +621,10 @@ contains
     !interactive albedo: zonal mean of precipitation
     if (do_precip_albedo .and. num_precip > 0) then
       where (abs(lat) < precip_lat*3.14159265/180.) rrtm_precip = 0.
+      precip_zm = sum(rrtm_precip, 1)
       do i = 1, size(albedo, 1)
         albedo_loc(i, :) = albedo(i, :) + (precip_albedo - albedo(i, :))&
-                          &*sum(rrtm_precip, 1)/size(rrtm_precip, 1)/num_precip
+                          &*precip_zm/size(rrtm_precip, 1)/num_precip
       end do
       rrtm_precip = 0.
       num_precip = 0
@@ -633,13 +633,7 @@ contains
     end if
 !---------------------------------------------------------------------------------------------------------------
     !Compute zonal means if that's what we want to feed to RRTM
-    if (do_zm_tracers) then
-      do i = 1, size(q, 1)
-        q_tmp(i, :, :) = sum(q, 1)/size(q, 1)
-      end do
-    else
-      q_tmp = q
-    end if
+    if (do_zm_tracers) q_zm = sum(q, 1)/size(q, 1)
 !---------------------------------------------------------------------------------------------------------------
 !---------------------------------------------------------------------------------------------------------------
     !RRTM's first pressure level is at the surface - need to inverse order
@@ -652,7 +646,11 @@ contains
          &phalf(:, sk + 1) = pfull(:, sk)*0.5
     tfull = reshape(t(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
     thalf = reshape(t_half(1:si:lonstep, :, sk + 1:1:-1), (/si*sj/lonstep, sk + 1/))
-    h2o = reshape(q_tmp(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
+    if (do_zm_tracers) then
+      h2o = reshape(spread(q_zm(:, sk:1:-1), 1, si/lonstep), (/si*sj/lonstep, sk/))
+    else
+      h2o = reshape(q(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
+    end if
     if (do_read_ozone) o3 = reshape(o3f(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
 
     cosz_rr = reshape(coszen(1:si:lonstep, :), (/si*sj/lonstep/))
@@ -712,6 +710,8 @@ contains
 !---------------------------------------------------------------------------------------------------------------
     ! get radiation
 ! interpolate back onto GCM grid (latitude is kept the same due to parallelisation)
+    allocate (tdt_rrtm(si, sj, sk))
+    if (do_zm_rad) tdt_zm = sum(swijk + lwijk, 1)/max(1, size(swijk, 1))
     dlon = 1./lonstep
     do i = 1, size(swijk, 1)
       i1 = i + 1
@@ -721,7 +721,7 @@ contains
         di = (ij - 1)*dlon
         ij1 = (i - 1)*lonstep + ij
         if (do_zm_rad) then
-          tdt_rrtm(ij1, :, :) = sum(swijk + lwijk, 1)/max(1, size(swijk, 1))
+          tdt_rrtm(ij1, :, :) = tdt_zm
         else
           tdt_rrtm(ij1, :, :) = &
             +di*(swijk(i1, :, :) + lwijk(i1, :, :)) &
@@ -744,6 +744,10 @@ contains
       !only surface fluxes are needed
       swflxijk = reshape(swdflx(:, 1) - swuflx(:, 1), (/si/lonstep, sj/)) ! net down SW flux
       lwflxijk = reshape(dflx(:, 1), (/si/lonstep, sj/)) ! down LW flux
+      if (do_zm_rad) then
+        swflx_zm = sum(swflxijk, 1)/max(1, size(swflxijk, 1))
+        lwflx_zm = sum(lwflxijk, 1)/max(1, size(lwflxijk, 1))
+      end if
       dlon = 1./lonstep
       do i = 1, size(swijk, 1)
         i1 = i + 1
@@ -753,8 +757,8 @@ contains
           di = (ij - 1)*dlon
           ij1 = (i - 1)*lonstep + ij
           if (do_zm_rad) then
-            flux_sw(ij1, :) = sum(swflxijk, 1)/max(1, size(swflxijk, 1))
-            flux_lw(ij1, :) = sum(lwflxijk, 1)/max(1, size(lwflxijk, 1))
+            flux_sw(ij1, :) = swflx_zm
+            flux_lw(ij1, :) = lwflx_zm
           else
             flux_sw(ij1, :) = di*swflxijk(i1, :) + (1.-di)*swflxijk(i, :)
             flux_lw(ij1, :) = di*lwflxijk(i1, :) + (1.-di)*lwflxijk(i, :)
