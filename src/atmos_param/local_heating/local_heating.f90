@@ -42,7 +42,9 @@ module local_heating_mod
   real, dimension(ngauss)   :: latmove = 0.        !! [deg/day] meridional speed of the source
   real, dimension(ngauss)   :: pwidth = 1.        !! [log10(hPa)] vertical width; constant in the vertical if < 0
   real, dimension(ngauss)   :: pcenter = -1.        !! [hPa] pressure of the centre; surface heating if < 0
-  real, dimension(ngauss)   :: pmove = 0.        !! [hPa/day] vertical speed of the source
+  real, dimension(ngauss)   :: pmove = 0.
+  !! [hPa/day] vertical speed of the source (atmospheric sources); the centre pressure is kept
+  !! at 0.01 hPa or more, so a rising source (`pmove` < 0) stops at 0.01 hPa
   logical, dimension(ngauss):: is_periodic = .false.
   !! reset the position periodically (with `tphase` and `tperiod`): periodic in longitude and
   !! pressure, back and forth in latitude
@@ -62,6 +64,7 @@ module local_heating_mod
   integer                :: daysperyear  !! number of days in a year
   logical                :: do_3d_heating = .false.  !! true if any source has `pcenter` > 0
   logical                :: module_is_initialized = .false.
+  real, parameter        :: pcenter_min = 1.  !! [Pa] smallest centre pressure of a moving source
 
 contains
 
@@ -196,8 +199,9 @@ contains
     !! pressure [log10(Pa)] (zero for sources that are not used)
     integer, intent(in), optional :: only  !! include only this source
     ! local variables
-    integer :: i, j, d, n, deltasecs
+    integer :: i, j, d, n
     integer :: seconds, days, fullseconds
+    real    :: deltasecs  ! [s] time since the start, or (periodic source) since the nearest tphase + m*tperiod
     real    :: tcent(3), t_factor, targ, halfper
     real, dimension(size(lon, 1), size(lon, 2)) :: lon_factor, lat_factor
     logical :: do_horiz
@@ -235,13 +239,13 @@ contains
         if (is_periodic(n)) then
           deltasecs = modulo(fullseconds - tphase(n) + halfper, tperiod(n)) - halfper
         else
-          deltasecs = fullseconds
+          deltasecs = real(fullseconds)
         end if
         ! compute the center position
         tcent(1) = mod(loncenter(n) + lonmove(n)*deltasecs, 2*PI)
         tcent(2) = latcenter(n) + latmove(n)*abs(deltasecs)
         if (pcenter(n) .gt. 0.0) then
-          tcent(3) = log10(pcenter(n) + pmove(n)*abs(deltasecs))
+          tcent(3) = log10(max(pcenter(n) + pmove(n)*abs(deltasecs), pcenter_min))
         else
           tcent(3) = pcenter(n)
         end if
