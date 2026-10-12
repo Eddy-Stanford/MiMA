@@ -110,7 +110,7 @@ module flux_exchange_mod
   real, allocatable, dimension(:, :) :: e_t_n, f_t_delt_n, &
                                         e_q_n, f_q_delt_n
 
-  real, allocatable, dimension(:, :) :: dhdt_surf, dedt_surf, dedq_surf, &
+  real, allocatable, dimension(:, :) :: dhdt_surf, dedt_surf, &
                                         drdt_surf, dhdt_atm, dedq_atm, &
                                         flux_t, flux_q, flux_lw, flux_u, flux_v
 
@@ -147,7 +147,8 @@ contains
     !! fraction (0)
 
     real, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
-      q_star, q_surf, cd_q, cd_t, cd_m, wind
+      q_star, q_surf, cd_q, cd_t, cd_m, wind, &
+      dedq_surf  ! derivative of the evaporation with respect to q_surf (0, and not used)
 
     logical :: used
 
@@ -565,7 +566,7 @@ contains
 !------ module storage ------
 
     allocate (e_t_n(id, jd), e_q_n(id, jd), f_t_delt_n(id, jd), f_q_delt_n(id, jd), &
-              dhdt_surf(id, jd), dedt_surf(id, jd), dedq_surf(id, jd), drdt_surf(id, jd), &
+              dhdt_surf(id, jd), dedt_surf(id, jd), drdt_surf(id, jd), &
               dhdt_atm(id, jd), dedq_atm(id, jd), flux_t(id, jd), flux_q(id, jd), &
               flux_lw(id, jd), flux_u(id, jd), flux_v(id, jd))
 
