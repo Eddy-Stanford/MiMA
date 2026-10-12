@@ -1,0 +1,198 @@
+! examples/gray/input.nml with a 10-hour run (72 steps); nothing else changed.
+!
+! The default test case (input/input.nml) with gray radiation instead of RRTM:
+! radiation_scheme = 'gray' in radiation_nml, and gray_radiation_nml in place
+! of rrtm_radiation_nml and astro_nml. Needs the same INPUT/ topography files.
+
+&coupler_nml
+    days   = 0,
+    hours  = 10,
+    dt_atmos =500,
+    current_date = 0001,1,1,0,0,0
+    calendar = 'thirty_day' /
+
+# Note: damping_order = 4 specifies del 8'th diffusion
+&spectral_dynamics_nml
+    damping_option          = 'resolution_dependent',
+    damping_order           = 4,
+    do_mass_correction      =.true.,
+    do_energy_correction    =.true.,
+    do_water_correction     =.true.,
+    water_correction_limit  = 200.e2,
+    initial_sphum           = 2.e-06,
+    use_virtual_temperature =.false.,
+    vert_advect_uv          = 'second_centered',
+    vert_advect_t           = 'second_centered',
+    use_implicit            = .true.,
+    longitude_origin        = 0.,
+    robert_coeff            = .03,
+    alpha_implicit          = .5,
+    reference_sea_level_press=1.e5,
+    lon_max                 = 128,
+    lat_max                 = 64,
+    num_levels              = 40,
+    num_fourier             = 42,
+    num_spherical           = 43,
+    fourier_inc             = 1,
+    triang_trunc            =.true.,
+    topography_option       = 'interpolated',
+    ocean_topog_smoothing = 0.995,
+    vert_coord_option       = 'uneven_sigma',
+    surf_res                = 0.1,
+    scale_heights           = 7.9,
+    exponent                = 1.4 /
+
+&spectral_init_cond_nml
+    initial_temperature = 264. /
+
+---------- physics namelists --------------
+
+&gray_radiation_nml
+    ! gray radiation of Frierson, Held and Zurita-Gotor (2006) with its
+    ! default settings: solar_constant, del_sol, ir_tau_eq, ir_tau_pole,
+    ! atm_abs, linear_tau, ... are in src/atmos_param/radiation/gray_radiation.f90
+    /
+
+&flux_exchange_nml
+    z_ref_heat = 2.0,
+    z_ref_mom = 10.0 /
+&surface_albedo_nml
+    albedo_profile = 'tanh_desert',
+    const_albedo = 0.23,
+    higher_albedo = 0.80,
+    albedo_exp = 2.0,
+    albedo_cntrNH = 68.,
+    albedo_cntrSH = 64.,
+    albedo_wdth = 5,
+    step_lat_nh = 90.,
+    step_lat_sh = -90.,
+    albedo_desert = 0.2 /
+&ocean_model_nml
+    ocean_model = 'slab',
+    sst_init = 'profile',
+    Tm = 285.,
+    deltaT = 40.0,
+    rough_ocean = 3.21e-05,
+    heat_capacity = 3.e08,
+    trop_capacity = 1.e08,
+    trop_cap_limit = 20.,
+    heat_cap_limit = 60.0,
+    np_cap_factor = 1.0 /
+&land_model_nml
+    land_model = 'simple',
+    land_mask = 'navy',
+    land_mask_file = 'lmask',
+    land_height_limit = 10.0,
+    heat_capacity = 1.e07,
+    t_init = 'ocean',
+    rough_mom_factor = 5.e3,
+    rough_moist_factor = 1.e-12,
+    rough_moist_profile = 'legacy_tropical',
+    hydrology = 'saturated',
+    do_snow = .false. /
+
+&qflux_nml
+    qflux_amp        = 26.,
+    warmpool_pattern = 'garfinkel2020',
+    warmpool_k       = 1.66666,
+    warmpool_amp     = 18.,
+    warmpool_width   = 35.,
+    qflux_width      = 16.,
+    warmpool_phase   = 140.,
+    warmpool_centr   = 0.,
+    gulf_k       = 4,
+    gulf_amp     = 70.,
+    kuroshio_amp = 40.,
+    trop_atlantic_amp = 50.,
+    gulf_phase   = 310.,
+    Hawaiiextra = 30.0,
+    Pac_ITCZextra = -0.0,
+    qflux_source = 'analytic',
+    do_warmpool = .true. /
+
+&damping_driver_nml
+    do_rayleigh   = .false.,
+    trayfric      = -0.5,
+    sponge_pbottom=  50.,
+    do_conserve_energy = .true.,
+    do_cg_drag    = .true.,
+    do_mg_drag = .false./
+
+&topography_nml
+    topog_file = 'INPUT/navy_topography.data.nc',
+    water_file = 'INPUT/navy_pctwater.data.nc' /
+
+&cg_drag_nml
+    Bt_0  = 0.0043,
+    Bt_nh = 0.00,
+    Bt_eq = 0.0043,
+    Bt_sh = 0.00,
+    phi0n = 15.,
+    phi0s =-15.,
+    dphin = 10.,
+    dphis =-10.,
+    flag=0,
+    Bw = 0.4,
+    Bn = 0.0,
+    cw = 35.0,
+    cwtropics = 35.0,
+    cn =  2.0,
+    kelvin_kludge = 1.0,
+    source_level_pressure = 315.e+02,
+    damp_level_pressure = 0.85e+02,
+    cg_drag_freq = 21600 /
+
+&moist_processes_nml
+    do_bm           =.true.,
+    do_mca          =.false.,
+    do_lsc          =.true. /
+
+&betts_miller_nml
+    tau_bm = 7200.,
+    rhbm   = .7   ,
+    do_simp = .false.,
+    do_shallower = .true.,
+    do_changeqref = .false.,
+    do_envsat = .false.,
+    do_taucape = .false.,
+    capetaubm = 900.,
+    tau_min = 2400./
+
+&moist_conv_nml /
+
+&monin_obukhov_nml
+    rich_crit  = 2.0,
+    drag_min   = 4.e-05 /
+
+&lscale_cond_nml
+    do_evap = .true. /
+
+&vert_diff_driver_nml
+    do_conserve_energy = .true.,
+    use_virtual_temp_vert_diff = .false. /
+
+&surface_flux_nml
+    use_virtual_temp = .false.,
+    old_dtaudv = .true.,
+    gust_const       =  1.0 /
+
+&vert_turb_driver_nml
+    use_tau          = .false.,
+    gust_scheme      = 'constant',
+    constant_gust    = 0.,
+    do_diffusivity = .true./
+
+&radiation_nml
+    radiation_scheme = 'gray' /
+
+&physics_driver_nml
+    do_damping = .true. /
+
+# domains_stack_size will vary for different model resolutions,
+# domain decompositions, and number of processors used.
+
+&fms_nml
+    domains_stack_size = 600000 /
+
+&sat_vapor_pres_nml
+    do_simple = .true. /

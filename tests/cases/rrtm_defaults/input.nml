@@ -1,0 +1,21 @@
+! The rrtm case with every physics and dynamics key left at its code default.
+! Only what has no usable default is set, and the run stops without each of
+! these: the run length (the default is 360 days), the topography files
+! (FMS's defaults are in DATA/), the simple saturation vapour pressure table
+! that MiMA requires, and the FMS domains stack (the default is too small).
+! The defaults_rrtm test checks that this gives bit for bit the same answer
+! as cases/rrtm (= input/input.nml).
+
+&coupler_nml
+    days  = 0,
+    hours = 10 /
+
+&topography_nml
+    topog_file = 'INPUT/navy_topography.data.nc',
+    water_file = 'INPUT/navy_pctwater.data.nc' /
+
+&sat_vapor_pres_nml
+    do_simple = .true. /
+
+&fms_nml
+    domains_stack_size = 600000 /
