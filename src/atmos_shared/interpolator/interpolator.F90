@@ -1465,7 +1465,9 @@ contains
     integer :: len
 
     len = len_trim(string)
-    if (string(len:len) == char(0)) len = len - 1
+    if (len > 0) then
+      if (string(len:len) == char(0)) len = len - 1
+    end if
 
     chomp = string(:len)
 
