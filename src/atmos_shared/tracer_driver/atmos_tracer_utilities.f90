@@ -1,6 +1,5 @@
 
-!> Utility routines for atmospheric tracers: wet and dry deposition, and interpolation of
-!> emission fields.
+!> Utility routines for atmospheric tracers: wet and dry deposition.
 !>
 !> The deposition schemes provide consistent removal mechanisms for the tracers; they are
 !> selected per tracer with `dry_deposition` and `wet_deposition` methods in the
@@ -26,11 +25,7 @@ module atmos_tracer_utilities_mod
                                 get_number_tracers, &
                                 MAX_TRACER_FIELDS
   use field_manager_mod, only: MODEL_ATMOS, parse
-  use constants_mod, only: grav, rdgas, PI
-  use horiz_interp_mod, only: horiz_interp
-  use constants_mod, only: PI
-  use mima_interpolator_mod, only: interpolator, &
-                                   interpolate_type
+  use constants_mod, only: grav, rdgas
 
   implicit none
   private
@@ -39,7 +34,6 @@ module atmos_tracer_utilities_mod
 
   public wet_deposition, &
     dry_deposition, &
-    interp_emiss, &
     atmos_tracer_utilities_end, &
     atmos_tracer_utilities_init
 
@@ -64,10 +58,8 @@ module atmos_tracer_utilities_mod
   character(len=32), dimension(max_tracers) :: tracer_ddep_units = ' '
   character(len=128), dimension(max_tracers) :: tracer_ddep_longnames = ' '
 
-  real, allocatable :: blon_out(:), blat_out(:)
 !----------------parameter values for the diagnostic units--------------
   real, parameter :: mw_air = 0.0289644
-  real, parameter :: Navo = 6.023e23
 
 contains
 
@@ -80,25 +72,15 @@ contains
   !> `wdep_ls`, `wdep_cv` for the wet deposition; they can be entered in the `diag_table`
   !> under the module name `tracers`. The units of the deposition fields are kg/m2/s for
   !> tracers in `mmr` or `kg/kg`, and mole/m2/s for tracers in `vmr`, `mol/mol` or `mole/mole`.
-  subroutine atmos_tracer_utilities_init(lonb, latb, mass_axes, Time)
+  subroutine atmos_tracer_utilities_init(mass_axes, Time)
 
-    real, dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
     integer, dimension(3), intent(in) :: mass_axes  !! diagnostic axes (lon, lat, pfull)
     type(time_type), intent(in) :: Time  !! model time
 
     integer :: ntrace
     character(len=20) :: units = ''
 !
-    integer :: n, unit
-    character(len=128) :: name
-
-! Make local copies of the local domain dimensions for use
-! in interp_emiss.
-    allocate (blon_out(size(lonb(:))))
-    allocate (blat_out(size(latb(:))))
-!      allocate ( data_out(size(lonb(:))-1, size(latb(:))-1))
-    blon_out = lonb
-    blat_out = latb
+    integer :: n
 
     do n = 1, max_tracers
       write (tracer_names(n), 100) n
@@ -113,18 +95,12 @@ contains
 !--- set tracer tendency names where tracer names have changed ---
 
       call get_tracer_names(MODEL_ATMOS, n, tracer_names(n), tracer_longnames(n), tracer_units(n))
-      write (name, 100) n
-      if (trim(tracer_names(n)) /= name) then
-        tracer_ddep_names(n) = trim(tracer_names(n))//'ddep'
-        tracer_wdep_names(n) = trim(tracer_names(n))//'wdep'
-      end if
-      write (name, 102) n
-      if (trim(tracer_longnames(n)) /= name) then
-        tracer_wdep_longnames(n) = &
-          trim(tracer_longnames(n))//' wet deposition for tracers'
-        tracer_ddep_longnames(n) = &
-          trim(tracer_longnames(n))//' dry deposition for tracers'
-      end if
+      tracer_ddep_names(n) = trim(tracer_names(n))//'ddep'
+      tracer_wdep_names(n) = trim(tracer_names(n))//'wdep'
+      tracer_wdep_longnames(n) = &
+        trim(tracer_longnames(n))//' wet deposition for tracers'
+      tracer_ddep_longnames(n) = &
+        trim(tracer_longnames(n))//' dry deposition for tracers'
 
       select case (trim(tracer_units(n)))
       case ('mmr')
@@ -143,6 +119,8 @@ contains
                         ' Dry dep units set to '//trim(units)//' in atmos_tracer_utilities for '//trim(tracer_names(n)), &
                         NOTE)
       end select
+      tracer_ddep_units(n) = units
+      tracer_wdep_units(n) = units
 
       id_tracer_ddep(n) = register_diag_field(mod_name, &
                                               trim(tracer_ddep_names(n)), mass_axes(1:2), Time, &
@@ -359,12 +337,10 @@ contains
     real, intent(out), dimension(:, :, :) :: tracer_dt  !! tendency of the tracer due to wet deposition
     real, intent(in)                    :: dt  !! time step [s]
 !
-    real, dimension(size(T, 1), size(T, 2), size(pfull, 3))   :: wsinku
-    real, dimension(size(T, 1), size(T, 2)) :: Htemp, dz, washout, scav_factor, sum_wdep
+    real, dimension(size(T, 1), size(T, 2)) :: Htemp, scav_factor, sum_wdep
     integer, dimension(size(T, 1), size(T, 2)) :: ktopcd, kendcd
     integer :: i, j, k, kd, flaglw
-    real    :: Henry_constant, Henry_variable, inv298p15, clwc, wash, premin, prenow, hwtop
-!real, dimension(size(rain,1),size(rain,2)) :: prenow,hwtop
+    real    :: Henry_constant, Henry_variable, inv298p15, clwc, premin, prenow, hwtop
     logical :: used, flag
     character(len=80) :: name, control, scheme, units
     tracer_dt = 0.0e+00
@@ -438,20 +414,17 @@ contains
 !     and below cloud washout efficiency (cm-1):
       flaglw = parse(control, 'lslwc', clwc)
       if (flaglw == 0) clwc = 0.5e-3
-      wash = 1.0
 !
 !     When convective adjustment occurs, use convective cloud liquid water content:
 !
       if (trim(cloud_param) .eq. 'convect') then
         flaglw = parse(control, 'convlwc', clwc)
         if (flaglw == 0) clwc = 2.0e-3
-        wash = 0.3
       end if
 !
       do j = 1, size(rain, 2)
         do i = 1, size(rain, 1)
           tracer_dt(i, j, :) = 0.0
-          washout(i, j) = 0.0
           prenow = rain(i, j) + snow(i, j)
           if (prenow .gt. premin) then
 !
@@ -480,8 +453,6 @@ contains
                 tracer_dt(i, j, k) = prenow/(clwc*hwtop)
               end do
             end if
-
-            washout(i, j) = prenow*wash
           end if
         end do
       end do
@@ -501,12 +472,13 @@ contains
 ! delta z = RT/g*dp/p
 ! tracer(kgtracer/kgair) * dz(m)* rho(kgair/m3) = kgtracer/m2
 ! so rho drops out of the equation
-      if (units(1:3) == 'mmr') then
-        sum_wdep = sum_wdep + tracer_dt(:, :, k)*(phalf(:, :, k + 1) - phalf(:, :, k))/grav
-      end if
-      if (units(1:3) == 'vmr') then
+! (in mole/m2/s for volume mixing ratios, else kg/m2/s, as the dry deposition)
+      select case (trim(units))
+      case ('vmr', 'mol/mol', 'mole/mole')
         sum_wdep = sum_wdep + tracer_dt(:, :, k)*(phalf(:, :, k + 1) - phalf(:, :, k))/(grav*mw_air)
-      end if
+      case default
+        sum_wdep = sum_wdep + tracer_dt(:, :, k)*(phalf(:, :, k + 1) - phalf(:, :, k))/grav
+      end select
     end do
 
     if (trim(cloud_param) .eq. 'lscale') then
@@ -546,8 +518,7 @@ contains
     character(len=*), intent(out)   :: scheme
     real, intent(out)               :: land_dry_dep_vel, sea_dry_dep_vel
 
-    integer :: m, m1, n, lentext, flag
-    character(len=32) :: dummy
+    integer :: flag
 
 !Default
     scheme = 'None'
@@ -595,8 +566,7 @@ contains
     character(len=*), intent(out)   :: scheme
     real, intent(out)               :: henry_constant, henry_temp
 
-    integer :: m, m1, n, lentext, flag
-    character(len=32) :: dummy
+    integer :: flag
 
 !Default
     scheme = 'None'
@@ -617,51 +587,10 @@ contains
 
   end subroutine get_wetdep_param
 !
-!#######################################################################
-!
-  !> Interpolates an emission field (or any 2D field) of arbitrary resolution to the model
-  !> grid, and returns the part of the global field on the local processor.
-  subroutine interp_emiss(global_source, start_lon, start_lat, &
-                          lon_resol, lat_resol, data_out)
-    real, intent(in)  :: global_source(:, :)  !! global emission field
-    real, intent(in)  :: start_lon, start_lat, lon_resol, lat_resol
-    !! `start_lon`, `start_lat`: western and southern boundaries of the global field [rad];
-    !! `lon_resol`, `lat_resol`: longitudinal and latitudinal resolution of the field [rad]
-    real, intent(out) :: data_out(:, :)  !! interpolated field on the local processor
-
-    real :: modydeg, modxdeg, tpi
-    integer :: i, j, nlon_in, nlat_in
-    real :: blon_in(size(global_source, 1) + 1)
-    real :: blat_in(size(global_source, 2) + 1)
-! Set up the global surface boundary condition longitude-latitude boundary values
-
-    tpi = 2.*PI
-    nlon_in = size(global_source, 1)
-    nlat_in = size(global_source, 2)
-! For some reason the input longitude needs to be incremented by 180 degrees.
-    do i = 1, nlon_in + 1
-      blon_in(i) = start_lon + float(i - 1)*lon_resol + PI
-    end do
-    if (abs(blon_in(nlon_in + 1) - blon_in(1) - tpi) < epsilon(blon_in)) &
-      blon_in(nlon_in + 1) = blon_in(1) + tpi
-
-    do j = 2, nlat_in
-      blat_in(j) = start_lat + float(j - 1)*lat_resol
-    end do
-    blat_in(1) = -0.5*PI
-    blat_in(nlat_in + 1) = 0.5*PI
-
-! Now interpolate the global data to the model resolution
-    call horiz_interp(global_source, blon_in, blat_in, &
-                      blon_out, blat_out, data_out)
-
-  end subroutine interp_emiss
-!
 !######################################################################
   !> Terminates the tracer utilities module.
   subroutine atmos_tracer_utilities_end
 
-    deallocate (blon_out, blat_out)
     module_is_initialized = .false.
 
   end subroutine atmos_tracer_utilities_end

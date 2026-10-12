@@ -155,7 +155,7 @@ contains
   subroutine atmos_tracer_driver_init(lonb, latb, r, axes, Time, phalf, mask)
 
 !-----------------------------------------------------------------------
-    real, intent(in), dimension(:)               :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
+    real, intent(in), dimension(:)               :: lonb, latb  !! longitudes and latitudes of the cell corners [rad] (not used)
     real, intent(inout), dimension(:, :, :, :)         :: r  !! tracer fields (nlon, nlat, nlev, ntrace)
     type(time_type), intent(in)                                :: Time  !! model time
     integer, intent(in)                                :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
@@ -175,7 +175,7 @@ contains
 
 !If we wish to automatically register diagnostics for wet and dry
 ! deposition, do it now.
-    call atmos_tracer_utilities_init(lonb, latb, axes, Time)
+    call atmos_tracer_utilities_init(axes, Time)
 
 !----- set initial value of radon ------------
 
