@@ -97,7 +97,7 @@ module ocean_qflux_mod
   use constants_mod, only: pi
   use fms_mod, only: input_nml_file, check_nml_error, &
                      error_mesg, FATAL, mpp_pe, mpp_root_pe, stdlog
-  use mpp_domains_mod, only: domain2d, mpp_global_sum, BITWISE_EXACT_SUM
+  use mpp_domains_mod, only: domain2d, mpp_global_sum, BITWISE_EXACT_SUM, BITWISE_EFP_SUM
   use time_manager_mod, only: time_type
   use mima_interpolator_mod, only: interpolate_type, interpolator_init, CONSTANT, interpolator
   use surface_types_mod, only: surface_grid_type
@@ -711,7 +711,7 @@ contains
     if (area_land_q > 0.) &
       mean_land_q = mpp_global_sum(grid%domain, grid%area*land_q*flux, flags=BITWISE_EXACT_SUM)/area_land_q
 
-    call apply_switches(grid%domain, grid%area, mask, area_ocean, flux, removed)
+    call apply_switches(grid%domain, grid%area, mask, area_ocean, BITWISE_EXACT_SUM, flux, removed)
 
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), '(a)') 'ocean_qflux_init: Q-flux statistics (area-weighted)'
@@ -757,7 +757,9 @@ contains
   !>
   !> The file field is interpolated to `Time`, the warm-pool fluxes are added (if
   !> `do_warmpool`), and `qflux_ocean_only` and `qflux_remove_mean` are applied as in
-  !> `ocean_qflux_init`, with bitwise reproducible global sums.
+  !> `ocean_qflux_init`. The global sum of `qflux_remove_mean` is the FMS reproducing
+  !> (EFP) sum: independent of the domain decomposition like the exact sum of
+  !> `ocean_qflux_init`, but without gathering the global field at every step.
   logical function ocean_qflux_update(Time, flux) result(updated)
     type(time_type), intent(in) :: Time  !! time of the step
     real, dimension(:, :), intent(inout) :: flux
@@ -768,7 +770,7 @@ contains
     if (.not. updated) return
     call interpolator(qflux_interp, Time, flux, trim(qflux_var))
     flux = flux + q_static
-    call apply_switches(qdomain, qarea, qmask, qarea_ocean, flux, removed)
+    call apply_switches(qdomain, qarea, qmask, qarea_ocean, BITWISE_EFP_SUM, flux, removed)
 
   end function ocean_qflux_update
 !########################################################
@@ -777,13 +779,14 @@ contains
   !>
   !> With `qflux_ocean_only`, `flux` is set to 0 off the ocean. With `qflux_remove_mean`,
   !> its global area integral (over all points), divided by the ocean area, is subtracted
-  !> at the ocean points; the global sum is bitwise independent of the domain
-  !> decomposition.
-  subroutine apply_switches(domain, area, mask, area_ocean, flux, removed)
+  !> at the ocean points; the global sum (`flags`: `BITWISE_EXACT_SUM` or `BITWISE_EFP_SUM`)
+  !> is bitwise independent of the domain decomposition.
+  subroutine apply_switches(domain, area, mask, area_ocean, flags, flux, removed)
     type(domain2d), intent(in) :: domain  !! domain of the surface grid
     real, dimension(:, :), intent(in) :: area  !! relative grid-box area
     logical, dimension(:, :), intent(in) :: mask  !! ocean points
     real, intent(in) :: area_ocean  !! global ocean area (relative, as `area`)
+    integer, intent(in) :: flags  !! flags of `mpp_global_sum`
     real, dimension(:, :), intent(inout) :: flux  !! raw Q-flux on input, applied Q-flux on output [W/m2]
     real, intent(out) :: removed  !! the constant subtracted at the ocean points [W/m2]
 
@@ -796,7 +799,7 @@ contains
 ! ocean area. With qflux_ocean_only this is the ocean mean (the whole sphere without land).
     removed = 0.
     if (qflux_remove_mean .and. area_ocean > 0.) then
-      removed = mpp_global_sum(domain, area*flux, flags=BITWISE_EXACT_SUM)/area_ocean
+      removed = mpp_global_sum(domain, area*flux, flags=flags)/area_ocean
       where (mask) flux = flux - removed
     end if
 
