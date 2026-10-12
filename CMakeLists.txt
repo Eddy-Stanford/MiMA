@@ -1,15 +1,17 @@
 cmake_minimum_required(VERSION 3.22)
-#policy CMP0076 - target_sources source files are relative to file where target_sources is run
-cmake_policy (SET CMP0076 NEW)
+
+# The compilers are chosen when a build directory is first configured, from
+# the FC and CC environment variables (e.g. FC=ifx CC=icx cmake -S . -B build)
+# or from -DCMAKE_Fortran_COMPILER=... -DCMAKE_C_COMPILER=... To change them,
+# configure a new build directory.
 project(MiMA VERSION 2.0.0 LANGUAGES Fortran C)
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
 endif()
 
-# Generate the main mima.x executable with dirs, libs, and opts
+# The model executable, mima; the subdirectories add its sources
 add_executable ( mima )
-target_compile_definitions( mima PRIVATE use_libMPI use_netCDF gFortran ) # gFortran appears to be unused
 
 option(INSTALL_EXEC "Install executables to exec/ directory?" OFF)
 
@@ -33,23 +35,6 @@ if(MIMA_OPENMP)
 endif()
 target_link_libraries(mima PRIVATE NetCDF::NetCDF_Fortran NetCDF::NetCDF_C)
 
-if(NOT CMAKE_Fortran_COMPILER)
-    set(CMAKE_Fortran_COMPILER "gfortran")
-endif()
-
-
-if(APPLE)
-    message(STATUS "Configuring for MacOS")
-    if(NOT CMAKE_C_COMPILER)
-        set(CMAKE_C_COMPILER "clang")
-    endif()
-    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Build architectures for MacOS")
-endif()
-
-if(NOT CMAKE_C_COMPILER)
-    set(CMAKE_C_COMPILER "gcc")
-endif()
-
 # The install prefix must be set before FMS is configured, which reads it.
 if(INSTALL_EXEC)
     set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/exec" CACHE PATH "..." FORCE)
@@ -68,7 +53,7 @@ if(CMAKE_Fortran_COMPILER_ID  MATCHES "Intel|IntelLLVM")
     set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -xHost ${CMAKE_Fortran_FLAGS_RELEASE} ")
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
     message(STATUS "Configuring for GNU Fortran")
-    target_compile_options( mima PRIVATE -cpp -fallow-argument-mismatch -fbacktrace -fdefault-real-8 -fdefault-double-8 -fcray-pointer -fallow-invalid-boz -fno-range-check -ffree-line-length-none )
+    target_compile_options( mima PRIVATE -cpp -fallow-argument-mismatch -fbacktrace -fdefault-real-8 -fdefault-double-8 -fno-range-check -ffree-line-length-none )
     if(NOT MIMA_OPENMP)
         # -fopenmp implies -frecursive (local arrays on the stack); keep that without OpenMP
         target_compile_options( mima PRIVATE -frecursive )
