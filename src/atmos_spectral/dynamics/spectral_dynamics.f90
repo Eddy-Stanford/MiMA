@@ -86,7 +86,7 @@ module spectral_dynamics_mod
 !===============================================================================================
 
   public :: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels
-  public :: get_reference_sea_level_press, get_surf_geopotential
+  public :: get_surf_geopotential
   public :: complete_robert_filter
   public :: get_axis_id, spectral_diagnostics, get_initial_fields
 
@@ -1357,19 +1357,6 @@ contains
 
     return
   end subroutine get_surf_geopotential
-!================================================================================
-  !> Returns `reference_sea_level_press`.
-  subroutine get_reference_sea_level_press(reference_sea_level_press_out)
-    real, intent(out) :: reference_sea_level_press_out  !! reference sea-level pressure [Pa]
-
-    if (.not. module_is_initialized) then
-      call error_mesg('get_reference_sea_level_press', 'spectral_dynamics_init has not been called.', FATAL)
-    end if
-
-    reference_sea_level_press_out = reference_sea_level_press
-
-    return
-  end subroutine get_reference_sea_level_press
 !================================================================================
   !> Returns the number of vertical levels.
   subroutine get_num_levels(num_levels_out)

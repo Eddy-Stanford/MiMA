@@ -11,29 +11,25 @@ module atmosphere_mod
 
   use mpp_mod, only: mpp_clock_id, mpp_clock_begin, mpp_clock_end, MPP_CLOCK_SYNC
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, WARNING, write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, close_restart, &
                               read_restart_field, write_restart_field, get_restart_field_size
 
   use field_manager_mod, only: MODEL_ATMOS
 
-  use tracer_manager_mod, only: get_number_tracers, get_tracer_index
+  use tracer_manager_mod, only: get_number_tracers
 
   use spectral_physics_mod, only: spectral_physics_init, spectral_physics_down, spectral_physics_up, &
                                   spectral_physics_end, surf_diff_type
 
-  use constants_mod, only: grav
-
-  use transforms_mod, only: trans_grid_to_spherical, trans_spherical_to_grid, get_deg_lon, get_deg_lat, &
-                            get_wts_lat, get_grid_boundaries, divide_by_cos, get_lon_max, &
-                            get_lat_max, get_grid_domain
+  use transforms_mod, only: get_grid_boundaries, get_lon_max, get_lat_max, get_grid_domain
 
   use spec_mpp_mod, only: grid_domain
 
   use press_and_geopot_mod, only: compute_pressures_and_heights, compute_z_bot
 
-  use time_manager_mod, only: time_type, set_time, get_time, operator(+), operator(<), operator(-)
+  use time_manager_mod, only: time_type, get_time, operator(+), operator(-)
 
   use spectral_dynamics_mod, only: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels, &
                                    complete_robert_filter, &
@@ -45,12 +41,6 @@ module atmosphere_mod
 
   implicit none
   private
-
-  character(len=128), parameter :: version = &
-                                   '$Id: atmosphere.f90,v 12.0 2005/04/14 15:52:50 fms Exp $'
-
-  character(len=128), parameter :: tagname = &
-                                   '$Name: lima $'
 
   public :: atmosphere_init, atmosphere_down, atmosphere_up, atmosphere_end, atmosphere_domain
   public :: atmosphere_resolution, atmosphere_boundary, get_bottom_mass, get_bottom_wind, get_atmosphere_axes
@@ -97,11 +87,11 @@ contains
     !! `Time_step_in`: atmospheric time step
     type(surf_diff_type), intent(inout) :: Surf_diff  !! surface data of the implicit vertical diffusion
 
-    integer :: j, k, time_level, lon_max, lat_max, ntr, nt
+    integer :: lon_max, lat_max, ntr, nt
     integer, dimension(4) :: siz
     real :: level
     character(len=64) :: tr_name
-    character(len=4) :: ch1, ch2, ch3, ch4, ch5, ch6
+    character(len=4) :: ch1, ch2, ch3, ch4
     type(restart_file_type) :: rst
 
     if (module_is_initialized) return
@@ -109,14 +99,11 @@ contains
     dynclock = mpp_clock_id('Dynamics', flags=MPP_CLOCK_SYNC)
     phyclock = mpp_clock_id('Physics', flags=MPP_CLOCK_SYNC)
 
-    call write_version_number(version, tagname)
-!-----------------------------------------------------------------------------------------
-
 !  because the time step is used in different ways,
 !  it must exist as a real and time_type variable
 
     call get_time(Time_step_in, seconds, days)
-    dt_real = float(86400*days + seconds)
+    dt_real = real(86400*days + seconds)
     Time_step = Time_step_in
 
     call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
@@ -180,10 +167,11 @@ contains
       call get_initial_fields(ug(:, :, :, 1), vg(:, :, :, 1), tg(:, :, :, 1), psg(:, :, 1), grid_tracers(:, :, :, 1, :))
     end if
 
-    call spectral_physics_init(Time, get_axis_id(), Surf_diff, nhum, p_half)
-
+    ! before spectral_physics_init, so that the physics is initialized with the pressures
     call compute_pressures_and_heights( &
       tg(:, :, :, current), psg(:, :, current), z_full, z_half, p_full, p_half, grid_tracers(:, :, :, current, nhum))
+
+    call spectral_physics_init(Time, get_axis_id(), Surf_diff, nhum, p_half)
 
     module_is_initialized = .true.
 
@@ -214,8 +202,6 @@ contains
     !! longwave flux at the surface [W/m2]; `gust`: gustiness [m/s]
     type(surf_diff_type), intent(inout)                 :: Surf_diff  !! surface data of the implicit vertical diffusion
 
-    integer :: days, seconds
-
     if (.not. module_is_initialized) then
       call error_mesg('atmosphere_down', 'atmosphere module has not been initialized.', FATAL)
     end if
@@ -236,7 +222,7 @@ contains
     Time_next = Time + Time_step
 
     call mpp_clock_begin(phyclock)
-    call spectral_physics_down(Time_prev, Time, Time_next, previous, current, p_half, p_full, z_half, z_full, psg, &
+    call spectral_physics_down(Time_prev, Time, Time_next, previous, current, p_half, p_full, z_half, z_full, &
                                ug, vg, tg, grid_tracers, frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, &
                                dtau_du, dtau_dv, tau_x, tau_y, &
                                dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_lw, gust, Surf_diff)
@@ -256,8 +242,10 @@ contains
     type(surf_diff_type), intent(inout)                       :: Surf_diff
     !! surface data of the implicit vertical diffusion, including the changes of the
     !! lowest-level temperature and humidity from the surface
-    real, intent(out), dimension(is:ie, js:je) :: lprec, fprec, gust
-    !! `lprec`, `fprec`: liquid and frozen precipitation rate [kg/m2/s]; `gust`: gustiness [m/s]
+    real, intent(out), dimension(is:ie, js:je) :: lprec, fprec
+    !! liquid and frozen precipitation rate [kg/m2/s]
+    real, intent(inout), dimension(is:ie, js:je) :: gust
+    !! gustiness [m/s], from `atmosphere_down`; updated by the physics
 
     if (.not. module_is_initialized) then
       call error_mesg('atmosphere_up', 'atmosphere module has not been initialized.', FATAL)
@@ -458,10 +446,13 @@ contains
     call write_restart_field(rst, 'wg_full', wg_full)
     call close_restart(rst)
 
-    deallocate (dt_psg, dt_ug, dt_vg, dt_tg, dt_tracers)
-
     call spectral_physics_end(Time)
     call spectral_dynamics_end(tracer_attributes, Time)
+
+    deallocate (p_half, p_full, z_half, z_full, wg_full)
+    deallocate (psg, ug, vg, tg, grid_tracers)
+    deallocate (dt_psg, dt_ug, dt_vg, dt_tg, dt_tracers)
+    deallocate (tracer_attributes)
 
     module_is_initialized = .false.
 
