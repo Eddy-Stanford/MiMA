@@ -152,9 +152,6 @@ contains
 
       if (do_molecular_diffusion) then
         call molecular_diff(tt, p_half, diff_m, diff_t)
-      else
-        diff_m = 0.0
-        diff_t = 0.0
       end if
 
 !---------------------------
@@ -262,7 +259,7 @@ contains
     type(time_type), intent(in) :: Time  !! current time
 !-----------------------------------------------------------------------
     integer, dimension(3) :: full = (/1, 2, 3/), half = (/1, 2, 4/)
-    integer :: ierr, unit, io
+    integer :: ierr, io
 
     if (module_is_initialized) &
       call error_mesg &
