@@ -2,7 +2,7 @@
 !>
 !> `interpolator_init` opens the netCDF file `INPUT/file_name` and sets up an
 !> `interpolate_type` for some or all of its fields; `interpolator` then returns a field
-!> interpolated conservatively to the model grid, to the model time and, for 3-D and 4-D
+!> interpolated conservatively to the model grid, to the model time and, for 3-D
 !> output, to the model pressure levels. The file's latitudes and longitudes may be in
 !> degrees or radians, and its levels pressure (`pfull`, `phalf`, in Pa, hPa or mb) or
 !> sigma (`sigma_full`, `sigma_half`). The time units are "days since" or "months since"
@@ -941,7 +941,7 @@ contains
     real :: p_fact(size(interp_data, 1), size(interp_data, 2))
     real :: pclim(size(clim_type%halflevs(:)))
     integer :: istart, iend, stride, jstart, jend
-    logical :: found_field = .false.
+    logical :: found_field
     integer :: modyear, modmonth, modday, modhour, modminute, modsecond
     integer :: climyear, climmonth, climday, climhour, climminute, climsecond
     integer :: year1, month1, day, hour, minute, second
@@ -953,6 +953,8 @@ contains
 
     if (.not. module_is_initialized .or. .not. associated(clim_type%lon)) &
       call mpp_error(FATAL, "interpolator_3D : You must call interpolator_init before calling interpolator")
+
+    found_field = .false.
 
     istart = 1
     if (present(is)) istart = is
@@ -1236,11 +1238,13 @@ contains
     integer :: taum, taup
     real :: hinterp_data(size(interp_data, 1), size(interp_data, 2), size(clim_type%levs(:)))
     integer :: istart, iend, jstart, jend
-    logical :: found_field = .false.
+    logical :: found_field
     integer :: i, itaum, itaup, n
 
     if (.not. module_is_initialized .or. .not. associated(clim_type%lon)) &
       call mpp_error(FATAL, "interpolator_2D : You must call interpolator_init before calling interpolator")
+
+    found_field = .false.
 
     istart = 1
     if (present(is)) istart = is
