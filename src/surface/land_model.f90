@@ -308,10 +308,8 @@ contains
               Land%dt_t_surf(grid%nx, grid%ny))
     Land%dt_t_surf = 0.0
 
-    if (heat_capacity .le. 0.) heat_capacity = heat_capacity_ocean_default
-    if (heat_capacity .le. 0.) &
-      call error_mesg('land_model_init_state', 'heat_capacity must be positive (or <= 0 with a '// &
-                      'positive ocean heat_capacity)', FATAL)
+! the ocean heat_capacity is positive (ocean_model_init stops otherwise)
+    if (heat_capacity <= 0.) heat_capacity = heat_capacity_ocean_default
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=land_model_nml)
     Land%cap = 0.0
     where (Land%mask) Land%cap = heat_capacity
