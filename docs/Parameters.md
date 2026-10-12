@@ -14,7 +14,7 @@ A few rules:
 Contents:
 
 * [General](#general): [`coupler_nml`](#coupler_nml), [`atmos_model_nml`](#atmos_model_nml), [`spec_mpp_nml`](#spec_mpp_nml), [`diag_integral_nml`](#diag_integral_nml)
-* [Dynamics](#dynamics): [`spectral_dynamics_nml`](#spectral_dynamics_nml), [`vert_coordinate_nml`](#vert_coordinate_nml), [`spectral_init_cond_nml`](#spectral_init_cond_nml), [`topog_regularization_nml`](#topog_regularization_nml), [`transforms_nml`](#transforms_nml)
+* [Dynamics](#dynamics): [`spectral_dynamics_nml`](#spectral_dynamics_nml), [`vert_coordinate_nml`](#vert_coordinate_nml), [`spectral_init_cond_nml`](#spectral_init_cond_nml), [`initial_noise_nml`](#initial_noise_nml), [`topog_regularization_nml`](#topog_regularization_nml), [`transforms_nml`](#transforms_nml)
 * [Physics driver](#physics-driver): [`physics_driver_nml`](#physics_driver_nml)
 * [Radiation](#radiation): [`radiation_nml`](#radiation_nml), [`rrtm_radiation_nml`](#rrtm_radiation_nml), [`astro_nml`](#astro_nml), [`gray_radiation_nml`](#gray_radiation_nml)
 * [Surface](#surface): [`flux_exchange_nml`](#flux_exchange_nml), [`surface_albedo_nml`](#surface_albedo_nml), [`ocean_model_nml`](#ocean_model_nml), [`qflux_nml`](#qflux_nml), [`land_model_nml`](#land_model_nml), [`surface_flux_nml`](#surface_flux_nml), [`monin_obukhov_nml`](#monin_obukhov_nml)
@@ -145,12 +145,8 @@ Declared in [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/s
 | `zmv_sponge_coeff` | real | `0.` | `del^2` sponge at the top level for the zonal-mean meridional wind (0: off) |
 | `print_interval` | integer, dimension(2) | `(/1, 0/)` | interval (days, seconds) for printing global integrals of the dynamics |
 | `num_steps` | integer | `1` | number of dynamics substeps per time step |
-| `noise_spectral_cutoff_minimum` | integer | `1` | lowest spectral index that receives noise |
-| `noise_spectral_cutoff_maximum` | integer | `20` | highest spectral index that receives noise |
 | `water_correction_limit` | real | `200.e2` | [Pa] correct water only below this pressure; correcting in the stratosphere introduces an artificial sink there |
 | `specify_initial_conditions` | logical | `.false.` | read the initial state from `INPUT/initial_conditions.nc` on a cold start (see [specified initial conditions](Configurations.md#specified-initial-conditions)) |
-| `add_noise` | real | `-1.` | if > 0, amplitude [K] of random noise added to the spectral temperature at start-up (see [noise](Configurations.md#adding-noise-to-the-initial-conditions)) |
-| `add_noise_seed` | integer | `-1` | random seed for `add_noise`; set >= 0 for reproducible noise |
 
 <!-- mimadoc:end -->
 
@@ -177,6 +173,45 @@ Declared in [`spectral_init_cond_mod`](https://eddy-stanford.github.io/MiMA/api/
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `initial_temperature` | real | `264.` | [K] temperature of the isothermal atmosphere on a cold start |
+
+<!-- mimadoc:end -->
+
+
+### `initial_noise_nml`
+
+A random perturbation of the temperature (and optionally the vorticity) added when the model starts, to break the symmetry of an idealized state or to make ensemble members: white, spectral or smooth (Perlin) noise in a band of total wavenumbers, rescaled to a grid-point rms per level, and the same for any number of processes. Off by default (`noise_type = 'none'`). See [Adding noise to the initial conditions](Configurations.md#adding-noise-to-the-initial-conditions).
+
+<!-- mimadoc:namelist initial_noise_nml -->
+
+Declared in [`initial_noise_mod`](https://eddy-stanford.github.io/MiMA/api/initial_noise_mod/) (`src/atmos_spectral/init/initial_noise.f90`).
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `noise_type` | character(len=16) | `'none'` | `'none'`: no perturbation; `'white'`: every spherical harmonic in the band has the same variance; `'spectral'`: variance per total wavenumber set by `spectral_shape`; `'smooth_grid'`: smooth gradient (Perlin) noise on the sphere, band-limited |
+| `amplitude_t` | real | `0.5` | [K] global grid-point rms of the temperature perturbation on each level (times the taper of `p_top`, `p_bottom` and `taper_depth`) |
+| `perturb_vorticity` | logical | `.false.` | also perturb the vorticity (the winds stay non-divergent) |
+| `amplitude_vor` | real | `1.e-6` | [1/s] global grid-point rms of the vorticity perturbation on each level |
+| `seed` | integer | `1` | seed of the random numbers (>= 0); with `ensemble_member` it fixes the realisation |
+| `ensemble_member` | integer | `0` | ensemble member (>= 0): each member gets an independent perturbation |
+| `l_min` | integer | `1` | lowest total wavenumber perturbed (>= 1: the global mean is never perturbed) |
+| `l_max` | integer | `21` | highest total wavenumber perturbed; the last total wavenumber of the truncation is never perturbed |
+| `m_min` | integer | `1` | lowest zonal wavenumber perturbed; 1 keeps the zonal mean, 0 also perturbs it |
+| `spectral_shape` | character(len=16) | `'power'` | `noise_type = 'spectral'`: the variance per total wavenumber L, `'power'` (`L**(-spectral_slope)`) or `'gaussian'` (centred on `l_peak`, width `l_width`) |
+| `spectral_slope` | real | `3.` | `spectral_shape = 'power'`: exponent p of the variance per total wavenumber `L**(-p)`; 0 is a flat spectrum in L, 3 is like the enstrophy-cascade range |
+| `l_peak` | real | `10.` | `spectral_shape = 'gaussian'`: total wavenumber of the peak of the variance |
+| `l_width` | real | `4.` | `spectral_shape = 'gaussian'`: width (standard deviation) of the peak, in total wavenumber |
+| `base_wavenumber` | real | `4.` | `'smooth_grid'`: approximate total wavenumber of the first (largest) octave of the gradient noise; each further octave doubles it |
+| `octaves` | integer | `4` | `'smooth_grid'`: number of octaves of the gradient noise |
+| `gain` | real | `0.5` | `'smooth_grid'`: amplitude ratio of successive octaves (between 0 and 1) |
+| `lon0` | real | `0.` | [deg] `'smooth_grid'`: longitude of the centre of the localization |
+| `lat0` | real | `0.` | [deg] `'smooth_grid'`: latitude of the centre of the localization |
+| `radius` | real | `0.` | [deg] `'smooth_grid'`: e-folding great-circle distance of the Gaussian localization `exp(-d**2/(2 radius**2))` around `lon0`, `lat0`; 0: no localization |
+| `vertical_structure` | character(len=16) | `'correlated'` | `'independent'`: an independent pattern on each level; `'correlated'`: correlation `exp(-\|ln p_k - ln p_j\|/vertical_scale)` between levels; `'column'`: one pattern on every level |
+| `vertical_scale` | real | `1.` | [scale heights] `'correlated'`: correlation length in ln p |
+| `p_top` | real | `0.` | [Pa] top of the perturbed layer (reference pressure of the full levels) |
+| `p_bottom` | real | `1.e5` | [Pa] bottom of the perturbed layer (reference pressure of the full levels) |
+| `taper_depth` | real | `0.` | [Pa] depth of the `sin**2` ramp of the amplitude at the top and the bottom of the perturbed layer; 0: the amplitude is 1 inside the layer and 0 outside |
+| `apply` | character(len=16) | `'cold_start'` | when the perturbation is added: `'cold_start'`: only on a cold start; `'once'`: also on a restart whose restart file does not record an earlier perturbation (to branch an ensemble from a spun-up state); `'every_start'`: at every start, restarts included |
 
 <!-- mimadoc:end -->
 

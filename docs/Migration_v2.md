@@ -88,6 +88,7 @@ v2.0 reads namelists with FMS's `check_nml_error`:
 | `&physics_driver_nml do_rrtm_radiation = .true.` (the v1 default) | `&radiation_nml radiation_scheme = 'rrtm' /` (the default) |
 | `&physics_driver_nml do_grey_radiation = .true., do_rrtm_radiation = .false.` | `&radiation_nml radiation_scheme = 'gray' /` |
 | both `.false.` | `&radiation_nml radiation_scheme = 'none' /` (no radiative heating, zero radiative surface fluxes) |
+| `&spectral_dynamics_nml add_noise = A, add_noise_seed = s, noise_spectral_cutoff_minimum/maximum` | `&initial_noise_nml noise_type = 'white', amplitude_t = 11.5*A, seed = s /` for the old default cutoffs (1 to 20): `amplitude_t` is the grid-point rms [K] per level, while `add_noise` was the half-width of a uniform draw per coefficient (rms about `A*sqrt(400/3)`). The cutoffs, which applied to m and to n separately, become a band in total wavenumber `l_min`/`l_max` plus `m_min` (e.g. `l_min = 2, l_max = 40` spans the total wavenumbers of the old 20 x 20 box; a box in m and n has no exact equivalent). v1's re-perturbation at every restart is `apply = 'every_start'` (the new default `'cold_start'` perturbs only cold starts). The realisation differs from v1 in any case. Setting an old key stops the model with this mapping. |
 | `&grey_radiation_nml` | `&gray_radiation_nml` (same variables) |
 | `&fms_io_nml threading_write = 'single', fileset_write = 'single'` | removed. Restarts **and** diagnostics are single files by default; see `&spec_mpp_nml io_layout` |
 | (nothing) | `&sat_vapor_pres_nml do_simple = .true. /` is **required**. Without it FMS uses its Goff-Gratch table and MiMA stops at start-up. |
@@ -115,6 +116,7 @@ Delete these from your `input.nml`. Variables marked with * were set in the v1 `
 | [`cg_drag_nml`](Parameters.md#cg_drag_nml) | `weighttop`*, `weightminus1`*, `weightminus2`*, `Bt_aug`, `Bt_eq_width`, `calculate_ked`, `num_diag_pts_ij`, `num_diag_pts_latlon`, `i_coords_gl`, `j_coords_gl`, `lat_coords_gl`, `lon_coords_gl` | read but never used |
 | [`coupler_nml`](Parameters.md#coupler_nml) | `do_flux` | not used |
 | [`gray_radiation_nml`](Parameters.md#gray_radiation_nml) | `wave_amp`, `wave_lon`, `wave_lat`, `wave_del_lon`, `wave_del_lat`, `wave_period`, `wave_env`, `wave_source` | the travelling-wave forcing they configured was disabled in the code |
+| [`spectral_dynamics_nml`](Parameters.md#spectral_dynamics_nml) | `add_noise`, `add_noise_seed`, `noise_spectral_cutoff_minimum`, `noise_spectral_cutoff_maximum` | replaced by [`initial_noise_nml`](Parameters.md#initial_noise_nml); see [Replaced settings](#replaced-settings) |
 | [`monin_obukhov_nml`](Parameters.md#monin_obukhov_nml) | `relax_time`, `stable_option`, `zeta_trans` | `relax_time`: any value other than 0 was a fatal error; `stable_option`, `zeta_trans`: used only by `stable_mix`, which MiMA never called |
 | [`rrtm_radiation_nml`](Parameters.md#rrtm_radiation_nml) | `do_read_radiation`, `radiation_file`, `do_read_sw_flux`, `sw_flux_file`, `do_read_lw_flux`, `lw_flux_file`, `do_read_h2o`, `h2o_file`, `do_fixed_water`, `fixed_water`, `fixed_water_pres`, `fixed_water_lat`, `rad_missing_value` | file-driven radiation and water vapour removed (reading ozone, `do_read_ozone`, stays) |
 | `simple_surface_nml` (v1; the group no longer exists) | `do_oflx`, `max_of`, `lonmax_of`, `latmax_of`, `latwidth_of`, `lonwidth_of`, `do_oflxmerid`, `maxofmerid`, `latmaxofmerid` | superseded by [`qflux_nml`](Parameters.md#qflux_nml); the rest of the group is converted as in the [mapping table](#old-to-new-namelist-mapping) |
@@ -149,6 +151,7 @@ The FMS groups that MiMA's input files use, `&fms_nml`, `&topography_nml` and `&
 | Group | Variable | Default | Meaning |
 |---|---|---|---|
 | [`radiation_nml`](Parameters.md#radiation_nml) (new) | `radiation_scheme` | `'rrtm'` | `'rrtm'`, `'gray'` or `'none'` |
+| [`initial_noise_nml`](Parameters.md#initial_noise_nml) (new) | `noise_type`, `amplitude_t`, `perturb_vorticity`, `amplitude_vor`, `seed`, `ensemble_member`, `l_min`, `l_max`, `m_min`, `spectral_shape`, `spectral_slope`, `l_peak`, `l_width`, `base_wavenumber`, `octaves`, `gain`, `lon0`, `lat0`, `radius`, `vertical_structure`, `vertical_scale`, `p_top`, `p_bottom`, `taper_depth`, `apply` | `noise_type = 'none'` (off) | random perturbation of the initial temperature (and vorticity); see [Adding noise to the initial conditions](Configurations.md#adding-noise-to-the-initial-conditions) |
 | [`physics_driver_nml`](Parameters.md#physics_driver_nml) | `do_held_suarez` | `.false.` | add the Held-Suarez (1994) forcing |
 | | `do_boundary_layer` | `.true.` | boundary-layer turbulence, vertical diffusion and coupling to the surface fluxes. With `.false.` the surface state is left unchanged. |
 | | `do_moist_physics` | `.true.` | convection and large-scale condensation |
@@ -401,7 +404,8 @@ Fortran silently ignores a namelist group that the program does not read, and FM
 
 The other fatal errors each have a message that says what to change:
 
-* an unknown option string (`ocean_model`, `sst_init`, `land_model`, `land_mask`, `t_init`, `rough_moist_profile`, `hydrology`, `qflux_source`, `precip_phase`);
+* `add_noise`, `add_noise_seed`, `noise_spectral_cutoff_minimum` or `noise_spectral_cutoff_maximum` in `&spectral_dynamics_nml` (replaced by [`initial_noise_nml`](Parameters.md#initial_noise_nml));
+* an unknown option string (`ocean_model`, `sst_init`, `land_model`, `land_mask`, `t_init`, `rough_moist_profile`, `hydrology`, `qflux_source`, `precip_phase`, `noise_type`);
 * `sst_init = 'profile'` with `Tm <= 0` or `Tm >= 399` (the magic v1 values);
 * `ocean_model = 'prescribed'` or `sst_init = 'file'` without `sst_file`; `land_model = 'prescribed'` or `t_init = 'file'` without `t_surf_file`; `qflux_source = 'file'` without `qflux_file`; a missing variable in a surface input file;
 * `hydrology = 'bucket'` with `rough_moist_factor /= 1` or `rough_moist_profile /= 'uniform'` (the bucket would be throttled twice); `do_snow` without `hydrology = 'bucket'` or with `land_model /= 'simple'`; and out-of-range bucket and snow parameters;
@@ -524,7 +528,8 @@ Restart files are still written to `RESTART/` and read from `INPUT/`, and the re
 | `physics_driver.res.nc` | now only `vers`, `diff_t`, `diff_m`. Dropped: `diff_cu_mo`, `pbltop`, `convect`, `doing_strat`, `doing_edt`, `doing_entrain`, `radturbten`, `lw_tendency`. |
 | `spectral_physics.res.nc` | no longer written or read (it held state for the removed moist-after-dynamics path) |
 | `atmos_coupled.res.nc` | the unused grid bounds `glon_bnd`, `glat_bnd` are no longer written (BUG-21). `dt` is still written but no longer read: `lprec` and `fprec` are rates and are not rescaled when `dt_atmos` changes (BUG-67). |
-| `atmosphere.res.nc`, `spectral_dynamics.res.nc`, `mg_drag.res.nc`, `coupler.res` | unchanged |
+| `spectral_dynamics.res.nc` | unchanged, except for a new scalar `initial_noise_applied` (1), written only once [initial noise](Configurations.md#adding-noise-to-the-initial-conditions) has been added; restarts of runs without noise are unchanged |
+| `atmosphere.res.nc`, `mg_drag.res.nc`, `coupler.res` | unchanged |
 | `simple_surface.res.nc` | **no longer read or written.** Replaced by `ocean_model.res.nc` (`t_surf` on the ocean points, 0 elsewhere) and `land_model.res.nc` (`t_surf`, and `water` and `snow` when the bucket or snow is active). Both are always written, also with `land_mask = 'none'`. `flux_u` and `flux_v` are no longer saved: they are recomputed before use. |
 
 Other changes:
