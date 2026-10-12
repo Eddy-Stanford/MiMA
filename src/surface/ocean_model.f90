@@ -237,7 +237,7 @@ contains
 ! These fields are sent by update_ocean_model_fast, which runs only with a coupled surface
     if (surface_is_coupled()) then
       id_qflux = register_diag_field(mod_name, 'qflux', grid%axes, Time, &
-                                     'prescribed ocean heat divergence', 'W/m2')
+                                     'prescribed ocean heat flux convergence (Q-flux)', 'W/m2')
       id_heat = register_diag_field(mod_name, 'heat_capacity_ocean', grid%axes, Time, &
                                     'ocean mixed layer heat capacity (0 over land)', 'J/m2/K')
     end if
