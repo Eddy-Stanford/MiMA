@@ -502,7 +502,7 @@ contains
 ! Local variables
     integer k, j, i, ij, j1, i1, ij1, kend, dyofyr, seconds, days
     integer(kind=8) :: t_now
-    integer :: dloc
+    integer :: dloc, calday
     real(kind=rb) :: tsec
     integer si, sj, sk, locmin(3)
     real(kind=rb), dimension(size(q, 1), size(q, 2), size(q, 3)) :: o3f
@@ -564,9 +564,9 @@ contains
 ! compute zenith angle
 !  this is also an output, so need to compute even if we read radiation from file
     if (do_rad_time_avg) then
-      call compute_zenith(Time_loc, equinox_day, dt_rad_avg, lat, lon, coszen, dyofyr)
+      call compute_zenith(Time_loc, equinox_day, dt_rad_avg, lat, lon, coszen, dyofyr, calday)
     else
-      call compute_zenith(Time_loc, equinox_day, 0, lat, lon, coszen, dyofyr)
+      call compute_zenith(Time_loc, equinox_day, 0, lat, lon, coszen, dyofyr, calday)
     end if
 !---------------------------------------------------------------------------------------------
 ! we know now that we want to run radiation
@@ -577,7 +577,13 @@ contains
     if (si*sj /= ncols_rrt*lonstep) &
       call error_mesg('run_rrtm', 'the physics window must be the whole processor domain', FATAL)
 
-    if (.not. use_dyofyr) dyofyr = 0 !use solrad instead of day of year
+    ! RRTMG computes the Earth-Sun distance from the calendar day of the year (1 on
+    ! 1 January); 0 makes it use solrad instead
+    if (use_dyofyr) then
+      dyofyr = calday
+    else
+      dyofyr = 0
+    end if
 
     !get ozone
     if (do_read_ozone) then

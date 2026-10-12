@@ -25,8 +25,8 @@ module rrtm_astro
 !                                namelist values
 !---------------------------------------------------------------------------------------------------------------
   real(kind=rb)      :: obliq = 23.439             !! [deg] obliquity
-  logical            :: use_dyofyr = .false.            !! let RRTM compute the Earth-Sun distance from the day of the year
-                                                        !! (assumes 365 days per year)
+  logical            :: use_dyofyr = .false.            !! let RRTM compute the Earth-Sun distance from the calendar day
+                                                        !! of the year (needs a 365-day calendar year)
   real(kind=rb)      :: solr_cnst = 1370.              !! [W/m2] solar constant
   real(kind=rb)      :: solrad = 1.0                      !! Earth-Sun distance factor if `use_dyofyr = .false.`
   integer(kind=im)   :: solday = 0                        !! if > 0, perpetual run at this day of the year
@@ -54,7 +54,7 @@ contains
   !> If `0 < dt < 86400` the value is averaged over the interval from `Time` to `Time + dt`
   !> (zero at night); if `dt >= 86400` it is the daily mean; otherwise it is the
   !> instantaneous value. Parts of this are taken from GFDL's `astronomy.f90`.
-  subroutine compute_zenith(Time, equinox_day, dt, lat, lon, cosz, dyofyr)
+  subroutine compute_zenith(Time, equinox_day, dt, lat, lon, cosz, dyofyr, calday)
 !
 ! Modules
     use time_manager_mod, only: time_type, get_time, length_of_year
@@ -70,6 +70,8 @@ contains
     real(kind=rb), dimension(:, :), intent(out):: cosz        !! cosine of the zenith angle
     integer(kind=im), intent(out):: dyofyr      !! day of the year, counted from the March equinox, at which
                                                 !! `cosz` is computed
+    integer(kind=im), intent(out), optional :: calday  !! day of the year (1 on 1 January, for a
+                                                       !! 365-day year), for the Earth-Sun distance
 ! Locals
     real(kind=rb), dimension(size(lat, 1), size(lat, 2)) :: h, cos_h, &
                                                             lat_h
@@ -117,6 +119,7 @@ contains
     where (time_pi >= PI) time_pi = time_pi - twopi
     where (time_pi < -PI) time_pi = time_pi + twopi
     !time_pi now contains local time at each grid point
+    if (present(calday)) calday = modulo(days, daysperyear) + 1
     !get day of the year relative to March equinox. We set equinox at (equinox_day,equinox_day+0.5)*daysperyear
     !note that GFDL computes relative to September equinox
     days = days - int(equinox_day*daysperyear)
