@@ -56,5 +56,4 @@
 #
 #   packing  = 1  double precision
 #            = 2  float
-#            = 4  packed 16-bit integers
-#            = 8  packed 1-byte (not tested?)
+#            (FMS stops on any other value)

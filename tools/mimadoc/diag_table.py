@@ -99,9 +99,10 @@ def validate(path, rows, nml_values=None, defaults=None, out=None):
         if redl not in REDUCTIONS and not re.match(r"^(pow|diurnal)\d+$", redl):
             bad += 1
             report(ln, "%s/%s: unknown reduction %s" % (mod, fld, red))
-        if not re.match(r"^[1-8]$", pack):
+        if pack not in ("1", "2"):
+            # diag_table accepts 1-8, but FMS's output code stops on anything but 1 or 2
             bad += 1
-            report(ln, "%s/%s: packing must be 1 (double), 2 (float), 4 or 8" % (mod, fld))
+            report(ln, "%s/%s: packing must be 1 (double) or 2 (float)" % (mod, fld))
         if region.lower() != "none" and len(region.split()) != 6:
             bad += 1
             report(ln, "%s/%s: region must be none or 6 numbers" % (mod, fld))
