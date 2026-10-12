@@ -17,25 +17,18 @@ module moist_conv_mod
 
 !-----------------------------------------------------------------------
 
-  use mpp_mod, only: mpp_pe, &
-                     mpp_root_pe, &
-                     stdlog
   use time_manager_mod, only: time_type
   use Diag_Manager_Mod, only: register_diag_field, send_data
   use sat_vapor_pres_mod, only: EsComp, DEsComp
   use fms_mod, only: error_mesg, input_nml_file, &
                      check_nml_error, &
-                     FATAL, WARNING, NOTE, mpp_pe, mpp_root_pe, &
+                     FATAL, WARNING, mpp_pe, mpp_root_pe, &
                      write_version_number, stdlog
   use constants_mod, only: HLv, HLs, cp_air, grav, rdgas, rvgas
 
-  use fms_mod, only: write_version_number, ERROR_MESG, FATAL
   use field_manager_mod, only: MODEL_ATMOS
   use tracer_manager_mod, only: get_number_tracers, &
-                                get_tracer_names, &
-                                get_tracer_indices, &
-                                query_method, &
-                                NO_TRACER
+                                get_tracer_names
 
   implicit none
   private
@@ -64,13 +57,10 @@ module moist_conv_mod
 !---------- initialize constants used by this module -------------------
 
   real, parameter :: d622 = rdgas/rvgas
-  real, parameter :: d378 = 1.0 - d622
   real, parameter :: grav_inv = 1.0/grav
   real, parameter :: rocp = rdgas/cp_air
 
   real :: missing_value = -999.
-!integer               :: num_tracers
-!nteger, allocatable, dimension(:) :: id_tracer_conv, id_tracer_conv_col
 
   integer :: id_tdt_conv, id_qdt_conv, id_prec_conv, id_snow_conv, &
              id_q_conv_col, id_t_conv_col
@@ -78,7 +68,6 @@ module moist_conv_mod
   character(len=3) :: mod_name = 'mca'
   logical :: used
 
-  logical :: do_mca_tracer = .false.
   integer :: num_mca_tracers = 0
   integer               :: num_tracers
   integer, allocatable, dimension(:) :: id_tracer_conv, id_tracer_conv_col
@@ -123,11 +112,7 @@ contains
 
 !-----------------------------------------------------------------------
 !----------------------PRIVATE (LOCAL) ARRAYS---------------------------
-! logical, dimension(size(Tin,1),size(Tin,2),size(Tin,3)) :: DO_ADJUST
-!    real, dimension(size(Tin,1),size(Tin,2),size(Tin,3)) ::  &
-!-----------------------------------------------------------------------
-!----------------------PRIVATE (LOCAL) ARRAYS---------------------------
-    integer, dimension(size(Tin, 1), size(Tin, 2)) :: ISMVD, ISMVF
+    integer, dimension(size(Tin, 1), size(Tin, 2)) :: ISMVF
     integer, dimension(size(Tin, 1), size(Tin, 2), size(Tin, 3)) :: IVF
 
     real, dimension(size(Tin, 1), size(Tin, 2), size(Tin, 3)) :: &
@@ -147,9 +132,8 @@ contains
     integer  :: tr
 !-----------------------------------------------------------------------
 
-    if (.not. module_is_initialized) call ERROR_MESG('MCA', &
+    if (.not. module_is_initialized) call error_mesg('MCA', &
                                                      'moist_conv_init has not been called', FATAL)
-    !moist_conv_init ( )
 
     KX = size(Tin, 3)
 
@@ -405,12 +389,6 @@ contains
         ALTOL = 2.0*ALTOL
         if (ALTOL <= TOLmax) GO TO 1450
 
-!     WRITE (*,9903)
-!     WRITE (*,9904) (k,Temp(i,j,k),Qmix(i,j,k),Qsat(i,j,k),  &
-!                       Qdif(i,j,k),ALRM(i,j,k),k=1,MXLEV1)
-!     WRITE (*,9904) (k,Temp(i,j,k),Qmix(i,j,k),Qsat(i,j,k),  &
-!                       Qdif(i,j,k)            ,k=MXLEV,MXLEV)
-
         call error_mesg('moist_conv', 'maximum iterations reached', WARNING)
 !-----------------------------------------------------------------------
       end do OUTER_LOOP
@@ -439,14 +417,6 @@ contains
       Snow(:, :) = Rain(:, :)
       Rain(:, :) = 0.0
     end where
-!-----------------------------------------------------------------------
-!-----------------   PRINT FORMATS   -----------------------------------
-
-9902 format(' *** ALTOL DOUBLED IN CONVAD AT I=', &
-           I5, ' ,ALTOL=', F10.4)
-9903 format(/, ' *** DIVERGENCE IN MOIST CONVECTIVE ADJUSTMENT ', /, &
-            4x, 'K', 14x, 'T', 14x, 'R', 13x, 'Qsat', 14x, 'Qdif', 12x, 'ALRM',/)
-9904 format(I5, 5e15.7)
 !-----------------------------------------------------------------------
 
 !------- update input values and compute tendency -------
@@ -535,7 +505,7 @@ contains
 
 !-----------------------------------------------------------------------
 
-    integer :: unit, io, ierr
+    integer :: io, ierr
     integer :: nn, tr
     character(len=128) :: diagname, diaglname, tendunits, name, units
 
@@ -589,12 +559,8 @@ contains
 !----------------------------------------------------------------------
 !    determine how many tracers are to be transported by moist_conv_mod.
 !----------------------------------------------------------------------
-    num_mca_tracers = count(tracers_in_mca)
-    if (num_mca_tracers > 0) then
-      do_mca_tracer = .true.
-    else
-      do_mca_tracer = .false.
-    end if
+    num_mca_tracers = 0
+    if (present(tracers_in_mca)) num_mca_tracers = count(tracers_in_mca)
 
 !---------------------------------------------------------------------
 !    allocate the arrays to hold the diagnostics for the moist_conv
@@ -604,6 +570,7 @@ contains
     allocate (id_tracer_conv_col(num_mca_tracers)); id_tracer_conv_col = 0
     nn = 1
     do tr = 1, num_tracers
+      if (num_mca_tracers == 0) exit
       if (tracers_in_mca(tr)) then
         call get_tracer_names(MODEL_ATMOS, tr, name=name, units=units)
 
