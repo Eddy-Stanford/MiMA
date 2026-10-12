@@ -21,7 +21,7 @@ module transforms_mod
   use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, stdlog, &
                      input_nml_file, check_nml_error
 
-  use mpp_mod, only: mpp_error, mpp_sync, mpp_sync_self, mpp_transmit
+  use mpp_mod, only: mpp_error, mpp_sync_self, mpp_transmit
 
   use mpp_domains_mod, only: mpp_get_compute_domain, mpp_get_compute_domains, mpp_get_domain_components, mpp_get_layout, &
                              mpp_get_pelist, domain1D, mpp_global_field
@@ -252,7 +252,7 @@ contains
     if (.not. south_to_north_local) then
       lat_boundaries_global(:) = -lat_boundaries_global(:)
     end if
-    del_lon = 2*pi/num_lon
+    del_lon = 2*pi/(num_lon*fourier_inc)   ! the grid spans 360/fourier_inc degrees
     do i = 1, num_lon + 1
       lon_boundaries_global(i) = longitude_origin_local + (i - 1.5)*del_lon
     end do
@@ -791,7 +791,8 @@ contains
         end do
       end do
     end do
-    call mpp_sync()
+    ! wait for this PE's sends: their buffers are freed on return (the receives above block)
+    call mpp_sync_self()
     return
   end subroutine reverse_transpose_fourier
 
@@ -840,7 +841,8 @@ contains
       call mpp_transmit(put_data=put_data(1), plen=2*nput, to_pe=pp, &
                         get_data=fourier_s_real(2*nget*im + 1), glen=2*nget, from_pe=pm)
     end do
-    call mpp_sync()
+    ! wait for the last send from put_data, which is freed on return
+    call mpp_sync_self()
     return
   end subroutine transpose_fourier
 
