@@ -24,7 +24,8 @@ module atmos_model_mod
   use fms_mod, only: clock_flag_default
   use fms_mod, only: input_nml_file, check_nml_error
   use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write
-  use restart_file_mod, only: close_restart, read_restart_field, write_restart_field
+  use restart_file_mod, only: close_restart, read_restart_field, write_restart_field, &
+                              restart_field_exists
   use time_manager_mod, only: time_type, operator(+), get_time
   use field_manager_mod, only: MODEL_ATMOS
   use tracer_manager_mod, only: register_tracers
@@ -121,7 +122,8 @@ module atmos_model_mod
 
 !-----------------------------------------------------------------------
   logical           :: restart_tbot_qbot = .false.
-  !! also store the lowest-level temperature and humidity (`t_bot`, `q_bot`) in `atmos_coupled.res.nc`
+  !! also store the lowest-level temperature and humidity (`t_bot`, `q_bot`) in `atmos_coupled.res.nc`,
+  !! and read them from it if they are there
   namelist /atmos_model_nml/ restart_tbot_qbot
 
 contains
@@ -317,8 +319,14 @@ contains
       call read_restart_field(rst, 'gust', Atmos%gust)
 
       if (restart_tbot_qbot) then
-        call read_restart_field(rst, 't_bot', Atmos%t_bot)
-        call read_restart_field(rst, 'q_bot', Atmos%q_bot)
+        if (restart_field_exists(rst, 't_bot') .and. restart_field_exists(rst, 'q_bot')) then
+          call read_restart_field(rst, 't_bot', Atmos%t_bot)
+          call read_restart_field(rst, 'q_bot', Atmos%q_bot)
+        else
+          call error_mesg('atmos_model_init', 'restart_tbot_qbot: INPUT/atmos_coupled.res.nc has '// &
+                          'no t_bot and q_bot (it was written with restart_tbot_qbot = .false.); '// &
+                          'using the lowest level of the atmosphere restart', NOTE)
+        end if
       end if
       call close_restart(rst)
     else
