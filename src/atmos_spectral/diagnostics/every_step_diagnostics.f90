@@ -4,12 +4,15 @@
 !> Besides the state (`ps_every`, `u_every`, ...) these include fluxes weighted by `ps/p00`,
 !> static energies, the tendencies from the hyperdiffusion and the energy and water
 !> corrections, the global advection tendencies of the tracers, eddy fluxes and two residual
-!> mean streamfunctions (`psi_star`, `psi_dwc`). The amplitude of the 2*dt computational
+!> mean streamfunctions (`psi_star`, `psi_dwc`; zonal means, independent of the
+!> decomposition). The amplitude of the 2*dt computational
 !> mode (the mean of `(-1)**n` times the field over all steps n) is sent as a static field
 !> (`2dt_*`) at the end of the run.
 module every_step_diagnostics_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number
+  use fms_mod, only: error_mesg, FATAL
+
+  use mpp_mod, only: mpp_sum
 
   use time_manager_mod, only: time_type
 
@@ -24,8 +27,7 @@ module every_step_diagnostics_mod
   use transforms_mod, only: get_deg_lon, get_deg_lat, get_grid_domain
   use spec_mpp_mod, only: grid_domain
 
-  use constants_mod, only: hlv, cp_air, grav, kappa, rvgas, rdgas, &
-                           RADIUS, RADIAN, OMEGA !mj
+  use constants_mod, only: hlv, cp_air, grav, kappa, rvgas, rdgas, radius, radian, omega
 
 !===============================================================================================
   implicit none
@@ -41,21 +43,16 @@ module every_step_diagnostics_mod
 
 !===============================================================================================
 
-  character(len=128), parameter :: version = '$Id: every_step_diagnostics.f90,v 11.0.2.1 2005/05/13 18:16:38 pjp Exp $'
-  character(len=128), parameter :: tagname = '$Name:  $'
-
   real, parameter :: p00 = 1.e5, virtual_factor = (rvgas/rdgas) - 1.0
 
   integer :: id_ps, id_u, id_v, id_t, num_levels, num_tracers
 
-  integer :: id_wf, id_z, id_drystaten, id_moiststaten, id_uv, id_vq, id_vdse, id_pt, &
+  integer :: id_drystaten, id_moiststaten, id_uv, id_vq, id_vdse, &
              id_vp, id_wu, id_wv, id_wq, id_wdse, id_wup, id_wvp, id_wqp, id_wdsep, id_wp, &
              id_wsubt, id_wsubtv, id_vqint, id_udt_damp, id_vdt_damp, id_tdt_damp, &
              id_entrop_dampuv, id_entrop_dampt, id_tdt_dampuv, id_tdt_tempcor, id_qdt_watercor, &
              id_entrop_tempcor, id_kegen, id_kegenq, id_kegenqtinv
-!mj
-  integer :: id_upvp, id_upwp, id_vpTp, id_psi_star, id_psi_dwc
-!mj
+  integer :: id_upvp, id_upwp, id_vptp, id_psi_star, id_psi_dwc
 
   integer, allocatable, dimension(:) :: id_tr, id_dt_hadv, id_dt_vadv
 
@@ -69,9 +66,7 @@ module every_step_diagnostics_mod
   real, allocatable, dimension(:, :, :)   :: two_dt_u, two_dt_v, two_dt_t
   real, allocatable, dimension(:, :, :, :) :: two_dt_tr
 
-!mj moved from every_step_diagnostics_init for use in every_step_diagnostics as well
-  real, allocatable, dimension(:) :: lon, lat
-!jm
+  real, allocatable, dimension(:) :: lon, lat   ! all longitudes and latitudes [deg]
 
   integer :: is, ie, js, je
   ! tracer index of specific humidity. Initialized to NO_TRACER, then set in subroutine every_step_diagnostics_init.
@@ -95,7 +90,7 @@ contains
     real, intent(in) :: reference_sea_level_press  !! surface pressure of the `pfull_every` axis values [Pa]
 
     integer, dimension(2) :: axes_2d
-    integer, dimension(2) :: axes_zm !mj
+    integer, dimension(2) :: axes_zm
     integer, dimension(3) :: axes_3d
     integer :: id_lon, id_lat, id_pfull, ntr
     real, dimension(2) :: vrange, trange
@@ -104,12 +99,9 @@ contains
     real, dimension(num_levels_in)   :: p_full, ln_p_full
     real, dimension(num_levels_in + 1) :: p_half, ln_p_half
 
-    call write_version_number(version, tagname)
-!mj
     allocate (lon(lon_max), lat(lat_max))
     call get_deg_lon(lon)
     call get_deg_lat(lat)
-!jm
     id_lon = diag_axis_init('lon_every', lon, 'degrees_E', 'x', 'longitude', set_name=mod_name, Domain2=grid_domain)
     id_lat = diag_axis_init('lat_every', lat, 'degrees_N', 'y', 'latitude', set_name=mod_name, Domain2=grid_domain)
     call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, reference_sea_level_press)
@@ -120,7 +112,7 @@ contains
     trange = (/100., 400./)
     axes_2d = (/id_lon, id_lat/)
     axes_3d = (/id_lon, id_lat, id_pfull/)
-    axes_zm = (/id_lat, id_pfull/) !mj
+    axes_zm = (/id_lat, id_pfull/)
 
     id_ps = register_diag_field(mod_name, 'ps_every', axes_2d, Time, 'surface pressure', 'Pa')
     id_u = register_diag_field(mod_name, 'u_every', axes_3d, Time, 'zonal wind component', 'm/s', range=vrange)
@@ -128,7 +120,6 @@ contains
     id_t = register_diag_field(mod_name, 't_every', axes_3d, Time, 'temperature', 'K', range=trange)
 
     id_vp = register_diag_field(mod_name, 'vp', axes_3d, time, 'meridional wind, weighted by ps/p00', 'm/s', range=vrange)
-!id_pt   = register_diag_field(mod_name, 'pottemp',axes_3d, time, 'potential temperature',    'deg_k', range=trange)
     id_uv = register_diag_field(mod_name, 'uv', axes_3d, time, &
                                 'zonal wind times meridional wind, weighted by ps/p00', 'm2/s2')
     id_vq = register_diag_field(mod_name, 'vq', axes_3d, time, &
@@ -168,32 +159,30 @@ contains
     id_tdt_dampuv = register_diag_field(mod_name, 'tdt_dampuv', &
                                         axes_3d, time, 'Temp tend (not applied) due to diff of winds', 'K/s')
     id_tdt_tempcor = register_diag_field(mod_name, 'tdt_tempcor', &
-                                         axes_3d, time, 'Temp tend due to dynamics temp correction', 'K/s')
+                                         axes_3d, time, 'Temp tend due to dynamics energy correction', 'K/s')
     id_qdt_watercor = register_diag_field(mod_name, 'qdt_watercor', &
                                           axes_3d, time, 'Humidity tend due to dynamics water correction', 'kg/kg/s')
-    id_entrop_tempcor = register_diag_field(mod_name, 'entrop_tempcor', &
-                                            axes_3d, time, 'Entropy tend due to hor diff temp corr', '1/s')
+    id_entrop_tempcor = register_diag_field(mod_name, 'entrop_tempcor', axes_3d, time, &
+                                            'Entropy tend due to dynamics energy correction, weighted by ps/p00', '1/s')
 
-!mj
     id_upvp = register_diag_field(mod_name, 'upvp', axes_3d, time, 'meridional eddy momentum flux', 'm2/s2')
     id_upwp = register_diag_field(mod_name, 'upwp', axes_3d, time, 'vertical eddy momentum flux', 'm/s Pa/s')
-    id_vpTp = register_diag_field(mod_name, 'vpTp', axes_3d, time, 'meridional eddy heat flux', 'm/s K')
+    id_vptp = register_diag_field(mod_name, 'vpTp', axes_3d, time, 'meridional eddy heat flux', 'm/s K')
     id_psi_dwc = register_diag_field(mod_name, 'psi_dwc', axes_zm, time, &
                                      'residual mean streamfunction from downward control (EP flux divergence)', 'm/s Pa')
     id_psi_star = register_diag_field(mod_name, 'psi_star', axes_zm, time, &
                                       'residual mean streamfunction (Eulerian mean minus eddy heat flux term)', 'm/s Pa')
-!jm
 
     call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
     allocate (id_tr(num_tracers), id_dt_hadv(num_tracers), id_dt_vadv(num_tracers))
     do ntr = 1, num_tracers
       call get_tracer_names(MODEL_ATMOS, ntr, tname, longname, units)
       id_tr(ntr) = register_diag_field(mod_name, trim(tname)//'_every', axes_3d, Time, longname, units)
-      id_dt_hadv(ntr) = register_diag_field(mod_name, trim(tname)//'_hadv', axes_3d, Time, & ! New name=sphum_hadv XXX
+      id_dt_hadv(ntr) = register_diag_field(mod_name, trim(tname)//'_hadv', axes_3d, Time, &
                                             'Global mean column integrated '//trim(longname)// &
                                             ' tendency due to horizontal advection', &
                                             trim(units)//' kg/m2/s')
-      id_dt_vadv(ntr) = register_diag_field(mod_name, trim(tname)//'_vadv', axes_3d, Time, & ! New name=sphum_vadv XXX
+      id_dt_vadv(ntr) = register_diag_field(mod_name, trim(tname)//'_vadv', axes_3d, Time, &
                                             'Global mean column integrated '//trim(longname)// &
                                             ' tendency due to vertical advection', &
                                             trim(units)//' kg/m2/s')
@@ -248,7 +237,7 @@ contains
   !> `Time_next`, they are attributed to the end of the step over which they act.
   subroutine every_step_diagnostics(Time, p_surf, u_grid, v_grid, t_grid, tr_grid, &
                                     wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp, &
-                                    temperature_correction, water_correction, dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
+                                    tdt_tempcor, water_correction, dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
 
     type(time_type), intent(in) :: Time  !! end of the (sub)step
     real, intent(in), dimension(is:ie, js:je)                         :: p_surf  !! surface pressure [Pa]
@@ -262,8 +251,8 @@ contains
     !! `dt_ug_damp`, `dt_vg_damp`, `dt_tg_damp`: tendencies of zonal and meridional wind [m/s2] and
     !! temperature [K/s] from the hyperdiffusion
     real, intent(in), dimension(is:ie, js:je, num_levels + 1)           :: p_half  !! pressure at half levels [Pa]
-    real, intent(in)                                                  :: temperature_correction
-    !! temperature change of the energy correction, the same at all points [K]
+    real, intent(in)                                                  :: tdt_tempcor
+    !! temperature tendency of the energy correction, the same at all points [K/s]
     real, intent(in), dimension(num_tracers)                          :: dt_hadv, dt_vadv
     !! `dt_hadv`, `dt_vadv`: global mean column-integrated tracer tendencies due to horizontal and
     !! vertical advection [(tracer units) kg/m2/s]
@@ -279,14 +268,12 @@ contains
     integer :: i, j, k, ntr
     character(len=8) :: err_msg_1, err_msg_2
 
-!mj
-    real, dimension(is:ie, js:je) :: dp
-    real, dimension(is:ie, js:je, num_levels) :: Thta, vThta
-    real, dimension(js:je, num_levels) :: tempdiag_zm, dp_u, vpthp, upvp, upwp, fhat
-    real, dimension(num_levels) :: dphi
-    real, dimension(js:je) :: dpzm
-    real :: coslat
-!jm
+    ! zonal means [.] (latitude, level) for the eddy fluxes and the streamfunctions
+    real, dimension(is:ie, js:je, num_levels) :: theta
+    real, dimension(js:je, num_levels) :: tempdiag_zm, u_zm, v_zm, w_zm, th_zm, p_zm, vpthp, dthdp, &
+                                          upvp, upwp, dudp, vth_strat, fhat, f_p, df_p, div_f, vstar
+    real, dimension(size(lat), num_levels) :: f_global, df_global
+    real, dimension(js:je) :: coslat
 
     if (.not. module_is_initialized) then
       call error_mesg('every_step_diagnostics', 'module is not initialized', FATAL)
@@ -400,7 +387,7 @@ contains
     end if
     if (id_wsubtv > 0) then
       do k = 1, num_levels
-        tempdiag_3d(:, :, k) = kappa*wg_full(:, :, k)*(t_grid(:, :, k) + virtual_factor*q_grid(:, :, k))/ &
+        tempdiag_3d(:, :, k) = kappa*wg_full(:, :, k)*t_grid(:, :, k)*(1. + virtual_factor*q_grid(:, :, k))/ &
                                p_full(:, :, k)*p_surf/p00
       end do
       used = send_data(id_wsubtv, tempdiag_3d, Time)
@@ -450,7 +437,7 @@ contains
       used = send_data(id_tdt_dampuv, tempdiag_3d, Time)
     end if
     if (id_tdt_tempcor > 0) then
-      tempdiag_3d = temperature_correction*t_grid/t_grid
+      tempdiag_3d = tdt_tempcor
       used = send_data(id_tdt_tempcor, tempdiag_3d, Time)
     end if
     if (id_qdt_watercor > 0) then
@@ -458,173 +445,121 @@ contains
     end if
     if (id_entrop_tempcor > 0) then
       do k = 1, num_levels
-        tempdiag_3d(:, :, k) = temperature_correction/t_grid(:, :, k)*p_surf/p00
+        tempdiag_3d(:, :, k) = tdt_tempcor/t_grid(:, :, k)*p_surf/p00
       end do
       used = send_data(id_entrop_tempcor, tempdiag_3d, Time)
     end if
-!mj
-    if (id_psi_dwc > 0) then
-  ! F1 = -u'v' + d_puv'Th'/d_pTh
-  ! F2 = fhat*v'Th'/d_pTh - u'w'
-      ! Thta = Theta_bar
-      Thta = t_grid*(p00/p_full)**kappa
-      do i = is, ie
-        ! vThta = v'Theta' [m/s K]
-        vThta(i, :, :) = (v_grid(i, :, :) - sum(v_grid, 1)/max(1, size(v_grid, 1)))* &
-                         (Thta(i, :, :) - sum(Thta, 1)/max(1, size(Thta, 1)))
-
-      end do
-      ! vThta = v'Theta'/d_pTheta
-      ! tempdiag_3d = d_pu
-      vThta(:, :, 1) = vThta(:, :, 1)* &
-                       (p_full(:, :, 1) - p_full(:, :, 2))/(Thta(:, :, 1) - Thta(:, :, 2))
-      tempdiag_3d(:, :, 1) = (u_grid(:, :, 1) - u_grid(:, :, 2))/(p_full(:, :, 1) - p_full(:, :, 2))
-      do k = 2, num_levels - 1
-        dp = p_full(:, :, k + 1) - p_full(:, :, k - 1)
-        vThta(:, :, k) = vThta(:, :, k)* &
-                         dp/(Thta(:, :, k + 1) - Thta(:, :, k - 1))
-        tempdiag_3d(:, :, k) = (u_grid(:, :, k + 1) - u_grid(:, :, k - 1))/dp
-      end do
-      dp = p_full(:, :, num_levels) - p_full(:, :, num_levels - 1)
-      vThta(:, :, num_levels) = vThta(:, :, num_levels)* &
-                                dp/(Thta(:, :, num_levels) - Thta(:, :, num_levels - 1))
-      tempdiag_3d(:, :, num_levels) = (u_grid(:, :, num_levels) - u_grid(:, :, num_levels - 1))/dp
-      ! zonal means of v'Theta'/d_pTheta and d_pu
-      vpthp = sum(vThta, 1)/max(1, size(vThta, 1))
-      dp_u = sum(tempdiag_3d, 1)/max(1, size(tempdiag_3d, 1))
-      ! Thta becomes now fhat
-      do j = js, je
-        coslat = cos(lat(j)/RADIAN)
-        if (j .eq. 1) then
-          Thta(:, j, :) = (u_grid(:, j + 1, :)*cos(lat(j + 1)/RADIAN) - u_grid(:, j, :)*coslat)/ &
-                          ((lat(j + 1) - lat(j))/RADIAN)
-        elseif (j .eq. je) then
-          Thta(:, j, :) = (u_grid(:, j, :)*coslat - u_grid(:, j - 1, :)*cos(lat(j - 1)/RADIAN))/ &
-                          ((lat(j) - lat(j - 1))/RADIAN)
-        else
-          Thta(:, j, :) = (u_grid(:, j + 1, :)*cos(lat(j + 1)/RADIAN) - u_grid(:, j - 1, :)*cos(lat(j - 1)/RADIAN))/ &
-                          ((lat(j + 1) - lat(j - 1))/RADIAN)
-        end if
-        Thta(:, j, :) = -Thta(:, j, :)/RADIUS/coslat + 2*OMEGA*sin(lat(j)/RADIAN)
-      end do
-      ! zonal mean
-      fhat = sum(Thta, 1)/max(1, size(Thta, 1))
-      ! Now put things together for tempdiag_zm = v_star_downward_control
-      ! u'v'
-      do i = is, ie
-        tempdiag_3d(i, :, :) = (u_grid(i, :, :) - sum(u_grid, 1)/max(1, size(u_grid, 1)))* &
-                               (v_grid(i, :, :) - sum(v_grid, 1)/max(1, size(v_grid, 1)))
-      end do
-      upvp = sum(tempdiag_3d, 1)/max(1, size(tempdiag_3d, 1))
-      ! d_xF1
-      dphi = (lat(1) - lat(2))/RADIAN
-      tempdiag_zm(1, :) = (-(upvp(1, :) - upvp(2, :)) + &
-                           (dp_u(1, :)*vpthp(1, :) - dp_u(2, :)*vpthp(2, :)))/dphi
-      do j = js + 1, je - 1
-        dphi = (lat(j + 1) - lat(j - 1))/RADIAN
-        tempdiag_zm(j, :) = (-(upvp(j + 1, :) - upvp(j - 1, :)) + &
-                             (dp_u(j + 1, :)*vpthp(j + 1, :) - dp_u(j - 1, :)*vpthp(j - 1, :)))/dphi
-      end do
-      dphi = (lat(je) - lat(je - 1))/RADIAN
-      tempdiag_zm(je, :) = (-(upvp(je, :) - upvp(je - 1, :)) + &
-                            (dp_u(je, :)*vpthp(je, :) - dp_u(je - 1, :)*vpthp(je - 1, :)))/dphi
-      tempdiag_zm = tempdiag_zm/RADIUS
-      ! d_pF2
-      ! u'w'
-      do i = is, ie
-        tempdiag_3d(i, :, :) = (u_grid(i, :, :) - sum(u_grid, 1)/max(1, size(u_grid, 1)))* &
-                               (wg_full(i, :, :) - sum(wg_full, 1)/max(1, size(wg_full, 1)))
-      end do
-      upwp = sum(tempdiag_3d, 1)/max(1, size(tempdiag_3d, 1))
-      dpzm = sum(p_full(:, :, 1) - p_full(:, :, 2), 1)/max(1, size(p_full, 1))
-      tempdiag_zm(:, 1) = tempdiag_zm(:, 1) + &
-                          (fhat(:, 1)*vpthp(:, 1) - fhat(:, 2)*vpthp(:, 2) - &
-                           (upwp(:, 1) - upwp(:, 2)))/dpzm
-      do k = 2, num_levels - 1
-        dpzm = sum(p_full(:, :, k + 1) - p_full(:, :, k - 1), 1)/max(1, size(p_half, 1))
-        tempdiag_zm(:, k) = tempdiag_zm(:, k) + &
-                            (fhat(:, k + 1)*vpthp(:, k + 1) - fhat(:, k - 1)*vpthp(:, k - 1) - &
-                             (upwp(:, k + 1) - upwp(:, k - 1)))/dpzm
-      end do
-      dpzm = sum(p_full(:, :, num_levels) - p_full(:, :, num_levels - 1), 1)/max(1, size(p_full, 1))
-      tempdiag_zm(:, num_levels) = tempdiag_zm(:, num_levels) + &
-                                   (fhat(:, num_levels)*vpthp(:, num_levels) - fhat(:, num_levels - 1)*vpthp(:, num_levels - 1) - &
-                                    (upwp(:, num_levels) - upwp(:, num_levels - 1)))/dpzm
-      ! v_star_downward_control = 1/fhat*(-diff(F))
-      tempdiag_zm = -tempdiag_zm/fhat
-      !now compute psi_star_dwc using the trapezoidal rule
-      !temporarily, upvp = v_star_downward_control
-      upvp = tempdiag_zm
-      tempdiag_zm = 0.
-      do k = 2, num_levels
-        dpzm = sum(p_full(:, :, k) - p_full(:, :, k - 1), 1)/max(1, size(p_full, 1))
-        tempdiag_zm(:, k) = tempdiag_zm(:, k - 1) + 0.5*dpzm*(upvp(:, k) + upvp(:, k - 1))
-      end do
-      used = send_data(id_psi_dwc, tempdiag_zm, Time)
+    ! zonal means: each is summed over the longitudes once (in the same order as a sum per point)
+    if (id_upvp > 0 .or. id_upwp > 0 .or. id_psi_dwc > 0 .or. id_psi_star > 0) then
+      u_zm = sum(u_grid, 1)/max(1, size(u_grid, 1))
     end if
+    if (id_upvp > 0 .or. id_vptp > 0 .or. id_psi_dwc > 0 .or. id_psi_star > 0) then
+      v_zm = sum(v_grid, 1)/max(1, size(v_grid, 1))
+    end if
+    if (id_upwp > 0 .or. id_psi_dwc > 0) then
+      w_zm = sum(wg_full, 1)/max(1, size(wg_full, 1))
+    end if
+
     if (id_upvp > 0) then
       do k = 1, num_levels
-        do i = is, ie
-          tempdiag_3d(i, :, k) = (u_grid(i, :, k) - sum(u_grid(:, :, k), 1)/max(1, size(u_grid, 1)))* &
-                                 (v_grid(i, :, k) - sum(v_grid(:, :, k), 1)/max(1, size(v_grid, 1)))
+        do j = js, je
+          tempdiag_3d(:, j, k) = (u_grid(:, j, k) - u_zm(j, k))*(v_grid(:, j, k) - v_zm(j, k))
         end do
       end do
       used = send_data(id_upvp, tempdiag_3d, Time)
     end if
     if (id_upwp > 0) then
       do k = 1, num_levels
-        do i = is, ie
-          tempdiag_3d(i, :, k) = (u_grid(i, :, k) - sum(u_grid(:, :, k), 1)/max(1, size(u_grid, 1)))* &
-                                 (wg_full(i, :, k) - sum(wg_full(:, :, k), 1)/max(1, size(wg_full, 1)))
+        do j = js, je
+          tempdiag_3d(:, j, k) = (u_grid(:, j, k) - u_zm(j, k))*(wg_full(:, j, k) - w_zm(j, k))
         end do
       end do
       used = send_data(id_upwp, tempdiag_3d, Time)
     end if
-    if (id_vpTp > 0) then
+    if (id_vptp > 0) then
+      tempdiag_zm = sum(t_grid, 1)/max(1, size(t_grid, 1))
       do k = 1, num_levels
-        do i = is, ie
-          tempdiag_3d(i, :, k) = (v_grid(i, :, k) - sum(v_grid(:, :, k), 1)/max(1, size(v_grid, 1)))* &
-                                 (t_grid(i, :, k) - sum(t_grid(:, :, k), 1)/max(1, size(t_grid, 1)))
+        do j = js, je
+          tempdiag_3d(:, j, k) = (v_grid(:, j, k) - v_zm(j, k))*(t_grid(:, j, k) - tempdiag_zm(j, k))
         end do
       end do
-      used = send_data(id_vpTp, tempdiag_3d, Time)
+      used = send_data(id_vptp, tempdiag_3d, Time)
     end if
+
+    if (id_psi_dwc > 0 .or. id_psi_star > 0) then
+      ! potential temperature, [v'theta'] and the stratification d[theta]/dp
+      theta = t_grid*(p00/p_full)**kappa
+      th_zm = sum(theta, 1)/max(1, size(theta, 1))
+      p_zm = sum(p_full, 1)/max(1, size(p_full, 1))
+      do k = 1, num_levels
+        do j = js, je
+          vpthp(j, k) = sum((v_grid(:, j, k) - v_zm(j, k))*(theta(:, j, k) - th_zm(j, k)))/max(1, size(v_grid, 1))
+        end do
+      end do
+      call p_derivative(th_zm, p_zm, dthdp)
+      vth_strat = vpthp/dthdp   ! [v'theta']/[theta]_p [m/s Pa]
+    end if
+
+    if (id_psi_dwc > 0) then
+      ! Residual mean meridional velocity from the steady TEM zonal momentum balance (downward
+      ! control; Andrews et al. 1987, eqs. 3.5.2-3.5.3, in pressure coordinates):
+      !   -fhat v* = d(cos**2 F_phi)/dphi/(a cos**2) + d(F_p)/dp,
+      !   F_phi = [u]_p [v'theta']/[theta]_p - [u'v'],   F_p = fhat [v'theta']/[theta]_p - [u'omega'],
+      !   fhat = f - d([u] cos)/dphi/(a cos);
+      ! psi_dwc is v* integrated in pressure from the top level. The latitude derivatives use the
+      ! zonal means of all latitudes, gathered from all PEs.
+      do k = 1, num_levels
+        do j = js, je
+          upvp(j, k) = sum((u_grid(:, j, k) - u_zm(j, k))*(v_grid(:, j, k) - v_zm(j, k)))/max(1, size(u_grid, 1))
+          upwp(j, k) = sum((u_grid(:, j, k) - u_zm(j, k))*(wg_full(:, j, k) - w_zm(j, k)))/max(1, size(u_grid, 1))
+        end do
+      end do
+      call p_derivative(u_zm, p_zm, dudp)
+      do j = js, je
+        coslat(j) = cos(lat(j)/radian)
+      end do
+
+      ! fhat
+      do k = 1, num_levels
+        tempdiag_zm(:, k) = u_zm(:, k)*coslat
+      end do
+      call gather_latitudes(tempdiag_zm, f_global)
+      call lat_derivative(f_global, df_global)
+      do j = js, je
+        fhat(j, :) = 2*omega*sin(lat(j)/radian) - df_global(j, :)/(radius*coslat(j))
+      end do
+
+      ! divergence of the EP flux
+      do k = 1, num_levels
+        tempdiag_zm(:, k) = (dudp(:, k)*vth_strat(:, k) - upvp(:, k))*coslat**2
+      end do
+      call gather_latitudes(tempdiag_zm, f_global)
+      call lat_derivative(f_global, df_global)
+      do j = js, je
+        div_f(j, :) = df_global(j, :)/(radius*coslat(j)**2)
+      end do
+      f_p = fhat*vth_strat - upwp
+      call p_derivative(f_p, p_zm, df_p)
+      div_f = div_f + df_p
+
+      vstar = -div_f/fhat
+      tempdiag_zm(:, 1) = 0.
+      do k = 2, num_levels
+        tempdiag_zm(:, k) = tempdiag_zm(:, k - 1) + 0.5*(p_zm(:, k) - p_zm(:, k - 1))*(vstar(:, k) + vstar(:, k - 1))
+      end do
+      used = send_data(id_psi_dwc, tempdiag_zm, Time)
+    end if
+
     if (id_psi_star > 0) then
-      do i = is, ie
-        !tempdiag_3d = v'Theta' [m/s K]
-        Thta(i, :, :) = (t_grid(i, :, :) - sum(t_grid, 1)/max(1, size(t_grid, 1)))* &
-                        (p00/p_full(i, :, :))**kappa
-        tempdiag_3d(i, :, :) = (v_grid(i, :, :) - sum(v_grid, 1)/max(1, size(v_grid, 1)))* &
-                               Thta(i, :, :)
-      end do
-      !now, tempdiag_3d = v'Theta'/dpTheta [m/s Pa]
-      tempdiag_3d(:, :, 1) = (Thta(:, :, 2) - Thta(:, :, 1))/(p_full(:, :, 2) - p_full(:, :, 1))
-      do k = 2, num_levels - 1
-        dp = p_full(:, :, k + 1) - p_full(:, :, k - 1)
-        tempdiag_3d(:, :, k) = tempdiag_3d(:, :, k)*dp/(Thta(:, :, k + 1) - Thta(:, :, k - 1))
-      end do
-      tempdiag_3d(:, :, num_levels) = (Thta(:, :, num_levels) - Thta(:, :, num_levels - 1))/ &
-                                      (p_full(:, :, num_levels) - p_full(:, :, num_levels - 1))
-      !store this in the 2D variable
-      tempdiag_zm = sum(tempdiag_3d, 3)/max(1, size(tempdiag_3d, 3))
-      !now compute psi using the trapezoidal rule
+      ! psi* = [int v dp] - [v'theta']/[theta]_p, the column integral from the top level
       tempdiag_3d(:, :, 1) = 0.
       do k = 2, num_levels
-        dp = p_full(:, :, k) - p_full(:, :, k - 1)
-        tempdiag_3d(:, :, k) = tempdiag_3d(:, :, k - 1) + 0.5*dp*(v_grid(:, :, k) + v_grid(:, :, k - 1))
+        tempdiag_3d(:, :, k) = tempdiag_3d(:, :, k - 1) + 0.5*(p_full(:, :, k) - p_full(:, :, k - 1))* &
+                               (v_grid(:, :, k) + v_grid(:, :, k - 1))
       end do
-      !now put it all together
-      tempdiag_zm = sum(tempdiag_3d, 1)/max(1, size(tempdiag_3d, 1)) - tempdiag_zm
+      tempdiag_zm = sum(tempdiag_3d, 1)/max(1, size(tempdiag_3d, 1)) - vth_strat
       used = send_data(id_psi_star, tempdiag_zm, Time)
     end if
-!jm
-
-!--------------------
-!if(id_pt > 0) then
-!   tempdiag_3d = t_grid*(p00/p_full)**kappa
-!   used = send_data(id_pt, tempdiag_3d, Time)
-!endif
-!--------------------
 
     if (size(tr_grid, 4) /= num_tracers) then
       write (err_msg_1, '(i8)') size(tr_grid, 4)
@@ -633,8 +568,15 @@ contains
     end if
     do ntr = 1, num_tracers
       if (id_tr(ntr) > 0) used = send_data(id_tr(ntr), tr_grid(:, :, :, ntr), Time)
-      if (id_dt_hadv(ntr) > 0) used = send_data(id_dt_hadv(ntr), (dt_hadv(ntr)*u_grid/u_grid), Time) ! Why output a 3d array? XXX
-      if (id_dt_vadv(ntr) > 0) used = send_data(id_dt_vadv(ntr), (dt_vadv(ntr)*u_grid/u_grid), Time) ! Why output a 3d array? XXX
+      ! global means, sent as 3-d fields of one value
+      if (id_dt_hadv(ntr) > 0) then
+        tempdiag_3d = dt_hadv(ntr)
+        used = send_data(id_dt_hadv(ntr), tempdiag_3d, Time)
+      end if
+      if (id_dt_vadv(ntr) > 0) then
+        tempdiag_3d = dt_vadv(ntr)
+        used = send_data(id_dt_vadv(ntr), tempdiag_3d, Time)
+      end if
     end do
 
     if (two_dt_id_ps > 0) then
@@ -705,11 +647,13 @@ contains
       Time = Time_save
     end if
 
-    two_dt_ps = two_dt_ps/num_time_steps
-    two_dt_u = two_dt_u/num_time_steps
-    two_dt_v = two_dt_v/num_time_steps
-    two_dt_t = two_dt_t/num_time_steps
-    two_dt_tr = two_dt_tr/num_time_steps
+    if (num_time_steps > 0) then
+      two_dt_ps = two_dt_ps/num_time_steps
+      two_dt_u = two_dt_u/num_time_steps
+      two_dt_v = two_dt_v/num_time_steps
+      two_dt_t = two_dt_t/num_time_steps
+      two_dt_tr = two_dt_tr/num_time_steps
+    end if
 
     if (two_dt_id_ps > 0) used = send_data(two_dt_id_ps, two_dt_ps)
     if (two_dt_id_u > 0) used = send_data(two_dt_id_u, two_dt_u)
@@ -719,12 +663,68 @@ contains
       if (two_dt_id_tr(ntr) > 0) used = send_data(two_dt_id_tr(ntr), two_dt_tr(:, :, :, ntr))
     end do
 
-    deallocate (id_tr, two_dt_id_tr, need_hadv, need_vadv)
+    deallocate (id_tr, id_dt_hadv, id_dt_vadv, two_dt_id_tr, need_hadv, need_vadv)
     deallocate (two_dt_ps, two_dt_u, two_dt_v, two_dt_t, two_dt_tr)
+    deallocate (lon, lat)
     module_is_initialized = .false.
 
     return
   end subroutine every_step_diagnostics_end
+!===================================================================================
+
+  ! Vertical derivative d(f)/dp of zonal-mean fields (latitude, level): centred inside,
+  ! one-sided at the top and bottom levels.
+  subroutine p_derivative(f, p, dfdp)
+    real, intent(in), dimension(:, :) :: f, p
+    real, intent(out), dimension(:, :) :: dfdp
+    integer :: k, n
+
+    n = size(f, 2)
+    if (n < 2) then
+      dfdp = 0.
+      return
+    end if
+    dfdp(:, 1) = (f(:, 2) - f(:, 1))/(p(:, 2) - p(:, 1))
+    do k = 2, n - 1
+      dfdp(:, k) = (f(:, k + 1) - f(:, k - 1))/(p(:, k + 1) - p(:, k - 1))
+    end do
+    dfdp(:, n) = (f(:, n) - f(:, n - 1))/(p(:, n) - p(:, n - 1))
+
+  end subroutine p_derivative
+!===================================================================================
+
+  ! Meridional derivative d(f)/d(latitude) [per radian] of zonal-mean fields on all
+  ! latitudes (lat_max, level): centred inside, one-sided at the first and last latitude.
+  subroutine lat_derivative(f, dfdphi)
+    real, intent(in), dimension(:, :) :: f
+    real, intent(out), dimension(:, :) :: dfdphi
+    integer :: j, n
+
+    n = size(f, 1)
+    dfdphi(1, :) = (f(2, :) - f(1, :))/((lat(2) - lat(1))/radian)
+    do j = 2, n - 1
+      dfdphi(j, :) = (f(j + 1, :) - f(j - 1, :))/((lat(j + 1) - lat(j - 1))/radian)
+    end do
+    dfdphi(n, :) = (f(n, :) - f(n - 1, :))/((lat(n) - lat(n - 1))/radian)
+
+  end subroutine lat_derivative
+!===================================================================================
+
+  ! Returns the zonal-mean field f of this PE's latitudes js:je on all latitudes. Every PE
+  ! must call it. Each latitude is on one PE only (the grid is decomposed in latitude), so
+  ! the sum over the PEs adds exact zeros and does not depend on the decomposition.
+  subroutine gather_latitudes(f, f_global)
+    real, intent(in), dimension(js:, :) :: f
+    real, intent(out), dimension(:, :) :: f_global
+    real, dimension(size(f_global, 1)*size(f_global, 2)) :: buffer
+
+    f_global = 0.
+    f_global(js:je, :) = f(js:je, :)
+    buffer = reshape(f_global, (/size(buffer)/))
+    call mpp_sum(buffer, size(buffer))
+    f_global = reshape(buffer, shape(f_global))
+
+  end subroutine gather_latitudes
 !===================================================================================
 
 end module every_step_diagnostics_mod

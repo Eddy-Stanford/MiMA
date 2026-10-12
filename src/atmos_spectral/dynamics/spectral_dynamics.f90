@@ -1029,8 +1029,8 @@ contains
       call every_step_diagnostics( &
         Time_diag, psg(:, :, current), ug(:, :, :, current), vg(:, :, :, current), tg(:, :, :, current), &
         grid_tracers(:, :, :, current, :), &
-        wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp, temperature_correction, water_correction, &
-        dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
+        wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp, temperature_correction/delta_t, &
+        water_correction, dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
 
     end do step_loop
 
