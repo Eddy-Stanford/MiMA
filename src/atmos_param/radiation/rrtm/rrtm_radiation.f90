@@ -515,14 +515,14 @@ contains
     real(kind=rb) :: tsec
     integer :: si, sj, sk
     real(kind=rb), allocatable, dimension(:, :, :) :: o3f, tdt_rrtm  ! ozone, radiative heating
-    real(kind=rb), dimension(ncols_rrt, nlay_rrt) :: pfull, tfull &
-                                                     , hr, hrc, swhr
-    real(kind=rb), dimension(ncols_rrt, nlay_rrt + 1) :: uflx, dflx, uflxc, dflxc &
-                                                         , swuflx, swdflx
-    real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2), size(q, 3)) :: swijk, lwijk
+    ! the column arrays are allocatable, not automatic, so that they are not on the stack
+    ! (each is about 23 MB at T255 L40 on one processor), and allocated on radiation steps only
+    real(kind=rb), allocatable, dimension(:, :) :: pfull, tfull, hr, hrc, swhr  ! (ncols_rrt, nlay_rrt)
+    real(kind=rb), allocatable, dimension(:, :) :: uflx, dflx, uflxc, dflxc, swuflx, swdflx, &
+                                                   phalf, thalf  ! (ncols_rrt, nlay_rrt + 1)
+    real(kind=rb), allocatable, dimension(:, :, :) :: swijk, lwijk  ! (lon/lonstep, lat, pfull)
     real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2)) :: swflxijk, lwflxijk, olrijk, isrijk
     real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2)) :: swdntoaijk, lwupsfcijk
-    real(kind=rb), dimension(ncols_rrt, nlay_rrt + 1):: phalf, thalf
     real(kind=rb), dimension(ncols_rrt)   :: tsrf, cosz_rr, albedo_rr
     real(kind=rb) :: dlon, di
     type(time_type) :: Time_loc
@@ -591,6 +591,13 @@ contains
     sk = size(tdt, 3)
     if (si*sj /= ncols_rrt*lonstep) &
       call error_mesg('run_rrtm', 'the physics window must be the whole processor domain', FATAL)
+
+    allocate (pfull(ncols_rrt, nlay_rrt), tfull(ncols_rrt, nlay_rrt), hr(ncols_rrt, nlay_rrt), &
+              hrc(ncols_rrt, nlay_rrt), swhr(ncols_rrt, nlay_rrt))
+    allocate (uflx(ncols_rrt, nlay_rrt + 1), dflx(ncols_rrt, nlay_rrt + 1), uflxc(ncols_rrt, nlay_rrt + 1), &
+              dflxc(ncols_rrt, nlay_rrt + 1), swuflx(ncols_rrt, nlay_rrt + 1), swdflx(ncols_rrt, nlay_rrt + 1), &
+              phalf(ncols_rrt, nlay_rrt + 1), thalf(ncols_rrt, nlay_rrt + 1))
+    allocate (swijk(size(q, 1)/lonstep, size(q, 2), size(q, 3)), lwijk(size(q, 1)/lonstep, size(q, 2), size(q, 3)))
 
     ! RRTMG computes the Earth-Sun distance from the calendar day of the year (1 on
     ! 1 January); 0 makes it use solrad instead
@@ -805,9 +812,10 @@ contains
     real(kind=rb), dimension(:, :), intent(in) :: pfull, phalf, tfull, thalf, h2o_c, o3_c, co2_c
     real(kind=rb), dimension(:), intent(in) :: tsrf, albedo_c, cosz
     real(kind=rb), dimension(:, :), intent(out) :: swuflx, swdflx, swhr
-    real(kind=rb), dimension(n, nlay_rrt + 1) :: swuflxc, swdflxc
-    real(kind=rb), dimension(n, nlay_rrt) :: swhrc
+    real(kind=rb), allocatable, dimension(:, :) :: swuflxc, swdflxc  ! (n, nlay_rrt + 1), not on the stack
+    real(kind=rb), allocatable, dimension(:, :) :: swhrc  ! (n, nlay_rrt)
 
+    allocate (swuflxc(n, nlay_rrt + 1), swdflxc(n, nlay_rrt + 1), swhrc(n, nlay_rrt))
     call rrtmg_sw &
       (n, nlay_rrt, icld, iaer, &
        pfull, phalf, tfull, thalf, tsrf, &
