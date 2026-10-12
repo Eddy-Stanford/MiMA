@@ -10,7 +10,8 @@
 !> `fv_advection_mod`), as set in the field table. Optional corrections keep the global mean
 !> surface pressure, energy and water fixed. The model state is read from
 !> `INPUT/spectral_dynamics.res.nc` if it exists (otherwise a cold start by
-!> `spectral_init_cond`) and written to `RESTART/spectral_dynamics.res.nc`.
+!> `spectral_init_cond`), optionally perturbed by `initial_noise_mod`, and written to
+!> `RESTART/spectral_dynamics.res.nc`.
 !>
 !> The equations, the spectral layout and the time step are described in
 !> [The dynamical core](https://eddy-stanford.github.io/MiMA/DynamicalCore/).
@@ -29,7 +30,10 @@ module spectral_dynamics_mod
                      input_nml_file, check_nml_error, lowercase, uppercase
 
   use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, close_restart, &
-                              read_restart_field, write_restart_field, get_restart_field_size
+                              read_restart_field, write_restart_field, get_restart_field_size, &
+                              restart_field_exists
+
+  use namelist_check_mod, only: nml_sets
 
   use constants_mod, only: rdgas, rvgas, grav, cp_air, omega, radius, pi
 
@@ -74,6 +78,8 @@ module spectral_dynamics_mod
 
   use spectral_init_cond_mod, only: spectral_init_cond
 
+  use initial_noise_mod, only: initial_noise_init, add_initial_noise
+
   use spectral_initialize_fields_mod, only: read_initial_condition
 
   use tracer_type_mod, only: tracer_type
@@ -88,7 +94,7 @@ module spectral_dynamics_mod
   public :: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels
   public :: get_surf_geopotential
   public :: complete_robert_filter
-  public :: get_axis_id, spectral_diagnostics, get_initial_fields
+  public :: get_axis_id, spectral_diagnostics, get_initial_fields, get_initial_noise_increments
 
 !===============================================================================================
 ! variables needed for diagnostics
@@ -131,6 +137,11 @@ module spectral_dynamics_mod
   real    :: mean_energy_previous, mean_water_previous, mean_surf_press_previous
   integer :: ms, me, ns, ne, is, ie, js, je
   integer :: previous, current, future
+
+  ! the initial noise was added in this run or an earlier segment (recorded in the restart)
+  logical :: initial_noise_applied = .false.
+  ! grid-point increments of the initial noise added at this start, for atmosphere_mod
+  real, allocatable, dimension(:, :, :) :: noise_ug, noise_vg, noise_tg
 
   character(len=32), parameter :: default_representation = 'spectral'
   character(len=32), parameter :: default_advect_vert = 'second_centered'
@@ -214,14 +225,6 @@ module spectral_dynamics_mod
   !! [specified initial conditions](Configurations.md#specified-initial-conditions))
   ! u, v, T, ps and q must be in the file (as ucomp, vcomp, temp, ps and sphum)
 
-  integer :: add_noise_seed = -1 !! random seed for `add_noise`; set >= 0 for reproducible noise
-  real :: add_noise = -1.
-  !! if > 0, amplitude [K] of random noise added to the spectral temperature at start-up (see
-  !! [noise](Configurations.md#adding-noise-to-the-initial-conditions))
-
-!===============================================================================================
-  integer :: noise_spectral_cutoff_minimum = 1 !! lowest spectral index that receives noise
-  integer :: noise_spectral_cutoff_maximum = 20 !! highest spectral index that receives noise
   real, dimension(2) :: valid_range_t = (/100., 500./) !! [K] the model stops if the temperature leaves this range
 
   namelist /spectral_dynamics_nml/ use_virtual_temperature, damping_option, &
@@ -236,8 +239,7 @@ module spectral_dynamics_mod
     p_press, p_sigma, exponent, ocean_topog_smoothing, initial_sphum, &
     valid_range_t, eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff, &
     print_interval, num_steps, &
-    noise_spectral_cutoff_minimum, noise_spectral_cutoff_maximum, &
-    water_correction_limit, specify_initial_conditions, add_noise, add_noise_seed
+    water_correction_limit, specify_initial_conditions
 
 contains
 
@@ -247,8 +249,8 @@ contains
   !>
   !> Reads `spectral_dynamics_nml`, sets up the transforms and the grid and spectral domains,
   !> sets the tracer attributes from the field table, reads the restart file or does a cold
-  !> start, adds the initial noise (`add_noise`), and initializes the diagnostics, the
-  !> damping and the implicit scheme.
+  !> start, adds the initial noise (`initial_noise_nml`), and initializes the diagnostics,
+  !> the damping and the implicit scheme.
   subroutine spectral_dynamics_init(Time, Time_step_in, tracer_attributes, nhum_out, ocean_mask)
 
     type(time_type), intent(in) :: Time, Time_step_in  !! `Time`: current time; `Time_step_in`: atmospheric time step
@@ -260,6 +262,7 @@ contains
 
     integer :: num_total_wavenumbers, k, seconds, days, ierr, io, ntr, nsphum, nmix_rat
     logical, parameter :: south_to_north = .true.
+    logical :: cold_start
     real    :: ref_surf_p_implicit, robert_coeff_tracers
 
     real, allocatable, dimension(:, :) :: eigen
@@ -272,6 +275,7 @@ contains
 
     if (module_is_initialized) return
 
+    call check_removed_keys()
     read (input_nml_file, nml=spectral_dynamics_nml, iostat=io)
     ierr = check_nml_error(io, 'spectral_dynamics_nml')
 
@@ -438,9 +442,11 @@ contains
       end if
     end do
 
-    call read_restart_or_do_coldstart(tracer_attributes, ocean_mask)
+    call read_restart_or_do_coldstart(tracer_attributes, cold_start, ocean_mask)
 
     call press_and_geopot_init(pk, bk, use_virtual_temperature, vert_difference_option, surf_geopotential)
+
+    call apply_initial_noise(cold_start)
 
     call spectral_diagnostics_init(Time)
 
@@ -518,10 +524,11 @@ contains
 
 !===============================================================================================
   !> Reads `INPUT/spectral_dynamics.res.nc` if it exists, otherwise sets the initial state
-  !> with `spectral_init_cond`; then adds the initial noise if `add_noise` > 0.
-  subroutine read_restart_or_do_coldstart(tracer_attributes, ocean_mask)
+  !> with `spectral_init_cond`.
+  subroutine read_restart_or_do_coldstart(tracer_attributes, cold_start, ocean_mask)
 
     type(tracer_type), intent(inout), dimension(:) :: tracer_attributes
+    logical, intent(out) :: cold_start  ! there is no restart file
     logical, optional, intent(in), dimension(:, :) :: ocean_mask
 
     integer :: m, n, k, nt, ntr
@@ -532,7 +539,8 @@ contains
     character(len=4) :: ch1, ch2, ch3, ch4, ch5, ch6
     type(restart_file_type) :: rst
 
-    if (open_restart_read(rst, 'INPUT/spectral_dynamics.res.nc', grid_domain)) then
+    cold_start = .not. open_restart_read(rst, 'INPUT/spectral_dynamics.res.nc', grid_domain)
+    if (.not. cold_start) then
       call get_restart_field_size(rst, 'vors_real', siz)
       if (num_fourier /= siz(1) - 1 .or. num_spherical /= siz(2) - 1 .or. num_levels /= siz(3)) then
         write (ch1, '(i4)') siz(1) - 1
@@ -600,6 +608,10 @@ contains
       call read_restart_field(rst, 'vorg', vorg)
       call read_restart_field(rst, 'divg', divg)
       call read_restart_field(rst, 'surf_geopotential', surf_geopotential)
+      if (restart_field_exists(rst, 'initial_noise_applied')) then
+        call read_restart_field(rst, 'initial_noise_applied', level)
+        initial_noise_applied = level > 0.5
+      end if
       call close_restart(rst)
     else
       previous = 1
@@ -638,46 +650,111 @@ contains
       end do
     end if
 
-    if (add_noise > 0.0) then
-      call add_noise_to_ics
-    end if
-
     return
   end subroutine read_restart_or_do_coldstart
 
-  !> Adds random noise of amplitude `add_noise` [K] to the spectral temperature at both time
-  !> levels, for spectral indices between `noise_spectral_cutoff_minimum` and
-  !> `noise_spectral_cutoff_maximum`.
-  subroutine add_noise_to_ics()
-    real :: thmlnoise
-    integer :: seedn ! length of default seed
-    integer :: k, n, m ! loop variables
-    integer, allocatable :: seed(:)
+  !> Adds the initial noise of `initial_noise_nml` to the spectral temperature (and
+  !> vorticity) at both time levels, and the same increments to the grid fields.
+  !>
+  !> The grid fields are incremented rather than recomputed from the spectral fields, so a
+  !> restart keeps its unperturbed part exactly. The increments are kept for
+  !> `get_initial_noise_increments`. Nothing changes if no noise is added.
+  subroutine apply_initial_noise(cold_start)
+    logical, intent(in) :: cold_start  !! there was no restart file
 
-    if (add_noise_seed .ge. 0) then
-      call random_seed(size=seedn)
-      allocate (seed(seedn))
-      seed = add_noise_seed + 1  ! add 1 to avoid seed of 0, which some implementations treat as a special case
-      call random_seed(put=seed)
+    real, dimension(num_levels + 1) :: p_half, ln_p_half
+    real, dimension(num_levels) :: p_full, ln_p_full
+    complex, allocatable, dimension(:, :, :) :: dts, dvors, zero_divs
+    real, allocatable, dimension(:, :, :) :: dvorg
+    logical :: applied, applied_vor
+    integer :: nt
+
+    ! the reference pressures of the full levels (those of the pfull axis)
+    call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, reference_sea_level_press)
+    call initial_noise_init(num_levels, triang_trunc, p_full)
+
+    allocate (dts(ms:me, ns:ne, num_levels), dvors(ms:me, ns:ne, num_levels))
+    call add_initial_noise(cold_start, initial_noise_applied, ts, vors, applied, applied_vor, dts, dvors)
+    if (.not. applied) return
+    initial_noise_applied = .true.
+
+    allocate (noise_ug(is:ie, js:je, num_levels), noise_vg(is:ie, js:je, num_levels), &
+              noise_tg(is:ie, js:je, num_levels))
+    call trans_spherical_to_grid(dts, noise_tg)
+    noise_ug = 0.
+    noise_vg = 0.
+    if (applied_vor) then
+      allocate (zero_divs(ms:me, ns:ne, num_levels), dvorg(is:ie, js:je, num_levels))
+      zero_divs = cmplx(0., 0.)
+      call uv_grid_from_vor_div(dvors, zero_divs, noise_ug, noise_vg)
+      call trans_spherical_to_grid(dvors, dvorg)
+      vorg = vorg + dvorg
     end if
-      ! add thermal noise
-      ! print message
-    write (*, '(A, F6.3, A)') "Adding thermal noise with amplitude: ", add_noise, " K"
-    do k = 1, num_levels
-      ! thought, here we are using the same cutoffs for the spherical and the fourier modes but they could be different
-      ! also note we NEVER want to inject noise at the highest wavenumbers as this leads to numerical instability.
-      do n = max(ns, noise_spectral_cutoff_minimum), min(ne - 1, noise_spectral_cutoff_maximum)
-        do m = max(ms, noise_spectral_cutoff_minimum), min(me - 1, noise_spectral_cutoff_maximum)
-          call random_number(thmlnoise)
-          thmlnoise = 2*thmlnoise - 1.0 ! make random number between -1 and 1
-          ts(m, n, k, :) = ts(m, n, k, :) + cmplx(add_noise*thmlnoise, 0.0)
-        end do
-      end do
+    do nt = 1, num_time_levels
+      tg(:, :, :, nt) = tg(:, :, :, nt) + noise_tg
+      if (applied_vor) then
+        ug(:, :, :, nt) = ug(:, :, :, nt) + noise_ug
+        vg(:, :, :, nt) = vg(:, :, :, nt) + noise_vg
+      end if
     end do
-    call trans_spherical_to_grid(ts(:, :, :, 1), tg(:, :, :, 1))
-    call trans_spherical_to_grid(ts(:, :, :, 2), tg(:, :, :, 2))
 
-  end subroutine add_noise_to_ics
+    call print_noise_rms('temperature [K]', noise_tg)
+    if (applied_vor) call print_noise_rms('vorticity [1/s]', dvorg)
+
+  end subroutine apply_initial_noise
+
+  ! Prints the global grid-point rms of each level of the increment, top to bottom (root
+  ! PE, one line).
+  subroutine print_noise_rms(name, increment)
+    character(len=*), intent(in) :: name
+    real, intent(in), dimension(is:, js:, :) :: increment
+
+    real, dimension(size(increment, 3)) :: rms
+    integer :: k
+
+    do k = 1, size(increment, 3)
+      rms(k) = sqrt(area_weighted_global_mean(increment(:, :, k)**2))
+    end do
+    if (mpp_pe() == mpp_root_pe()) then
+      write (*, '(a,*(1x,es14.7))') 'initial noise: grid rms per level of '//name//':', rms
+      write (stdlog(), '(a,*(1x,es14.7))') 'initial noise: grid rms per level of '//name//':', rms
+    end if
+
+  end subroutine print_noise_rms
+
+  !> Returns the grid-point increments of the initial noise added at this start, if any.
+  !>
+  !> `atmosphere_mod` adds them to its own copy of the state on a restart; after a cold
+  !> start, `get_initial_fields` already returns the perturbed fields.
+  subroutine get_initial_noise_increments(applied, ug_inc, vg_inc, tg_inc)
+    logical, intent(out) :: applied  !! noise was added at this start
+    real, intent(out), dimension(:, :, :) :: ug_inc, vg_inc, tg_inc
+    !! `ug_inc`, `vg_inc`: increments of the zonal and meridional wind [m/s] (0 unless the
+    !! vorticity was perturbed); `tg_inc`: increment of the temperature [K]; unchanged if
+    !! no noise was added
+
+    applied = allocated(noise_tg)
+    if (.not. applied) return
+    ug_inc = noise_ug
+    vg_inc = noise_vg
+    tg_inc = noise_tg
+
+  end subroutine get_initial_noise_increments
+
+  ! Stops with a migration message if input.nml still sets a spectral_dynamics_nml key
+  ! that was removed in v2.0 (the namelist read would otherwise only report an unknown
+  ! variable). A mention of the key in a comment is ignored.
+  subroutine check_removed_keys()
+
+    if (nml_sets('add_noise') .or. nml_sets('add_noise_seed') .or. &
+        nml_sets('noise_spectral_cutoff_minimum') .or. nml_sets('noise_spectral_cutoff_maximum')) &
+      call error_mesg('spectral_dynamics_init', 'spectral_dynamics_nml: add_noise, add_noise_seed and '// &
+                      'noise_spectral_cutoff_minimum/maximum were replaced by initial_noise_nml: '// &
+                      "use noise_type = 'white', amplitude_t = 11.5*add_noise (grid rms [K]) for the old "// &
+                      'default cutoffs, seed = add_noise_seed, l_min/l_max/m_min for the cutoffs, and '// &
+                      "apply = 'every_start' to perturb every restart; see Migration_v2.md", FATAL)
+
+  end subroutine check_removed_keys
 
 !===============================================================================================
 
@@ -1445,6 +1522,8 @@ contains
     call write_restart_field(rst, 'vorg', vorg)
     call write_restart_field(rst, 'divg', divg)
     call write_restart_field(rst, 'surf_geopotential', surf_geopotential)
+    ! only when noise was added, so the restarts of runs without noise are unchanged
+    if (initial_noise_applied) call write_restart_field(rst, 'initial_noise_applied', 1.)
     call close_restart(rst)
 
     deallocate (ug, vg, tg, psg)
@@ -1454,6 +1533,7 @@ contains
     deallocate (vorg, divg)
     deallocate (surf_geopotential)
     deallocate (spec_tracers, grid_tracers)
+    if (allocated(noise_tg)) deallocate (noise_ug, noise_vg, noise_tg)
 
     if (use_implicit) call implicit_end
     call spectral_damping_end

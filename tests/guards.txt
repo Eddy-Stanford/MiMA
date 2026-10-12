@@ -10,3 +10,4 @@ unknown_ocean_model    rrtm  ocean_model_nml:ocean_model='foo'        unknown oc
 prescribed_no_sst_file rrtm  ocean_model_nml:ocean_model='prescribed' need sst_file
 mistyped_key           rrtm  ocean_model_nml:ocean_modle='slab'       mistyped namelist variable in namelist ocean_model_nml
 no_restart_dir         rrtm  rm:RESTART                               cannot write to the RESTART directory
+removed_noise_key      hs    spectral_dynamics_nml:add_noise=0.1      were replaced by initial_noise_nml

@@ -33,7 +33,8 @@ module atmosphere_mod
 
   use spectral_dynamics_mod, only: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels, &
                                    complete_robert_filter, &
-                                   get_axis_id, spectral_diagnostics, get_initial_fields
+                                   get_axis_id, spectral_diagnostics, get_initial_fields, &
+                                   get_initial_noise_increments
 
   use mpp_domains_mod, only: domain2d
 
@@ -78,8 +79,9 @@ contains
 !####################################################################################################################
 
   !> Initializes the dynamics and the physics, and reads the state from
-  !> `INPUT/atmosphere.res.nc` if it exists (otherwise the cold-start fields of the dynamics
-  !> are used).
+  !> `INPUT/atmosphere.res.nc` if it exists, adding the initial noise if the dynamics added
+  !> it at this restart (otherwise the cold-start fields of the dynamics, already
+  !> perturbed, are used).
   subroutine atmosphere_init(Time_init, Time, Time_step_in, Surf_diff)
 
     type(time_type), intent(in)    :: Time_init, Time, Time_step_in
@@ -90,6 +92,7 @@ contains
     integer :: lon_max, lat_max, ntr, nt
     integer, dimension(4) :: siz
     real :: level
+    logical :: noise_applied
     character(len=64) :: tr_name
     character(len=4) :: ch1, ch2, ch3, ch4
     type(restart_file_type) :: rst
@@ -162,6 +165,17 @@ contains
       end do ! end loop over time levels
       call read_restart_field(rst, 'wg_full', wg_full)
       call close_restart(rst)
+      ! initial noise added by the dynamics at this restart (initial_noise_nml); the
+      ! tendency arrays hold the increments for the moment
+      call get_initial_noise_increments(noise_applied, dt_ug, dt_vg, dt_tg)
+      if (noise_applied) then
+        do nt = 1, num_time_levels
+          ug(:, :, :, nt) = ug(:, :, :, nt) + dt_ug
+          vg(:, :, :, nt) = vg(:, :, :, nt) + dt_vg
+          tg(:, :, :, nt) = tg(:, :, :, nt) + dt_tg
+        end do
+        dt_ug = 0.; dt_vg = 0.; dt_tg = 0.
+      end if
     else
       previous = 1; current = 1
       call get_initial_fields(ug(:, :, :, 1), vg(:, :, :, 1), tg(:, :, :, 1), psg(:, :, 1), grid_tracers(:, :, :, 1, :))
