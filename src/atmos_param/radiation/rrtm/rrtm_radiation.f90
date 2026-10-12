@@ -607,14 +607,26 @@ contains
       dyofyr = 0
     end if
 
-    !get ozone
-    allocate (o3f(si, sj, sk))
+    !get ozone: on the whole grid for the ozone diagnostic, else only in the columns RRTM uses
+    ! (the interpolation is column by column, so these columns get the same values)
     if (do_read_ozone) then
-      call interpolator(o3_interp, Time_loc, p_half, o3f, trim(ozone_file))
+      if (id_ozone > 0) then
+        allocate (o3f(si, sj, sk))
+        call interpolator(o3_interp, Time_loc, p_half, o3f, trim(ozone_file))
+      else
+        allocate (o3f(si/lonstep, sj, sk))
+        call interpolator(o3_interp, Time_loc, p_half(1:si:lonstep, :, :), o3f, trim(ozone_file), istep=lonstep)
+      end if
       o3f = o3f*scale_ozone
       !due to interpolation, some values might be negative
       o3f = max(0.0, o3f)
-    else
+      if (id_ozone > 0) then
+        o3 = reshape(o3f(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
+      else
+        o3 = reshape(o3f(:, :, sk:1:-1), (/si*sj/lonstep, sk/))
+      end if
+    else if (id_ozone > 0) then
+      allocate (o3f(si, sj, sk))
       o3f = o3_val   ! only used for the ozone diagnostic; RRTM uses o3 = o3_val
     end if
 
@@ -651,7 +663,6 @@ contains
     else
       h2o = reshape(q(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
     end if
-    if (do_read_ozone) o3 = reshape(o3f(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
 
     cosz_rr = reshape(coszen(1:si:lonstep, :), (/si*sj/lonstep/))
     albedo_rr = reshape(albedo_loc(1:si:lonstep, :), (/si*sj/lonstep/))
@@ -778,10 +789,18 @@ contains
 
     ! check if we want surface albedo as a function of precipitation
     !  call diagnostics accordingly
-    if (do_precip_albedo) then
-      call write_diag_rrtm(Time_diag, is, js, o3f, t_half, albedo_loc)
+    if (id_ozone > 0) then
+      if (do_precip_albedo) then
+        call write_diag_rrtm(Time_diag, is, js, o3f, t_half, albedo_loc)
+      else
+        call write_diag_rrtm(Time_diag, is, js, o3f, t_half)
+      end if
     else
-      call write_diag_rrtm(Time_diag, is, js, o3f, t_half)
+      if (do_precip_albedo) then
+        call write_diag_rrtm(Time_diag, is, js, thalf=t_half, albedo_loc=albedo_loc)
+      else
+        call write_diag_rrtm(Time_diag, is, js, thalf=t_half)
+      end if
     end if
   end subroutine run_rrtmg
 

@@ -1417,7 +1417,7 @@ contains
 !
   !> Returns a 3-D field interpolated to the model grid, time and levels (see
   !> `interpolator`).
-  subroutine interpolator_3D(clim_type, Time, phalf, interp_data, field_name, is, js, clim_units)
+  subroutine interpolator_3D(clim_type, Time, phalf, interp_data, field_name, is, js, clim_units, istep)
     type(interpolate_type), intent(inout)  :: clim_type  !! set up by `interpolator_init`
     character(len=*), intent(in)  :: field_name  !! name of the field to interpolate
     type(time_type), intent(in)  :: Time  !! model time to interpolate to
@@ -1426,13 +1426,16 @@ contains
     integer, intent(in), optional :: is, js
     !! `is`, `js`: indices of the first point of the physics window (default 1)
     character(len=*), intent(out), optional :: clim_units  !! units of the field
+    integer, intent(in), optional :: istep
+    !! return only every `istep`-th longitude of the physics window (default 1); `phalf` and
+    !! `interp_data` then hold only those columns
     real :: tweight, tweight1, tweight2, tweight3
     integer :: taum, taup, ilon
     real :: hinterp_data(size(interp_data, 1), size(interp_data, 2), size(clim_type%levs(:)))
     real :: p_fact(size(interp_data, 1), size(interp_data, 2))
     real :: col_data(size(interp_data, 1), size(interp_data, 2))
     real :: pclim(size(clim_type%halflevs(:)))
-    integer :: istart, iend, jstart, jend
+    integer :: istart, iend, stride, jstart, jend
     logical :: result, found
     logical :: found_field = .false.
     integer :: modyear, modmonth, modday, modhour, modminute, modsecond
@@ -1449,7 +1452,9 @@ contains
 
     istart = 1
     if (present(is)) istart = is
-    iend = istart - 1 + size(interp_data, 1)
+    stride = 1
+    if (present(istep)) stride = istep
+    iend = istart + (size(interp_data, 1) - 1)*stride
 
     jstart = 1
     if (present(js)) jstart = js
@@ -1638,14 +1643,14 @@ contains
 
         select case (clim_type%TIME_FLAG)
         case (LINEAR, SEASONAL)
-          hinterp_data = (1 - tweight)*clim_type%data(istart:iend, jstart:jend, :, itaum, i) + &
-                         tweight*clim_type%data(istart:iend, jstart:jend, :, itaup, i)
+          hinterp_data = (1 - tweight)*clim_type%data(istart:iend:stride, jstart:jend, :, itaum, i) + &
+                         tweight*clim_type%data(istart:iend:stride, jstart:jend, :, itaup, i)
         case (BILINEAR)
           hinterp_data = &
-            (1 - tweight1)*(1 - tweight3)*clim_type%pmon_pyear(istart:iend, jstart:jend, :, i) + &
-            (1 - tweight2)*tweight3*clim_type%nmon_pyear(istart:iend, jstart:jend, :, i) + &
-            tweight1*(1 - tweight3)*clim_type%pmon_nyear(istart:iend, jstart:jend, :, i) + &
-            tweight2*tweight3*clim_type%nmon_nyear(istart:iend, jstart:jend, :, i)
+            (1 - tweight1)*(1 - tweight3)*clim_type%pmon_pyear(istart:iend:stride, jstart:jend, :, i) + &
+            (1 - tweight2)*tweight3*clim_type%nmon_pyear(istart:iend:stride, jstart:jend, :, i) + &
+            tweight1*(1 - tweight3)*clim_type%pmon_nyear(istart:iend:stride, jstart:jend, :, i) + &
+            tweight2*tweight3*clim_type%nmon_nyear(istart:iend:stride, jstart:jend, :, i)
 
         end select
 
