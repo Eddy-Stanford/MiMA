@@ -16,7 +16,7 @@ endif()
 # The model executable, mima; the subdirectories add its sources
 add_executable ( mima )
 
-option(INSTALL_EXEC "Install executables to exec/ directory?" OFF)
+option(INSTALL_EXEC "cmake --install creates a ready-to-run test case in exec/ (see MIMA_RUN_CONFIG)" OFF)
 
 # OpenMP threads some of MiMA's loops. Off by default, since an unset
 # OMP_NUM_THREADS would oversubscribe the cores used by MPI. A downloaded FMS
@@ -38,9 +38,18 @@ if(MIMA_OPENMP)
 endif()
 target_link_libraries(mima PRIVATE NetCDF::NetCDF_Fortran NetCDF::NetCDF_C)
 
-# The install prefix must be set before FMS is configured, which reads it.
-if(INSTALL_EXEC)
-    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/exec" CACHE PATH "..." FORCE)
+# With INSTALL_EXEC, install into exec/ in the source tree unless a prefix was
+# given. This sets a normal variable, so the cached prefix keeps its value and
+# applies again when INSTALL_EXEC is switched off. It must be set before FMS is
+# configured, which reads it.
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(MIMA_DEFAULT_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" CACHE INTERNAL
+        "CMAKE_INSTALL_PREFIX as CMake initialised it")
+endif()
+if(INSTALL_EXEC AND "${CMAKE_INSTALL_PREFIX}" STREQUAL "${MIMA_DEFAULT_INSTALL_PREFIX}")
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/exec")
+elseif(INSTALL_EXEC)
+    message(STATUS "INSTALL_EXEC: using the given CMAKE_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX}")
 endif()
 
 # FMS, found or downloaded (see cmake/MiMAFMS.cmake). This comes before
