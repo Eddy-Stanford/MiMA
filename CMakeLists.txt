@@ -110,3 +110,9 @@ else()
     install(TARGETS mima RUNTIME DESTINATION bin)
 endif()
 
+# Short model tests run with CTest, see tests/README.md
+option(MIMA_TESTING "Add the CTest tests in tests/" OFF)
+if(MIMA_TESTING)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
