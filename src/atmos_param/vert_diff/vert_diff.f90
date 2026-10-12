@@ -12,7 +12,7 @@
 !> table is `'none'` are not diffused.
 !>
 !> The switches are set by `vert_diff_driver_mod` from `vert_diff_driver_nml`. A
-!> technical description is in `vert_diff.tech.ps` in the source directory.
+!> technical description is in `docs/references/gfdl_vert_diff.pdf`.
 module vert_diff_mod
 
   use constants_mod, only: GRAV, RDGAS, RVGAS, CP_AIR

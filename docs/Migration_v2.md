@@ -115,7 +115,7 @@ Delete these from your `input.nml`. Variables marked with * were set in the v1 `
 | [`cg_drag_nml`](Parameters.md#cg_drag_nml) | `weighttop`*, `weightminus1`*, `weightminus2`*, `Bt_aug`, `Bt_eq_width`, `calculate_ked`, `num_diag_pts_ij`, `num_diag_pts_latlon`, `i_coords_gl`, `j_coords_gl`, `lat_coords_gl`, `lon_coords_gl` | read but never used |
 | [`coupler_nml`](Parameters.md#coupler_nml) | `do_flux` | not used |
 | [`gray_radiation_nml`](Parameters.md#gray_radiation_nml) | `wave_amp`, `wave_lon`, `wave_lat`, `wave_del_lon`, `wave_del_lat`, `wave_period`, `wave_env`, `wave_source` | the travelling-wave forcing they configured was disabled in the code |
-| [`monin_obukhov_nml`](Parameters.md#monin_obukhov_nml) | `relax_time` | any value other than 0 was a fatal error |
+| [`monin_obukhov_nml`](Parameters.md#monin_obukhov_nml) | `relax_time`, `stable_option`, `zeta_trans` | `relax_time`: any value other than 0 was a fatal error; `stable_option`, `zeta_trans`: used only by `stable_mix`, which MiMA never called |
 | [`rrtm_radiation_nml`](Parameters.md#rrtm_radiation_nml) | `do_read_radiation`, `radiation_file`, `do_read_sw_flux`, `sw_flux_file`, `do_read_lw_flux`, `lw_flux_file`, `do_read_h2o`, `h2o_file`, `do_fixed_water`, `fixed_water`, `fixed_water_pres`, `fixed_water_lat`, `rad_missing_value` | file-driven radiation and water vapour removed (reading ozone, `do_read_ozone`, stays) |
 | `simple_surface_nml` (v1; the group no longer exists) | `do_oflx`, `max_of`, `lonmax_of`, `latmax_of`, `latwidth_of`, `lonwidth_of`, `do_oflxmerid`, `maxofmerid`, `latmaxofmerid` | superseded by [`qflux_nml`](Parameters.md#qflux_nml); the rest of the group is converted as in the [mapping table](#old-to-new-namelist-mapping) |
 | [`atmos_model_nml`](Parameters.md#atmos_model_nml) | `do_netcdf_restart` | |
@@ -138,7 +138,7 @@ These groups belong to removed code. They are ignored if present; delete them.
 * Clouds: `strat_cloud_nml`, `cloud_rad_nml`, `diag_cloud*`/`rh_based_clouds_nml`
 * Convection: `donner_deep_nml`, `ras_nml`, `cu_mo_trans_nml`, `bm_massflux_nml`, `bm_omp_nml`, `dry_adj_nml`, `shallow_conv_nml`
 * Turbulence: `my25_turb_nml`, `edt_nml`, `entrain_nml`, `stable_bl_turb_nml`
-* Other: `ocean_rough_nml`, `atmosphere_nml` (`do_mcm_moist_processes`), `mcm_moist_processes_nml`, `mcm_mca_lsc_nml`, `fms_io_nml`, `mpp_io_nml`
+* Other: `ocean_rough_nml`, `atmosphere_nml` (`do_mcm_moist_processes`), `mcm_moist_processes_nml`, `mcm_mca_lsc_nml`, `fms_io_nml`, `mpp_io_nml`, `atmos_convection_tracer_nml` (its module is removed, see [Removed components](#removed-components))
 
 `&flux_exchange_nml`, which belonged to the removed full coupler, exists again in v2.0 with a new meaning (the reference heights of the surface diagnostics, [`flux_exchange_nml`](Parameters.md#flux_exchange_nml)). `&simple_surface_nml` is **not** ignored: the model stops if it is present ([Surface components](#surface-components)).
 
@@ -468,7 +468,8 @@ All diagnostics of removed schemes are gone:
 | `vert_turb` | `tke`, `lscale`, `lscale_0`, `diff_t_stab`, `diff_m_stab`, `diff_t_entr`, `diff_m_entr`, `diff_sc` (the Mellor-Yamada, stable-BL and entrainment fields; the other `vert_turb` fields remain) |
 | `moist` | the stratiform-cloud fields (`qldt_*`, `qidt_*`, `qadt_*`, `*_col` of liquid, ice and cloud fraction, `LWP`, `IWP`, `AWP`, `mc_full`), the Donner fields (`*_donner`, `<tracer>_donmca*`), `tdt_dadj` (dry adjustment), `massflux` (BM mass-flux), `capeflag` (never set) |
 | `damping` | `udt_topo`, `vdt_topo` |
-| `tracers` | `rnemiss` (never sent), `hook_no` |
+| `tracers` | `rnemiss` (never sent), `hook_no`, `bcemiss`, `ocemiss`, `sf6emiss` (their modules are removed) |
+| `climo`, `hinterp` | all (registered by an interpolator diagnostic routine that nothing called) |
 
 ### Diagnostics that now contain data
 
@@ -476,6 +477,8 @@ These were registered in v1 but never sent, so requesting them gave empty fields
 
 * `simple_surface` (now module `flux`): `tau_x`, `tau_y` (surface stress on the atmosphere, N/m2, positive eastward/northward), `t_ref`, `rh_ref` (at `z_ref_heat` = 2 m), `u_ref`, `v_ref` (at `z_ref_mom` = 10 m), and the Monin-Obukhov profile factors `del_h`, `del_m`, `del_q`. `rh_ref` can exceed 100% where evaporation is clipped (e.g. over cold land).
 * `moist`: `<tracer>dt_conv` and `<tracer>dt_conv_col` for tracers transported by MCA.
+* `radiation/albedo_rad` with RRTM is written on every radiation step (it was written only with `do_precip_albedo`); `tracers/<tracer>wdep_ls` and `wdep_cv` also for tracers in kg/kg units.
+* New: `damping/vdt_cgwd`, the meridional `cg_drag` tendency (the zonal one, `udt_cgwd`, existed).
 
 ### Units and long names
 
@@ -504,6 +507,9 @@ Only the `units` and `long_name` attributes changed (no field was renamed and no
 * **RRTM diagnostics** (`radiation/tdt_rad`, `olr`, ... with `radiation_scheme = 'rrtm'`) are sent at the end of the time step (`Time_next`), like all other physics, instead of at its start (BUG-69). They shift by one model step relative to v1; the first daily mean after a restart now matches a continuous run, and the last instantaneous record of a run is no longer empty.
 * **Every-step dynamics diagnostics** (module `dynamics_every`) are stamped at the time they are valid, `Time + step*dt/num_steps`, instead of `Time + step*int(dt/2)` (BUG-20). With the default `num_steps = 1`, `t_every` and `ps_every` now equal `dynamics/temp` and `ps` exactly.
 * Betts-Miller `invtaubmt`/`invtaubmq` were undefined in several branches, including the default one; they are now set.
+* The vertical-diffusion tendencies (`vert_diff/*_vdif`) are sent once per step instead of as -2x and +2x samples, so instantaneous, min and max output is now the diffusion tendency (time averages are unchanged up to rounding). `entrop_ls`, `entrop_vdif_sens` and `entrop_vdif_kediss` are scaled by the surface pressure, as `entrop_rad` is.
+* `dynamics_every`: `tdt_tempcor` is in K/s (was K per step); `psi_star` was computed with a non-conforming array assignment and `psi_dwc` read out of bounds on all but the first latitude domain, so both values change (`psi_dwc` is now independent of the decomposition and uses the spherical form of the EP-flux divergence); `wsubtv` uses the virtual temperature `T(1 + 0.608 q)`; `*_hadv` and `*_vadv` are no longer NaN where the wind is exactly zero.
+* RRTM with `store_intermediate_rad = .false.`: the radiation diagnostics are zero between radiation steps instead of stale; with `do_zm_rad` they are zonal means, like the heating applied (BUG-43).
 * `mca/<tracer>dt_conv`, the `flux` surface fields above and `radiation/ozone` contain data where they were empty or undefined.
 * The global integrals ([`diag_integral`](https://eddy-stanford.github.io/MiMA/api/mima_diag_integral_mod/)) use 64-bit counters: with the default `output_interval = -1` (one print at the end of the run) the counter overflowed after about four model years at T42. A field that is never sent (e.g. `prec` in a dry run) is written as zero instead of stopping the model.
 
@@ -514,7 +520,7 @@ Restart files are still written to `RESTART/` and read from `INPUT/`, and the re
 | File | Change |
 |---|---|
 | `cg_drag.res.nc` | **new**: `gwd_u`, `gwd_v` and the time to the next [`cg_drag`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) calculation (BUG-02). Without it (e.g. from v1 restarts) `cg_drag` cold-starts: no drag until `cg_drag_freq` has elapsed, as v1 did after every restart. |
-| `rrtm_radiation.res.nc` | **new**: the time of the last radiation call, the stored heating rates and fluxes, and the precipitation-albedo accumulators when used (BUG-03). Without it RRTM recomputes radiation on the first step, as v1 did. |
+| `rrtm_radiation.res.nc` | **new**: the time of the last radiation call (`dt_last`, and `t_last` in absolute model seconds), the stored heating rates and fluxes, and the precipitation-albedo accumulators when used (BUG-03). Without it, or without `t_last`, RRTM recomputes radiation on the first step, as v1 did. |
 | `physics_driver.res.nc` | now only `vers`, `diff_t`, `diff_m`. Dropped: `diff_cu_mo`, `pbltop`, `convect`, `doing_strat`, `doing_edt`, `doing_entrain`, `radturbten`, `lw_tendency`. |
 | `spectral_physics.res.nc` | no longer written or read (it held state for the removed moist-after-dynamics path) |
 | `atmos_coupled.res.nc` | the unused grid bounds `glon_bnd`, `glat_bnd` are no longer written (BUG-21). `dt` is still written but no longer read: `lprec` and `fprec` are rates and are not rescaled when `dt_atmos` changes (BUG-67). |
@@ -528,6 +534,8 @@ Other changes:
 * The native (unformatted) restart format is no longer supported (`do_netcdf_restart` is removed). A native-format restart file in `INPUT/` without a netCDF one is a fatal error.
 * A restart field whose size does not match the model grid is a fatal error.
 * `cg_drag_freq` no longer has to divide a day.
+* An unformatted (pre-netCDF) `INPUT/coupler.res` is no longer read; an unreadable `coupler.res` stops the model.
+* `restart_tbot_qbot = .true.` with an `atmos_coupled.res.nc` that has no `t_bot`/`q_bot` prints a note and continues (it used to fail).
 
 ### Surface restart files
 
@@ -581,6 +589,7 @@ Both components read `t_surf`: the model takes the ocean file where its temperat
 | RRTM radiation and water vapour read from files | `do_read_radiation`, `do_read_sw_flux`, `do_read_lw_flux`, `do_read_h2o`, `do_fixed_water` | not used; `do_fixed_water` also used the wrong units (BUG-40) |
 | Inert `cg_drag` parameters and column diagnostics | `weighttop`, ..., `num_diag_pts_*` | read but never used; the column-diagnostic code was never compiled |
 | Native-format restarts | `do_netcdf_restart` | netCDF restarts only |
+| Carbon aerosol, SF6 and convection-tracer modules (`atmos_carbon_aerosol`, `atmos_sulfur_hex`, `atmos_convection_tracer`) | `field_table` entries `bcphob`, `bcphil`, `ocphob`, `ocphil`, `sf6`, `cnvct_trcr` | needed input files that were never shipped, or stopped at start-up (`cnvct_trcr`); tracers with these names are now passive. Radon (`atmos_radon`) remains |
 | Bundled FMS (`src/shared`) | | replaced by the external FMS library |
 | Uncompiled and unused code (old `flux_exchange` coupler, solo driver, RRTMG McICA, `beta_dist`, test programs, CVS files) | | never built or never called |
 
@@ -610,6 +619,10 @@ v2.0 does not reproduce v1. The fixes below change the results of the shipped co
 | **Land roughness for every land-mask source**: `mom_roughness_land` and `q_roughness_land` (now `rough_mom_factor`, `rough_moist_factor`) were applied only with `land_option = 'interpolated'`; the other sources, with `roughness_choice = 3` or `4`, left the land with the ocean roughness (and `'oceanmaskpole'` read an unallocated array, BUG-46/70) | `roughness_choice = 3` or `4` with a land mask other than `'navy'` | not measured | not measured | the Navy land (the default) is bit for bit unchanged |
 | **BUG-98**: `no_surface_radiative_flux` and `no_surface_momentum_flux` were not applied in the derivatives of the longwave and the stress (`drdt_surf`, `dtaudu_atm`, `dtaudv_atm`), so the implicit step still responded to a flux that was switched off | settings that switch these fluxes off | not measured | not measured | the default configuration is bit for bit unchanged |
 | **BUG-97**: the `seawater` argument of `surface_flux` was `.false.` everywhere, so the NCAR (Large and Yeager) ocean fluxes never acted; it is now the ocean mask | `&surface_flux_nml ncar_ocean_flux = .true.` only | not measured | not measured | the default configuration is bit for bit unchanged |
+| **BUG-122**: with `do_taucape = .true.` the Betts-Miller relaxation time is `max(tau_bm*sqrt(capetaubm/CAPE), tau_min)` in each column; v1 overwrote `tau_bm` with it, so it drifted from column to column and step to step and depended on the domain decomposition | `&betts_miller_nml do_taucape = .true.` only | not measured | not measured | the default configuration is bit for bit unchanged |
+| **BUG-41/79**: with `use_dyofyr = .true.` RRTMG gets the calendar day of the year for the Earth-Sun distance; v1 passed the day counted from the equinox, so perihelion fell about 91 days late | `&rrtm_radiation_nml use_dyofyr = .true.` only | not measured | not measured | the default configuration is bit for bit unchanged |
+| `do_const_drag` and `mg_drag_nml flux_cut_level` take their reference pressure and cut level over the whole globe instead of each process's own domain, so the results no longer depend on the number of processes | those options only | not measured | not measured | the default configuration is bit for bit unchanged |
+| Several `local_heating_nml` sources with `pcenter > 0` each use their own horizontal pattern; v1 multiplied the sum of all patterns by each source's vertical profile | two or more 3-D heating sources only | not measured | not measured | one source is unchanged |
 
 The radius and SVP changes, and BUG-01, 04, 14 and 15 individually, change the 30-day zonal means by one to two times the noise level: they are systematic, but small. **BUG-13 is not small**: it weakens the gravity-wave drag above `damp_level_pressure` (0.85 hPa) by about a third and changes the winds above about 1 hPa substantially. After 30 days:
 
@@ -659,6 +672,21 @@ These do not change the answers of the shipped configurations.
 * A missing humidity tracer is fatal instead of an out-of-bounds read (BUG-06).
 * [`local_heating`](https://eddy-stanford.github.io/MiMA/api/local_heating_mod/) no longer depends on the RRTM code (BUG-23) or on the C preprocessor for its namelist (BUG-22).
 * [`vert_diff`](https://eddy-stanford.github.io/MiMA/api/vert_diff_mod/) writes its log line only on the root PE (BUG-25); `time_stamp.out` and `coupler.res` are written by the root PE only.
+* Physics: without a convection scheme (`do_bm = do_mca = .false.`) the convective tendencies are zero instead of undefined; wet deposition no longer runs twice with `do_lsc = .false.` and no longer indexes the tendency array out of bounds; `moist_conv` no longer reads past `phalf`; a Betts-Miller parcel buoyant to the model top relaxes the top level; `mo_diff` is defined at very stable, near-calm points; `clock_grain = 'MODULE_DRIVER'` no longer stops Held-Suarez runs; `drag_min = 0` is accepted; `cg_drag` checks its source bands and levels and `diag_integral` its `time_units` at start-up; the per-column "Tolerence (ALTOL) doubled" note is gone.
+* RRTM: `dt_rad >= 86400` works (the alarm never fired again, BUG-42 overflow fixed too); `lonstep` must divide the longitudes per process (it silently mis-mapped columns); the SW driver receives zero arrays of its own band counts; the cloud flags are set also for clear-sky calls.
+* Interpolator ([`mima_interpolator_mod`](https://eddy-stanford.github.io/MiMA/api/mima_interpolator_mod/)): field names keep their case (an `ozone_file` variable with upper-case letters was not found); "months since" time units stop the model instead of being read as days; fractional days are kept; the unknown-field check works on every call (BUG-75); `interpolator_nml` is read (BUG-74); ending one interpolator no longer disables the others.
+* Tracers: the components end on every process (BUG-31/80); the `'file'` dry-deposition scheme stops with a message instead of using an undefined array, and `wind_driven` no longer divides by zero (BUG-82); wet deposition sums all tracer units (BUG-83); `atmos_radon_nml` is read (BUG-78).
+* Surface: a comment in `input.nml` that only mentions `warmpool_localization_choice` or `north_sea_heat` no longer stops the model.
+* Dynamical core: `vert_coordinate_nml` with more than 100 levels stops with a message instead of reading out of bounds; `do_water_correction` with `water_correction_limit > 0` and a spectral humidity tracer stops with a message (the correction applied a grid mask to a spectral array); the transposes wait for their own sends (`mpp_sync_self`) instead of a global barrier (the pending sends from freed buffers were not allowed by MPI).
+
+### Fortran interface changes
+
+These matter only for user Fortran code built on MiMA's modules.
+
+* `transforms_mod`: `trans_filter`, `divide_by_cos2`, `get_triang_trunc`, `reset_num_lon_in_transform` and most re-exports are gone; take the domains from `spec_mpp_mod`. `spherical_mod`: `compute_vor`, `compute_div`, `get_fourier_wave`. `spherical_fourier_mod`: `get_south_to_north`, `get_cos_lat`, `get_cosm2_lat`. `grid_fourier_mod`: `get_longitude_origin`. `fft99_mod`: `fft99`. `spectral_dynamics_mod`: `get_use_virtual_temperature`, `get_reference_sea_level_press`. `spec_mpp_init` and `fv_advection_init` lose their layout arguments, and `global_spectral_domain` is gone. `matrix_invert_mod` is private by default; `press_and_geopot_mod` adds `zero_top_pressure`.
+* The spectral core sources moved from `model/`, `tools/`, `driver/coupled/` to `atmosphere/`, `dynamics/`, `diagnostics/`, `init/` and `transforms/` (which also holds the FFT, formerly `src/mima_shared/fft/fft.F90`, now `fft.f90`).
+* `surface_flux` lost its `rough_scale` and `dt` arguments; `atmos_data_type` lost `glon_bnd`/`glat_bnd`; `land_atmos_boundary_type` and `ice_atmos_boundary_type` are gone; `surface_flux_init` is public and called by `flux_exchange_init`.
+* `moist_processes_init(axes, Time)`; `horizontal_heating` of `local_heating_mod` takes an optional `only` source index.
 
 ## New features
 
@@ -679,3 +707,5 @@ These do not change the answers of the shipped configurations.
 * **Start-up checks** that FMS uses the GFDL physical constants and the simple saturation vapour pressure table.
 * **Modern FMS** (2026.01.01 or later; 2026.02 if downloaded) and build: CMake 3.22, `find_package(FMS)` with a pinned download as fallback, optional OpenMP.
 * **CF/UDUNITS-style units** for all diagnostics.
+* **Tests** in `tests/`, run with CTest: `cmake -S . -B build -DMIMA_TESTING=ON`, `cmake --build build`, `ctest --test-dir build --output-on-failure` (about two minutes on four cores). Short smoke runs of the shipped configurations, a restart-equals-continuous check, a code-defaults-equal-`input.nml` check, start-up guards, and an optional bit-for-bit comparison against a reference build (`-DMIMA_TEST_REFERENCE`). See `tests/README.md`.
+* **Namelist check**: `tools/mimadoc validate diag_table --nml input.nml` also reports namelist groups and variables that do not exist in the source.

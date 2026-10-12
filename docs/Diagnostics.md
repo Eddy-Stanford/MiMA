@@ -10,8 +10,8 @@ model can provide, with the namelist settings it needs.
 * [Fields by module](#fields-by-module)
 
 Ready-made tables are in the repository: `input/diag_table` (the default RRTM test
-case), `input/examples/gray/diag_table` (gray radiation) and
-`input/examples/held_suarez/diag_table` (dry Held-Suarez).
+case), `examples/gray/diag_table` (gray radiation) and
+`examples/held_suarez/diag_table` (dry Held-Suarez).
 
 ## How to write a diag_table
 
@@ -65,7 +65,7 @@ With the 30-day calendar of the test case, `30, "days"` and `1, "months"` are th
 | sampling | `"all"` | Not used. Always `"all"`. |
 | reduction | `.true.` | What to write at each output time. `.true.`: the time mean since the last output. `.false.`: the instantaneous value. `"max"` / `"min"`: the maximum / minimum since the last output (`_max` / `_min` is appended to the output name unless it already ends that way). `"rms"`, `"sum"`, `"pow2"` (mean of the square) and `"diurnal24"` (24 diurnal-cycle means) also work. Use `.false.` for static fields. |
 | region | `"none"` | `"none"` writes the whole globe. A region is given as `"lon_min lon_max lat_min lat_max k_min k_max"` in degrees and level indices (`-1 -1` for all levels). |
-| packing | `2` | Precision of the output: `1` = double (64-bit), `2` = single (32-bit float). `4` and `8` pack to 16-bit and 8-bit integers. |
+| packing | `2` | Precision of the output: `1` = double (64-bit), `2` = single (32-bit float). FMS rejects other values. |
 
 A line may be at most 256 characters long. Two fields in the same file must have
 different output names; to write the same field twice (for example its mean and its
@@ -98,7 +98,7 @@ WARNING from PE 0: diag_util_mod::opening_file: module/field_name (radiation/tdt
 ```
 
 and leaves the field out of the file. Errors in the table itself (a wrong number of
-columns, an undefined file, a packing value outside 1-8, a duplicated output name) are
+columns, an undefined file, a packing value other than 1 or 2, a duplicated output name) are
 fatal.
 
 ## Checking a diag_table
@@ -114,7 +114,9 @@ It reports field lines whose module/field is not registered anywhere (with a hin
 the field exists under another module), fields that are not available with the settings
 in `input.nml` (`--nml` is optional; namelist variables not set there take their default
 values from the source), and format errors: undefined files, unknown reduction methods,
-packing values and duplicated output names. It exits with status 1 if it finds a
+packing values and duplicated output names. With `--nml` it also checks that every namelist
+group and variable in `input.nml` exists in the source (the FMS groups are accepted), since a
+mistyped variable stops the model at start-up. It exits with status 1 if it finds a
 problem.
 
 ## Reading the field tables

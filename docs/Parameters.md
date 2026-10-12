@@ -22,8 +22,8 @@ Contents:
 * [Moisture](#moisture): [`moist_processes_nml`](#moist_processes_nml), [`betts_miller_nml`](#betts_miller_nml), [`lscale_cond_nml`](#lscale_cond_nml), [`moist_conv_nml`](#moist_conv_nml)
 * [Damping and gravity-wave drag](#damping-and-gravity-wave-drag): [`damping_driver_nml`](#damping_driver_nml), [`cg_drag_nml`](#cg_drag_nml), [`mg_drag_nml`](#mg_drag_nml)
 * [Held-Suarez forcing](#held-suarez-forcing): [`held_suarez_nml`](#held_suarez_nml)
-* [Local heating](#local-heating): `local_heating_nml`
-* [Tracers and input data](#tracers-and-input-data): [`atmos_radon_nml`](#atmos_radon_nml), [`atmos_convection_tracer_nml`](#atmos_convection_tracer_nml), [`interpolator_nml`](#interpolator_nml)
+* [Local heating](#local-heating): [`local_heating_nml`](#local_heating_nml)
+* [Tracers and input data](#tracers-and-input-data): [`atmos_radon_nml`](#atmos_radon_nml), [`interpolator_nml`](#interpolator_nml)
 * [FMS namelists](#fms-namelists): `sat_vapor_pres_nml`, `topography_nml`, `gaussian_topog_nml`, `fms_nml`, `diag_manager_nml`
 
 ## General
