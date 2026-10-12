@@ -164,7 +164,7 @@ module mima_interpolator_mod
   type(axis_info_type), allocatable :: axes(:)
   type(field_info_type), allocatable :: varfields(:)
 
-  character(len=32) :: name, units
+  character(len=64) :: name, units  ! as long as field_name
   integer           :: sense
 
 ! flags to indicate direction of vertical axis in  data file
@@ -834,7 +834,7 @@ contains
         name = varfields(i)%name
         units = varfields(i)%units
         if (mpp_pe() == 0) write (*, *) 'Initializing src field : ', trim(name)
-        clim_type%field_name(i) = lowercase(trim(name))
+        clim_type%field_name(i) = name   ! as in the file, as with data_names
         clim_type%field_type(i) = varfields(i)
         clim_type%mr(i) = check_climo_units(units)
         if (present(clim_units)) clim_units(i) = units
