@@ -80,7 +80,6 @@ module atmos_model_mod
   type land_ice_atmos_boundary_type
     real, dimension(:, :), pointer :: t => null() !! surface temperature [K]
     real, dimension(:, :), pointer :: albedo => null() !! surface albedo
-    real, dimension(:, :), pointer :: land_frac => null() !! land fraction of the grid box (0; not used by the physics)
     real, dimension(:, :), pointer :: dt_t => null()
     !! change of the lowest-level temperature for the up sweep of the vertical diffusion [K]
     real, dimension(:, :), pointer :: dt_q => null()
@@ -94,8 +93,6 @@ module atmos_model_mod
     !! [kg/m2/s]
     real, dimension(:, :), pointer :: u_star => null() !! friction velocity [m/s]
     real, dimension(:, :), pointer :: b_star => null() !! buoyancy scale [m/s2]
-    real, dimension(:, :), pointer :: q_star => null()
-    !! moisture scale [kg/kg] (0: not set by `flux_exchange_mod`; not used by the physics)
     real, dimension(:, :), pointer :: rough_mom => null() !! roughness length for momentum [m]
   end type land_ice_atmos_boundary_type
 
@@ -125,12 +122,11 @@ contains
 !-----------------------------------------------------------------------
     call mpp_clock_begin(atmClock)
 
-    call atmosphere_down(Atmos%Time, Surface_boundary%land_frac, &
+    call atmosphere_down(Atmos%Time, &
                          Surface_boundary%t, Surface_boundary%albedo, &
                          Surface_boundary%rough_mom, &
                          Surface_boundary%u_star, &
                          Surface_boundary%b_star, &
-                         Surface_boundary%q_star, &
                          Surface_boundary%dtaudu, &
                          Surface_boundary%dtaudv, &
                          Surface_boundary%u_flux, &
@@ -166,7 +162,7 @@ contains
     Atmos%Surf_diff%delta_t = Surface_boundary%dt_t
     Atmos%Surf_diff%delta_q = Surface_boundary%dt_q
 
-    call atmosphere_up(Atmos%Time, Surface_boundary%land_frac, Atmos%Surf_diff, &
+    call atmosphere_up(Atmos%Time, Atmos%Surf_diff, &
                        Atmos%lprec, Atmos%fprec, Atmos%gust)
 
 !   --- advance time ---

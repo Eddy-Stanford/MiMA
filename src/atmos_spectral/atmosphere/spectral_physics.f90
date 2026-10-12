@@ -134,7 +134,7 @@ contains
   !> Calls `physics_driver_down` with the fields at the current and previous time levels.
   subroutine spectral_physics_down(Time_prev, Time, Time_next, previous, current, &
                                    p_half, p_full, z_half, z_full, ug, vg, tg, grid_tracers, &
-                                   frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, dtau_du, dtau_dv, tau_x, tau_y, &
+                                   rough_mom, albedo, t_surf, u_star, b_star, dtau_du, dtau_dv, tau_x, tau_y, &
                                    dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_lw, gust, Surf_diff)
 
     type(time_type), intent(in) :: Time_prev, Time, Time_next
@@ -147,11 +147,10 @@ contains
     real, intent(in), dimension(:, :, :, :) :: ug, vg, tg
     !! zonal and meridional wind [m/s] and temperature [K] at the two time levels
     real, intent(inout), dimension(:, :, :, :, :) :: grid_tracers  !! tracers at the two time levels
-    real, intent(in), dimension(:, :) :: frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, dtau_du, dtau_dv
-    !! surface fields: land fraction; roughness length for momentum [m]; albedo; surface
-    !! temperature [K]; friction velocity [m/s]; buoyancy scale [m/s2]; moisture scale
-    !! [kg/kg]; derivatives of the zonal and meridional surface stress with respect to the
-    !! lowest-level wind [kg/m2/s]
+    real, intent(in), dimension(:, :) :: rough_mom, albedo, t_surf, u_star, b_star, dtau_du, dtau_dv
+    !! surface fields: roughness length for momentum [m]; albedo; surface temperature [K];
+    !! friction velocity [m/s]; buoyancy scale [m/s2]; derivatives of the zonal and
+    !! meridional surface stress with respect to the lowest-level wind [kg/m2/s]
     real, intent(inout), dimension(:, :) :: tau_x, tau_y  !! zonal and meridional surface stress [Pa]
     real, intent(inout), dimension(:, :, :) :: dt_ug, dt_vg, dt_tg
     !! tendencies of the zonal and meridional wind [m/s2] and temperature [K/s]
@@ -175,8 +174,8 @@ contains
                              grid_tracers(:, :, :, current, :), ug(:, :, :, previous), vg(:, :, :, previous), &
                              tg(:, :, :, previous), grid_tracers(:, :, :, previous, nhum), &
                              grid_tracers(:, :, :, previous, :), &
-                             frac_land, rough_mom, albedo, &
-                             t_surf, u_star, b_star, q_star, &
+                             rough_mom, albedo, &
+                             t_surf, u_star, b_star, &
                              dtau_du, dtau_dv, tau_x, tau_y, &
                              dt_ug, dt_vg, dt_tg, &
                              dt_tracers(:, :, :, nhum), dt_tracers, flux_sw(:, :), &
@@ -188,7 +187,7 @@ contains
   !> Calls `physics_driver_up` with the fields at the current and previous time levels.
   subroutine spectral_physics_up(Time_prev, Time, Time_next, previous, current, p_half, p_full, &
                                  z_half, z_full, wg_full, ug, vg, tg, grid_tracers, &
-                                 frac_land, dt_ug, dt_vg, dt_tg, dt_tracers, Surf_diff, lprec, fprec, gust)
+                                 dt_ug, dt_vg, dt_tg, dt_tracers, Surf_diff, lprec, fprec, gust)
 
     type(time_type), intent(in) :: Time_prev, Time, Time_next
     !! times of the previous, current and next time levels
@@ -200,7 +199,6 @@ contains
     real, intent(in), dimension(:, :, :, :) :: ug, vg, tg
     !! zonal and meridional wind [m/s] and temperature [K] at the two time levels
     real, intent(in), dimension(:, :, :, :, :) :: grid_tracers  !! tracers at the two time levels
-    real, intent(in), dimension(:, :) :: frac_land  !! land fraction
     real, intent(inout), dimension(:, :, :) :: dt_ug, dt_vg, dt_tg
     !! tendencies of the zonal and meridional wind [m/s2] and temperature [K/s]
     real, intent(inout), dimension(:, :, :, :) :: dt_tracers  !! tracer tendencies
@@ -222,7 +220,7 @@ contains
                            ug(:, :, :, previous), vg(:, :, :, previous), &
                            tg(:, :, :, previous), grid_tracers(:, :, :, previous, nhum), &
                            grid_tracers(:, :, :, previous, :), &
-                           frac_land, dt_ug, dt_vg, dt_tg, &
+                           dt_ug, dt_vg, dt_tg, &
                            dt_tracers(:, :, :, nhum), dt_tracers, Surf_diff, &
                            lprec, fprec, gust)
 

@@ -358,9 +358,9 @@ contains
                                  lat, lon, area, &
                                  p_half, p_full, z_half, z_full, &
                                  u, v, t, q, r, um, vm, tm, qm, rm, &
-                                 frac_land, rough_mom, &
+                                 rough_mom, &
                                  albedo, t_surf_rad, &
-                                 u_star, b_star, q_star, &
+                                 u_star, b_star, &
                                  dtau_du, dtau_dv, tau_x, tau_y, &
                                  udt, vdt, tdt, qdt, rdt, &
                                  flux_sw, flux_lw, gust, &
@@ -386,15 +386,13 @@ contains
     !! `tm`, `qm`: the same at the previous time level
     real, dimension(:, :, :, :), intent(inout)          :: r  !! tracers at the current time level
     real, dimension(:, :, :, :), intent(inout)          :: rm  !! tracers at the previous time level
-    real, dimension(:, :), intent(in)             :: frac_land, &
-                                                     rough_mom, &
+    real, dimension(:, :), intent(in)             :: rough_mom, &
                                                      albedo, t_surf_rad, &
                                                      u_star, b_star, &
-                                                     q_star, dtau_du, dtau_dv
-    !! surface fields: land fraction; roughness length for momentum [m]; albedo; radiative
-    !! surface temperature [K]; friction velocity [m/s]; buoyancy scale [m/s2]; moisture
-    !! scale [kg/kg]; derivatives of the zonal and meridional surface stress with respect to
-    !! the lowest-level wind [kg/m2/s]
+                                                     dtau_du, dtau_dv
+    !! surface fields: roughness length for momentum [m]; albedo; radiative surface
+    !! temperature [K]; friction velocity [m/s]; buoyancy scale [m/s2]; derivatives of the
+    !! zonal and meridional surface stress with respect to the lowest-level wind [kg/m2/s]
     real, dimension(:, :), intent(inout)          :: tau_x, tau_y  !! zonal and meridional surface stress [N/m2]
     real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt, qdt
     !! tendencies of the zonal and meridional wind [m/s2], temperature [K/s] and specific
@@ -415,7 +413,7 @@ contains
 
     real, dimension(size(u, 1), size(u, 2), size(u, 3)) :: diff_t_vert, &
                                                            diff_m_vert
-    real, dimension(size(u, 1), size(u, 2))           :: z_pbl
+    real, dimension(size(u, 1), size(u, 2))           :: z_pbl, frac_land
     integer          ::    sec, day
     real             ::    dt, alpha, dt2
 
@@ -427,6 +425,9 @@ contains
 !      diff_m_vert     vertical diffusion coefficient for momentum
 !                      calculated on the current step
 !      z_pbl           height of planetary boundary layer
+!      frac_land       land fraction for the tracers (dry deposition, radon
+!                      source): zero, as the surface model has no fractional
+!                      land
 !      sec, day        second and day components of the time_type
 !                      variable
 !      dt              model physics time step [ seconds ]
@@ -515,6 +516,7 @@ contains
 !    process any tracer fields.
 !-----------------------------------------------------------------------
     call mpp_clock_begin(tracer_clock)
+    frac_land = 0.0
     call atmos_tracer_driver(is, ie, js, je, Time, lon, lat, &
                              frac_land, p_half, p_full, r, u, v, t, &
                              q, u_star, rdt, rm, dt, z_half, &
@@ -598,7 +600,6 @@ contains
                                p_half, p_full, z_half, z_full, &
                                omega, &
                                u, v, t, q, r, um, vm, tm, qm, rm, &
-                               frac_land, &
                                udt, vdt, tdt, qdt, rdt, &
                                Surf_diff, &
                                lprec, fprec, gust, &
@@ -624,7 +625,6 @@ contains
     !! time level
     real, dimension(:, :, :, :), intent(in)             :: r, rm
     !! tracers at the current and previous time levels
-    real, dimension(:, :), intent(in)             :: frac_land  !! land fraction
     real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt, qdt
     !! tendencies of the zonal and meridional wind [m/s2], temperature [K/s] and specific
     !! humidity [kg/kg/s]
@@ -689,7 +689,7 @@ contains
 !-----------------------------------------------------------------------
     if (do_moist_physics) then
       call mpp_clock_begin(moist_processes_clock)
-      call moist_processes(is, ie, js, je, Time_next, dt, frac_land, &
+      call moist_processes(is, ie, js, je, Time_next, dt, &
                            p_half, p_full, z_half, z_full, omega, &
                            diff_t(is:ie, js:je, :), &
                            t, q, r, u, v, tm, qm, rm, um, vm, &

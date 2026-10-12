@@ -139,7 +139,7 @@ contains
   !>
   !> The schemes act on the current time level (`use_tau`) or on the values updated with
   !> the tendencies so far (`tm + tdt*dt`, the default).
-  subroutine moist_processes(is, ie, js, je, Time, dt, land, &
+  subroutine moist_processes(is, ie, js, je, Time, dt, &
                              phalf, pfull, zhalf, zfull, omega, diff_t, &
                              t, q, r, u, v, tm, qm, rm, um, vm, &
                              tdt, qdt, rdt, udt, vdt, &
@@ -150,7 +150,6 @@ contains
     !! starting and ending subdomain i, j indices of the physics window
     type(time_type), intent(in)              :: Time  !! time for the diagnostics
     real, intent(in)                      :: dt  !! time step (from t(n-1) to t(n+1) for leapfrog) [s]
-    real, intent(in), dimension(:, :)     :: land  !! land fraction (not used)
     real, intent(in), dimension(:, :, :)   :: phalf, pfull, zhalf, zfull, &
                                               omega, diff_t, &
                                               t, q, u, v, tm, qm, um, vm

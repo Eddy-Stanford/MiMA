@@ -198,18 +198,17 @@ contains
   !>
   !> The physics time step is twice the model time step (leapfrog), except on the first
   !> step of a cold start.
-  subroutine atmosphere_down(Time, frac_land, t_surf, albedo, &
-                             rough_mom, u_star, b_star, q_star, dtau_du, dtau_dv, tau_x, tau_y, &
+  subroutine atmosphere_down(Time, t_surf, albedo, &
+                             rough_mom, u_star, b_star, dtau_du, dtau_dv, tau_x, tau_y, &
                              gust, flux_sw, flux_lw, Surf_diff)
 
     type(time_type), intent(in) :: Time  !! current time
-    real, intent(in), dimension(:, :) :: frac_land, t_surf, albedo
-    !! `frac_land`: land fraction; `t_surf`: surface temperature [K]; `albedo`: surface albedo
-    real, intent(in), dimension(:, :) :: rough_mom, u_star, b_star, q_star, dtau_du, dtau_dv
+    real, intent(in), dimension(:, :) :: t_surf, albedo
+    !! `t_surf`: surface temperature [K]; `albedo`: surface albedo
+    real, intent(in), dimension(:, :) :: rough_mom, u_star, b_star, dtau_du, dtau_dv
     !! `rough_mom`: roughness length for momentum [m]; `u_star`: friction velocity [m/s];
-    !! `b_star`: buoyancy scale [m/s2]; `q_star`: moisture scale [kg/kg]; `dtau_du`, `dtau_dv`:
-    !! derivatives of the zonal and meridional surface stress with respect to the
-    !! lowest-level wind [kg/m2/s]
+    !! `b_star`: buoyancy scale [m/s2]; `dtau_du`, `dtau_dv`: derivatives of the zonal and
+    !! meridional surface stress with respect to the lowest-level wind [kg/m2/s]
     real, intent(inout), dimension(:, :) :: tau_x, tau_y  !! zonal and meridional surface stress [Pa]
     real, intent(out), dimension(:, :) :: flux_sw, flux_lw, gust
     !! `flux_sw`: net downward shortwave flux at the surface [W/m2]; `flux_lw`: downward
@@ -237,7 +236,7 @@ contains
 
     call mpp_clock_begin(phyclock)
     call spectral_physics_down(Time_prev, Time, Time_next, previous, current, p_half, p_full, z_half, z_full, &
-                               ug, vg, tg, grid_tracers, frac_land, rough_mom, albedo, t_surf, u_star, b_star, q_star, &
+                               ug, vg, tg, grid_tracers, rough_mom, albedo, t_surf, u_star, b_star, &
                                dtau_du, dtau_dv, tau_x, tau_y, &
                                dt_ug, dt_vg, dt_tg, dt_tracers, flux_sw, flux_lw, gust, Surf_diff)
     call mpp_clock_end(phyclock)
@@ -249,10 +248,9 @@ contains
   !> Finishes the physics (`physics_driver_up`: vertical diffusion up from the surface and
   !> moist processes), steps the dynamics, completes the Robert filter and sends the
   !> dynamics diagnostics.
-  subroutine atmosphere_up(Time, frac_land, Surf_diff, lprec, fprec, gust)
+  subroutine atmosphere_up(Time, Surf_diff, lprec, fprec, gust)
 
     type(time_type), intent(in)                          :: Time  !! current time
-    real, intent(in), dimension(is:ie, js:je) :: frac_land  !! land fraction
     type(surf_diff_type), intent(inout)                       :: Surf_diff
     !! surface data of the implicit vertical diffusion, including the changes of the
     !! lowest-level temperature and humidity from the surface
@@ -267,7 +265,7 @@ contains
 
     call mpp_clock_begin(phyclock)
     call spectral_physics_up(Time_prev, Time, Time_next, previous, current, p_half, p_full, z_half, z_full, wg_full, ug, vg, tg, &
-                             grid_tracers, frac_land, dt_ug, dt_vg, dt_tg, dt_tracers, Surf_diff, lprec, fprec, gust)
+                             grid_tracers, dt_ug, dt_vg, dt_tg, dt_tracers, Surf_diff, lprec, fprec, gust)
     call mpp_clock_end(phyclock)
 
     if (previous == current) then

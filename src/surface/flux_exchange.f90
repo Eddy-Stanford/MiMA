@@ -576,7 +576,6 @@ contains
 
     allocate (Boundary%t(id, jd), &
               Boundary%albedo(id, jd), &
-              Boundary%land_frac(id, jd), &
               Boundary%dtaudu(id, jd), &
               Boundary%dtaudv(id, jd), &
               Boundary%dt_t(id, jd), &
@@ -585,12 +584,10 @@ contains
               Boundary%v_flux(id, jd), &
               Boundary%u_star(id, jd), &
               Boundary%b_star(id, jd), &
-              Boundary%q_star(id, jd), &
               Boundary%rough_mom(id, jd))
 
     Boundary%t = 0.0
     Boundary%albedo = albedo_bg
-    Boundary%land_frac = 0.0
     Boundary%dtaudu = 0.0
     Boundary%dtaudv = 0.0
     Boundary%dt_t = 0.0
@@ -599,7 +596,6 @@ contains
     Boundary%v_flux = 0.0
     Boundary%u_star = 0.0
     Boundary%b_star = 0.0
-    Boundary%q_star = 0.0
     Boundary%rough_mom = rough_mom
 
 !------ the exchange fields for the ocean and land models ------
