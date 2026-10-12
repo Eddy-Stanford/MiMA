@@ -142,7 +142,7 @@ contains
     integer :: i, j, k, kk, KX, ITER, MXLEV, MXLEV1, kstart, KTOP, KBOT, KBOTM1
     real    :: ALTOL, Sum0, Sum1, Sum2, EsDiff, EsVal, Thaf, Pdelta
 
-    real, dimension(size(Phalf, 1), size(Phalf, 2), size(Phalf, 3)) :: pmass
+    real, dimension(size(Tin, 1), size(Tin, 2), size(Tin, 3)) :: pmass
     real, dimension(size(Phalf, 1), size(Phalf, 2)) :: tempdiag
     integer  :: tr
 !-----------------------------------------------------------------------
@@ -151,11 +151,11 @@ contains
                                                      'moist_conv_init has not been called', FATAL)
     !moist_conv_init ( )
 
-    do k = 1, size(Phalf, 3)
+    KX = size(Tin, 3)
+
+    do k = 1, KX
       pmass(:, :, k) = (Phalf(:, :, k + 1) - Phalf(:, :, k))/GRAV
     end do
-
-    KX = size(Tin, 3)
 
 !------ compute Proper HL
     where (coldT)
