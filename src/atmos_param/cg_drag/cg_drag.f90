@@ -26,7 +26,7 @@ module cg_drag_mod
 
   use fms_mod, only: fms_init, mpp_pe, mpp_root_pe, &
                      check_nml_error, &
-                     error_mesg, FATAL, WARNING, NOTE, &
+                     error_mesg, FATAL, NOTE, &
                      input_nml_file, &
                      stdlog, write_version_number
   use time_manager_mod, only: time_manager_init, time_type, get_time, &
@@ -37,8 +37,7 @@ module cg_drag_mod
                               read_restart_field, write_restart_field
   use diag_manager_mod, only: diag_manager_init, &
                               register_diag_field, send_data
-  use constants_mod, only: constants_init, PI, RDGAS, GRAV, CP_AIR, &
-                           SECONDS_PER_DAY
+  use constants_mod, only: constants_init, PI, RDGAS, GRAV, CP_AIR
 
 !-------------------------------------------------------------------
 
@@ -59,12 +58,10 @@ module cg_drag_mod
 
   private gwfc
 
-!wfc++ Addition for regular use
   integer, allocatable, dimension(:, :)     ::  source_level, damp_level
 
   real, allocatable, dimension(:, :)     ::  source_amp
   real, allocatable, dimension(:, :, :)   ::  gwd_u, gwd_v
-!wfc--
 
 !--------------------------------------------------------------------
 !---- namelist -----
@@ -142,15 +139,9 @@ module cg_drag_mod
 !   parameterization is not called every timestep (they are kept in
 !   the restart file RESTART/cg_drag.res.nc, with cgdrag_alarm):
 !
-!   gwd      time tendency for u eqn due to gravity wave forcing
-!            [ m/s^2 ]
-!   ked      effective eddy diffusion coefficient resulting from
-!            gravity wave forcing [ m^2/s ]
+!   gwd_u, gwd_v  time tendencies of u and v due to gravity wave
+!                 forcing [ m/s^2 ]
 !
-!--------------------------------------------------------------------
-!wfc++ not needed if calcucate_ked is removed.
-! rjw real,    dimension(:,:,:), allocatable   :: gwd, ked
-!wfc--
 !--------------------------------------------------------------------
 !   these are the arrays which define the gravity wave source spectrum:
 !
@@ -211,7 +202,6 @@ contains
   subroutine cg_drag_init(lonb, latb, domain_in, pref, Time, axes)
 
 !-------------------------------------------------------------------
-!mj dimension change for older than cubed sphere real,    dimension(:,:), intent(in)      :: lonb, latb
     real, dimension(:), intent(in)      :: lonb, latb, pref
     !! `lonb`, `latb`: longitudes and latitudes of the cell corners [rad]; `pref`: reference
     !! pressures at full levels, plus the surface value at nlev+1, for a surface pressure of
@@ -224,21 +214,17 @@ contains
 !-------------------------------------------------------------------
 !   local variables:
 
-    integer                 :: unit, ierr, io, logunit
+    integer                 :: ierr, io, logunit
     integer                 :: n, i, j, k
     integer                 :: idf, jdf, kmax
     real                    :: alarm
     type(restart_file_type) :: rst
 
-!      real, allocatable       :: lat(:,:)
-!mj dimensions are different for non-cubed sphere version
-!      real                    :: lat(size(lonb,1) - 1, size(latb,2) - 1)
     real                    :: lat(size(lonb) - 1, size(latb) - 1)
     real                    :: thislatdeg
 !-------------------------------------------------------------------
 !   local variables:
 !
-!       unit           unit number for nml file
 !       ierr           error return flag
 !       io             error return code
 !       n              loop index
@@ -288,16 +274,12 @@ contains
 !  domain on this processor, kmax is the number of model layers.
 !-------------------------------------------------------------------
     kmax = size(pref(:)) - 1
-!mj again, different dimensions
-!      jdf  = size(latb,2) - 1
-!      idf  = size(lonb,1) - 1
     jdf = size(latb) - 1
     idf = size(lonb) - 1
 
     allocate (source_level(idf, jdf))
     allocate (damp_level(idf, jdf))
     allocate (source_amp(idf, jdf))
-!      allocate(  lat(idf,jdf)  )
 
 !--------------------------------------------------------------------
 !    define the k level which will serve as source level for the grav-
@@ -323,8 +305,6 @@ contains
     end if
 
     do j = 1, jdf
-!mj change of dimensions
-!        lat(:,j)=  0.5*( latb(:,j+1)+latb(:,j) )
       do i = 1, idf
         lat(i, j) = 0.5*(latb(j + 1) + latb(j))
         source_level(i, j) = (kmax + 1) - ((kmax + 1 - &
@@ -347,9 +327,6 @@ contains
           source_amp(i, j) = Bt_0 + (Bt_eq - Bt_0)/(phi0s - dphis)*(phi0s - thislatdeg)
         end if
 
-! source_amp(i,j) = Bt_0 +                         &
-!                     Bt_nh*0.5*(1.+tanh((lat(i,j)/pif-phi0n)/dphin)) + &
-!                    Bt_sh*0.5*(1.+tanh((lat(i,j)/pif-phi0s)/dphis))
       end do
     end do
     source_level = min(source_level, kmax - 1)
@@ -361,16 +338,6 @@ contains
                       'level (source_level_pressure)', FATAL)
     end if
 
-!cig: make sure everyhing is ok
-!          write (*,*) "damp",pref(klevel_of_damp), '  ', klevel_of_damp, '  ', damp_level_pressure, '  ', &
-!                      damp_level(2,2), '  ', damp_level(12,2)
-
-!      deallocate( lat )
-
-!---------------------------------------------------------------------
-!    if column diagnostics are desired, check that array dimensions are
-!    sufficiently large for the number of requests.
-!---------------------------------------------------------------------
 
 !---------------------------------------------------------------------
 !    define the number of waves in the gravity wave spectrum, and define
@@ -542,7 +509,7 @@ contains
     real              :: bflim = 2.5e-5
     integer           :: ie, je
     integer           :: imax, jmax, kmax
-    integer           :: i, j, k, nn
+    integer           :: i, j, k
 !-------------------------------------------------------------------
 !    local variables:
 !
@@ -567,7 +534,7 @@ contains
 !                     physics window being integrated
 !       imax, jmax, kmax
 !                     physics window dimensions
-!       i, j, k, nn   do loop indices
+!       i, j, k       do loop indices
 !
 !---------------------------------------------------------------------
 
@@ -1088,8 +1055,6 @@ contains
                 diff_coeff(k + 1) = 0.5*(diff_coeff(k + 1) + diff_coeff(k))
               end if
 
-              !cig: following what we did above...
-
             else
               wv_frcng(iz0) = 0.0
               diff_coeff(iz0) = 0.0
@@ -1110,15 +1075,6 @@ contains
             wv_frcng(k) = wv_frcng(k) + mom_top/mass_top
             diff_coeff(k) = diff_coeff(k) + diff_coeff(0)/real(iztop)
           end do
-
-!cig: place the extra momentum flux in the top 3 layers instead of all in the top layer
-!            wv_frcng(1) =  wv_frcng(1) + weighttop*wv_frcng(0)
-!            wv_frcng(2) =  wv_frcng(2) + weightminus1*wv_frcng(0)
-!            wv_frcng(3) =  wv_frcng(3) + weightminus2*wv_frcng(0)
-
-!            diff_coeff(1) = diff_coeff(1) + weighttop*diff_coeff(0)
-!            diff_coeff(2) = diff_coeff(2) + weightminus1*diff_coeff(0)
-!            diff_coeff(3) = diff_coeff(3) + weightminus2*diff_coeff(0)
 
 !---------------------------------------------------------------------
 !    increment the total forcing at each point with that obtained from
