@@ -86,7 +86,7 @@ module mima_interpolator_mod
   end interface interp_weighted_scalar
   character(len=128) :: version = '$Id: interpolator.F90 (MiMA) $'
   character(len=128) :: tagname = '$Name:  $'
-  logical            :: module_is_initialized = .false.
+  logical            :: module_is_initialized = .false.  ! interpolator_nml read
 
 ! Metadata of a file dimension and its coordinate variable.
   type axis_info_type
@@ -123,7 +123,9 @@ module mima_interpolator_mod
     real, pointer            :: halflevs(:) => null()  !! climatology half levels [Pa], or sigma
     type(horiz_interp_type)  :: interph  !! horizontal interpolation to the model grid
     type(time_type), pointer :: time_slice(:) => null() !! times of the records in the file
+    logical                  :: initialized = .false.  !! set up by `interpolator_init`
     integer                  :: ncid          !! netCDF id of the open climatology file
+    logical                  :: file_open = .false.  !! whether the file is still open
     character(len=64)        :: file_name     !! climatology file name
     integer                  :: TIME_FLAG     !! time interpolation: `LINEAR`, `SEASONAL` or `BILINEAR`
     integer                  :: level_type    !! `PRESSURE` or `SIGMA` levels
@@ -279,6 +281,7 @@ contains
     ndim = size(axes)
     nvar = size(varfields)
     clim_type%ncid = ncid
+    clim_type%file_open = .true.
     clim_type%file_name = trim(file_name)
 
     num_fields = nvar
@@ -647,8 +650,9 @@ contains
 
 ! In the case where only the midpoints of the longitudes are defined we force the definition
 ! of the boundaries to be half-way between the midpoints.
-    if (.not. associated(clim_type%lon) .and. .not. associated(clim_type%lonb)) &
-      call mpp_error(FATAL, 'Interpolator_init : There appears to be no longitude axis in file '//file_name)
+    ! read_data needs the cell centres (lonb and latb are optional)
+    if (.not. associated(clim_type%lon)) &
+      call mpp_error(FATAL, 'Interpolator_init : There appears to be no longitude axis (lon) in file '//file_name)
 
     if (.not. associated(clim_type%lonb)) then
 
@@ -669,8 +673,8 @@ contains
       end if
     end if
 
-    if (.not. associated(clim_type%lat) .and. .not. associated(clim_type%latb)) &
-      call mpp_error(FATAL, 'Interpolator_init : There appears to be no latitude axis in file '//file_name)
+    if (.not. associated(clim_type%lat)) &
+      call mpp_error(FATAL, 'Interpolator_init : There appears to be no latitude axis (lat) in file '//file_name)
 ! In the case where only the grid midpoints of the latitudes are defined we force the
 ! definition of the boundaries to be half-way between the midpoints.
     if (.not. associated(clim_type%latb)) then
@@ -876,9 +880,11 @@ contains
       end do
 
       call nc_check(nf90_close(ncid), src_file)
+      clim_type%file_open = .false.
     end if
 
     module_is_initialized = .true.
+    clim_type%initialized = .true.
 
     call write_version_number(version, tagname)
 
@@ -962,7 +968,7 @@ contains
     integer :: indexm, indexp, yearm, yearp
     integer :: i, j, k, itaum, itaup, n
 
-    if (.not. module_is_initialized .or. .not. associated(clim_type%lon)) &
+    if (.not. clim_type%initialized) &
       call mpp_error(FATAL, "interpolator_3D : You must call interpolator_init before calling interpolator")
 
     found_field = .false.
@@ -1252,7 +1258,7 @@ contains
     logical :: found_field
     integer :: i, itaum, itaup, n
 
-    if (.not. module_is_initialized .or. .not. associated(clim_type%lon)) &
+    if (.not. clim_type%initialized) &
       call mpp_error(FATAL, "interpolator_2D : You must call interpolator_init before calling interpolator")
 
     found_field = .false.
@@ -1356,40 +1362,42 @@ contains
   subroutine interpolator_end(clim_type)
     type(interpolate_type), intent(inout) :: clim_type  !! the interpolate type to free
 
+    if (.not. clim_type%initialized) return
+
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), '(/,(a))') 'Exiting interpolator, have a nice day ...'
     end if
 
-    deallocate (clim_type%lat)
-    deallocate (clim_type%lon)
-    deallocate (clim_type%latb)
-    deallocate (clim_type%lonb)
-    deallocate (clim_type%levs)
-    deallocate (clim_type%halflevs)
+    ! deallocate also nullifies the pointers
+    if (associated(clim_type%lat)) deallocate (clim_type%lat)
+    if (associated(clim_type%lon)) deallocate (clim_type%lon)
+    if (associated(clim_type%latb)) deallocate (clim_type%latb)
+    if (associated(clim_type%lonb)) deallocate (clim_type%lonb)
+    if (associated(clim_type%levs)) deallocate (clim_type%levs)
+    if (associated(clim_type%halflevs)) deallocate (clim_type%halflevs)
     call horiz_interp_del(clim_type%interph)
-    deallocate (clim_type%time_slice)
-    deallocate (clim_type%field_type)
-    deallocate (clim_type%field_name)
-    deallocate (clim_type%time_init)
-    deallocate (clim_type%mr)
-    if (associated(clim_type%data)) then
-      deallocate (clim_type%data)
-    end if
-    if (associated(clim_type%pmon_pyear)) then
-      deallocate (clim_type%pmon_pyear)
-      deallocate (clim_type%pmon_nyear)
-      deallocate (clim_type%nmon_nyear)
-      deallocate (clim_type%nmon_pyear)
-    end if
+    if (associated(clim_type%time_slice)) deallocate (clim_type%time_slice)
+    if (associated(clim_type%clim_times)) deallocate (clim_type%clim_times)
+    if (associated(clim_type%field_type)) deallocate (clim_type%field_type)
+    if (associated(clim_type%field_name)) deallocate (clim_type%field_name)
+    if (associated(clim_type%time_init)) deallocate (clim_type%time_init)
+    if (associated(clim_type%mr)) deallocate (clim_type%mr)
+    if (associated(clim_type%out_of_bounds)) deallocate (clim_type%out_of_bounds)
+    if (associated(clim_type%vert_interp)) deallocate (clim_type%vert_interp)
+    if (associated(clim_type%data)) deallocate (clim_type%data)
+    if (associated(clim_type%pmon_pyear)) deallocate (clim_type%pmon_pyear)
+    if (associated(clim_type%pmon_nyear)) deallocate (clim_type%pmon_nyear)
+    if (associated(clim_type%nmon_nyear)) deallocate (clim_type%nmon_nyear)
+    if (associated(clim_type%nmon_pyear)) deallocate (clim_type%nmon_pyear)
+    if (associated(clim_type%indexm)) deallocate (clim_type%indexm)
+    if (associated(clim_type%indexp)) deallocate (clim_type%indexp)
+    if (associated(clim_type%climatology)) deallocate (clim_type%climatology)
 
-! RSH mod
-    if (.not. (clim_type%TIME_FLAG .eq. LINEAR .and. &
-               !     read_all_on_init)) .or. clim_type%TIME_FLAG .eq. BILINEAR  ) then
-               read_all_on_init)) then
-      call nc_check(nf90_close(clim_type%ncid), clim_type%file_name)
-    end if
+    if (clim_type%file_open) call nc_check(nf90_close(clim_type%ncid), clim_type%file_name)
+    clim_type%file_open = .false.
 
-    module_is_initialized = .false.
+    ! the other interpolate types stay usable
+    clim_type%initialized = .false.
 
   end subroutine interpolator_end
 !
