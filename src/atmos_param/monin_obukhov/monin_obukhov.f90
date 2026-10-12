@@ -85,7 +85,7 @@ module mima_monin_obukhov_mod
 !  DEFAULT VALUES OF NAMELIST PARAMETERS:
 
   real    :: rich_crit = 2.0  !! critical Richardson number (must be > 0.25)
-  real    :: drag_min = 4.e-05  !! minimum drag coefficient
+  real    :: drag_min = 4.e-05  !! minimum drag coefficient (>= 0)
   logical :: neutral = .false.  !! neutral stability everywhere
   integer :: stable_option = 1
   !! stability function for stable conditions (1 or 2); used only by `stable_mix`, which is
@@ -128,7 +128,7 @@ contains
       'MONIN_OBUKHOV_INIT in MONIN_OBUKHOV_MOD', &
       'rich_crit in mima_monin_obukhov_mod must be > 0.25', FATAL)
 
-    if (drag_min .le. 0.0) call error_mesg( &
+    if (drag_min < 0.0) call error_mesg( &
       'MONIN_OBUKHOV_INIT in MONIN_OBUKHOV_MOD', &
       'drag_min in mima_monin_obukhov_mod must be >= 0.0', FATAL)
 
