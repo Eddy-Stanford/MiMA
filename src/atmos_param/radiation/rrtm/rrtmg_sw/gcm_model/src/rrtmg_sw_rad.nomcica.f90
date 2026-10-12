@@ -1076,10 +1076,11 @@
 ! Transfer cloud fraction and cloud optical properties to RRTM variables;
 ! modify to reverse layer indexing here if necessary.
 
+!mima set the flags also for icld = 0, as they are passed to cldprop
+      inflag = inflgsw
+      iceflag = iceflgsw
+      liqflag = liqflgsw
       if (icld .ge. 1) then 
-         inflag = inflgsw
-         iceflag = iceflgsw
-         liqflag = liqflgsw
 
 ! Move incoming GCM cloud arrays to RRTMG cloud arrays.
 ! For GCM input, incoming reice is defined based on selected ice parameterization (inflglw)
