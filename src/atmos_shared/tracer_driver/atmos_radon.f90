@@ -17,14 +17,13 @@ module atmos_radon_mod
     mpp_pe, &
     mpp_root_pe, &
     error_mesg, &
-    FATAL, WARNING, NOTE, &
-    stdlog
+    FATAL, &
+    stdlog, &
+    input_nml_file, &
+    check_nml_error
   use time_manager_mod, only: time_type
-  use diag_manager_mod, only: send_data
   use tracer_manager_mod, only: get_tracer_index
   use field_manager_mod, only: MODEL_ATMOS
-  use atmos_tracer_utilities_mod, only: wet_deposition, &
-                                        dry_deposition
 
   implicit none
   private
@@ -148,7 +147,8 @@ contains
 
 !#######################################################################
 
-  !> Initializes the radon module: finds the radon tracers in the field table.
+  !> Initializes the radon module: reads `atmos_radon_nml` and finds the radon tracers in the
+  !> field table.
   subroutine atmos_radon_init(r, axes, Time, nradon, mask)
 
 !-----------------------------------------------------------------------
@@ -160,21 +160,17 @@ contains
     real, intent(in), dimension(:, :, :), optional        :: mask
     !! 1. above the ground, 0. below (nlon, nlat, nlev)
 
-    logical :: flag
-    integer :: n
-!
-!-----------------------------------------------------------------------
-!
-    integer log_unit, unit, io, index, ntr, nt
-    character(len=16) ::  fld
+    integer :: n, io, ierr
     character(len=64) ::  search_name
     character(len=4) ::  chname
     integer :: nn
 
     if (module_is_initialized) return
 
-!---- write namelist ------------------
+!---- read and write namelist ------------------
 
+    read (input_nml_file, nml=atmos_radon_nml, iostat=io)
+    ierr = check_nml_error(io, 'atmos_radon_nml')
     call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) &
       write (stdlog(), nml=atmos_radon_nml)
