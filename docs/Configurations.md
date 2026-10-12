@@ -257,17 +257,49 @@ Then provide a netCDF file named `initial_conditions.nc` in the `INPUT/` directo
 
 ## Adding noise to the initial conditions
 
-MiMA can add random noise to the temperature field when the model state is loaded. This is useful for breaking symmetry in idealized experiments, or for generating ensembles of runs from the same starting point. It is controlled from [`spectral_dynamics_nml`](Parameters.md#spectral_dynamics_nml), and applied in [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) when the initial state has been read or set up:
+MiMA can add a random perturbation to the temperature, and optionally to the vorticity, when the model starts. This breaks the symmetry of an idealized initial state (a zonally symmetric state stays zonally symmetric otherwise) and makes the members of an ensemble differ. It is set in [`initial_noise_nml`](Parameters.md#initial_noise_nml) and applied by [`initial_noise_mod`](https://eddy-stanford.github.io/MiMA/api/initial_noise_mod/) after the restart files have been read or the cold start has been set up:
 
 ```fortran
-add_noise                     = 0.1,
-add_noise_seed                = 42,
-noise_spectral_cutoff_minimum = 1,
-noise_spectral_cutoff_maximum = 20,
+&initial_noise_nml
+    noise_type  = 'white',
+    amplitude_t = 0.5,
+    seed        = 1 /
 ```
 
-Each spectral temperature coefficient between `noise_spectral_cutoff_minimum` and `noise_spectral_cutoff_maximum` (applied to both spectral indices) receives a perturbation drawn uniformly from [-`add_noise`, `add_noise`] K, on every model level. Noise is never added at the highest wavenumbers, since this leads to numerical instability. The default minimum of 1 leaves the zonal mean untouched.
+With the default `noise_type = 'none'` nothing is added.
 
-* Noise is only added if `add_noise` is greater than zero (the default is `-1`, i.e. no noise).
-* Set `add_noise_seed` to a non-negative integer to make the noise reproducible. Use different seeds for different ensemble members. With the default (`-1`) the compiler's default random seed is used, so runs may not be reproducible.
-* The noise is added every time the model starts, whether from a cold start or from a restart file. If you run a long simulation in several segments, remove `add_noise` from `input.nml` after the first segment unless you want the model to be perturbed again at every restart.
+**What is added.** The perturbation is built in spherical-harmonic space and limited to the total wavenumbers L from `l_min` to `l_max` (default 1 to 21) and to the zonal wavenumbers from `m_min` (default 1, which leaves the zonal mean untouched; 0 also perturbs it). The global mean (L = 0) and the last total wavenumber of the truncation (L = 42 at T42), where noise would be unstable, are never perturbed, and the truncation is respected.
+
+* `'white'`: every spherical harmonic in the band gets the same variance, with random phases. The field is isotropic: its statistics do not depend on the position or the direction on the sphere. Its variance per total wavenumber grows like 2L + 1, so most of it is in the smallest scales of the band.
+* `'spectral'`: an isotropic field with a chosen variance per total wavenumber V(L). With `spectral_shape = 'power'` (default), V(L) ~ L<sup>-`spectral_slope`</sup>: `spectral_slope = 3` (default) is red noise like the enstrophy-cascade range, 0 is a flat spectrum in L. With `spectral_shape = 'gaussian'`, V(L) ~ exp(-(L - `l_peak`)<sup>2</sup>/(2 `l_width`<sup>2</sup>)) puts the perturbation at one scale.
+* `'smooth_grid'`: smooth gradient noise (Perlin noise) on the grid, summed over `octaves` (default 4) whose amplitude falls by `gain` (default 0.5) from one to the next while the scale halves; `base_wavenumber` (default 4) is the approximate total wavenumber of the first octave. The noise is evaluated in three dimensions at the position of each grid point on the unit sphere, so it has no seam at the date line and no artefacts at the poles. It is then transformed to spectral space and limited to the band like the other types. With `radius` > 0 [deg] it is multiplied by a Gaussian blob of that e-folding great-circle distance around `lon0`, `lat0`, to perturb one region only (with `m_min = 1` the zonal mean of the blob is removed, which leaves a weak opposite anomaly along its latitude band; use `m_min = 0` to keep it local). It needs the whole sphere (`fourier_inc = 1`).
+
+**Amplitude.** `amplitude_t` [K] is the global grid-point rms of the temperature perturbation on each level, exactly (to rounding): the perturbation of each level is rescaled after it is drawn. Peak values are typically 3 to 4 times larger. The model prints the rms it obtained on each level, top to bottom, in a line `initial noise: grid rms per level of temperature [K]:`. With `perturb_vorticity = .true.` the vorticity is perturbed in the same way, with the rms `amplitude_vor` [1/s] (default 10<sup>-6</sup> s<sup>-1</sup>), and the winds are recomputed from it (the divergence is not perturbed). The surface pressure and the humidity are not perturbed.
+
+**Vertical structure.** With `vertical_structure = 'correlated'` (default), the patterns of two levels have the correlation exp(-|ln p<sub>k</sub> - ln p<sub>j</sub>|/`vertical_scale`), with `vertical_scale` in scale heights (default 1) and p the pressures of the levels for a surface pressure of `reference_sea_level_press`. This avoids putting much of the noise into grid-scale vertical structures, which excite fast gravity waves. `'independent'` draws an independent pattern on each level, and `'column'` puts the same pattern on every level. In all cases the amplitude is multiplied by a taper that is 1 between `p_top` and `p_bottom` [Pa] (default 0 and 10<sup>5</sup> Pa: every level) and 0 outside, with a sin<sup>2</sup> ramp of depth `taper_depth` [Pa] inside both ends (default 0: no ramp). For example, `p_top = 10000., p_bottom = 90000., taper_depth = 20000.` leaves the stratosphere and the boundary layer unperturbed.
+
+**Reproducibility.** The random numbers are not taken from the compiler's random number generator but computed from a hash of `seed`, `ensemble_member`, the field, the level and the global indices of each spherical harmonic (or, for `'smooth_grid'`, of each lattice point of the noise). The perturbation is therefore the same for any number of MPI ranks or OpenMP threads, and the integer random numbers are the same with any compiler (the conversion to Gaussian numbers uses `log`, `cos` and `sqrt`, whose last bit can differ between math libraries). Widening the band only adds harmonics: those already in it keep their random numbers (the whole perturbation is then rescaled to `amplitude_t`). So for `'white'` and `'spectral'`, runs at T42 and T85 with the same levels and a band inside both truncations get the same perturbation.
+
+**When it is applied.** `apply` says at which starts the perturbation is added:
+
+* `'cold_start'` (default): only when there are no restart files. Later segments of the run, which start from its restart files, are not perturbed again.
+* `'once'`: also at a restart whose restart files do not record a perturbation. This is the way to branch an ensemble from a spun-up state; the later segments of each member are not perturbed again.
+* `'every_start'`: at every start, restarts included (the behaviour of v1's `add_noise`).
+
+The record is a scalar `initial_noise_applied` in `spectral_dynamics.res.nc`, which is written once a perturbation has been added and kept by the later segments; the restart files of a run that was never perturbed do not have it. At a restart the same increments are added to the state in both `spectral_dynamics.res.nc` and `atmosphere.res.nc`.
+
+**An ensemble.** To make members that differ only by their initial perturbation, give each member the same namelist except `ensemble_member` (0, 1, 2, ...); keep `seed` fixed, or change it for a new set of members. To branch the members from a spun-up control run, copy the control's restart files into the `INPUT/` directory of each member and use `apply = 'once'`:
+
+```fortran
+&initial_noise_nml
+    noise_type      = 'spectral',
+    spectral_slope  = 3.,
+    amplitude_t     = 0.1,
+    seed            = 2026,
+    ensemble_member = 3,
+    apply           = 'once' /
+```
+
+If the control itself started from a perturbed cold start, its restart files record that perturbation and `'once'` adds nothing (the log then says `no perturbation added at this restart`). In that case use `apply = 'every_start'` for the first segment of each member and `'once'` for the later ones.
+
+The removed v1 keys `add_noise`, `add_noise_seed`, `noise_spectral_cutoff_minimum` and `noise_spectral_cutoff_maximum` of `spectral_dynamics_nml` stop the model with a message; see [Migration to v2](Migration_v2.md) for their replacements.

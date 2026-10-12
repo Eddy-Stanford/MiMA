@@ -101,7 +101,7 @@ If the restart files `INPUT/spectral_dynamics.res.nc` and `INPUT/atmosphere.res.
 * an isothermal atmosphere at rest at `initial_temperature` ([`spectral_init_cond_nml`](Parameters.md#spectral_init_cond_nml), default 264 K), with the surface pressure in hydrostatic balance with the topography (`reference_sea_level_press` at height 0), a vorticity perturbation of 10<sup>-7</sup> s<sup>-1</sup> in four coefficients on the lowest three levels, and `sphum = initial_sphum` (default 2 × 10<sup>-6</sup> kg/kg) ([`spectral_initialize_fields_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_initialize_fields_mod/));
 * or the state of `INPUT/initial_conditions.nc` ([Specified initial conditions](Configurations.md#specified-initial-conditions)).
 
-Noise: see [Adding noise to the initial conditions](Configurations.md#adding-noise-to-the-initial-conditions).
+After the restart or the cold start, [`initial_noise_mod`](https://eddy-stanford.github.io/MiMA/api/initial_noise_mod/) can add a random perturbation to the temperature (and the vorticity): white, red or smooth (Perlin) noise in a band of total wavenumbers, with a given grid-point rms per level, the same for any number of processes ([`initial_noise_nml`](Parameters.md#initial_noise_nml); see [Adding noise to the initial conditions](Configurations.md#adding-noise-to-the-initial-conditions)).
 
 ## What MiMA changes relative to the GFDL note
 
@@ -111,7 +111,7 @@ Noise: see [Adding noise to the initial conditions](Configurations.md#adding-noi
 * **Hole filling** takes the tracer from the neighbours in longitude and in the vertical (the note says latitude and height).
 * **Topography** over the ocean is regularized by a conjugate-gradient solver that was rewritten for v2, so that it also works at high resolution (see [Migration to v2](Migration_v2.md)).
 * **Parallel layout.** The `'balanced'` division of the m among the processes and the OpenMP threading are v2 additions; the FFT is always Temperton's (the vendor-library and NAG versions are gone).
-* **Initial states** can be read from a file (`specify_initial_conditions`) or perturbed with noise (`add_noise`).
+* **Initial states** can be read from a file (`specify_initial_conditions`) or perturbed with noise (`initial_noise_nml`).
 * **Vertical coordinates**: `'mcm'` and `'v197'` have been removed, and `'simmons_and_burridge'` is the only vertical differencing.
 * **Diagnostics**: `dynamics_every` adds eddy fluxes (`upvp`, `upwp`, `vpTp`) and two residual-mean streamfunctions: `psi_star` = [∫v dp] − [v′θ′]/∂<sub>p</sub>[θ], with θ here the potential temperature and [ ] the zonal mean, and `psi_dwc`, the pressure integral of v* from the downward-control balance −f̂ v* = (a cos²φ)<sup>-1</sup> ∂(cos²φ F<sub>φ</sub>)/∂φ + ∂F<sub>p</sub>/∂p of the TEM equations (Andrews, Holton and Leovy 1987; φ is the latitude).
 
