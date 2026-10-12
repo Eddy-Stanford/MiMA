@@ -55,8 +55,8 @@ module atmos_tracer_driver_mod
   logical :: module_is_initialized = .false.
 
 !---- version number -----
-  character(len=128) :: version = '$Id: atmos_tracer_driver.f90,v 11.0 2004/09/28 19:26:51 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
+  character(len=128) :: version = '$Id: atmos_tracer_driver.f90 (MiMA) $'
+  character(len=128) :: tagname = '$Name:  $'
 !-----------------------------------------------------------------------
 
 contains

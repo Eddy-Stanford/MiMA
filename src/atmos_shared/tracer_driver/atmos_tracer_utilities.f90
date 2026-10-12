@@ -40,8 +40,8 @@ module atmos_tracer_utilities_mod
 !---- version number -----
   logical :: module_is_initialized = .false.
 
-  character(len=128) :: version = '$Id: atmos_tracer_utilities.f90,v 12.0 2005/04/14 15:52:18 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
+  character(len=128) :: version = '$Id: atmos_tracer_utilities.f90 (MiMA) $'
+  character(len=128) :: tagname = '$Name:  $'
 
   character(len=7), parameter :: mod_name = 'tracers'
 !-----------------------------------------------------------------------
@@ -417,7 +417,7 @@ contains
 !
 !     When convective adjustment occurs, use convective cloud liquid water content:
 !
-      if (trim(cloud_param) .eq. 'convect') then
+      if (trim(cloud_param) == 'convect') then
         flaglw = parse(control, 'convlwc', clwc)
         if (flaglw == 0) clwc = 2.0e-3
       end if
@@ -426,7 +426,7 @@ contains
         do i = 1, size(rain, 1)
           tracer_dt(i, j, :) = 0.0
           prenow = rain(i, j) + snow(i, j)
-          if (prenow .gt. premin) then
+          if (prenow > premin) then
 !
 ! Assume that the top of the cloud is where the highest model level
 ! specific humidity is reduced. And the the bottom of the cloud is the
@@ -443,7 +443,7 @@ contains
 !
 !     Thickness of precipitating cloud deck:
 !
-            if (ktopcd(i, j) .gt. 1) then
+            if (ktopcd(i, j) > 1) then
               hwtop = 0.0
               do k = ktopcd(i, j), kendcd(i, j)
                 hwtop = hwtop + (phalf(i, j, k + 1) - phalf(i, j, k))*rdgas*T(i, j, k)/grav/pfull(i, j, k)
@@ -481,13 +481,13 @@ contains
       end select
     end do
 
-    if (trim(cloud_param) .eq. 'lscale') then
+    if (trim(cloud_param) == 'lscale') then
       if (id_tracer_wdep_ls(n) > 0) then
         used = send_data(id_tracer_wdep_ls(n), sum_wdep, Time, &
                          is_in=is, js_in=js)
       end if
     end if
-    if (trim(cloud_param) .eq. 'convect') then
+    if (trim(cloud_param) == 'convect') then
       if (id_tracer_wdep_cv(n) > 0) then
         used = send_data(id_tracer_wdep_cv(n), sum_wdep, Time, &
                          is_in=is, js_in=js)
@@ -525,19 +525,19 @@ contains
     land_dry_dep_vel = 0.0
     sea_dry_dep_vel = 0.0
 
-    if (lowercase(trim(text_in_scheme(1:4))) .eq. 'wind') then
+    if (lowercase(trim(text_in_scheme(1:4))) == 'wind') then
       scheme = 'Wind_driven'
       land_dry_dep_vel = 0.0
       sea_dry_dep_vel = 0.0
     end if
 
-    if (lowercase(trim(text_in_scheme(1:5))) .eq. 'fixed') then
+    if (lowercase(trim(text_in_scheme(1:5))) == 'fixed') then
       scheme = 'fixed'
       flag = parse(text_in_param, 'land', land_dry_dep_vel)
       flag = parse(text_in_param, 'sea', sea_dry_dep_vel)
     end if
 
-    if (lowercase(trim(text_in_scheme(1:4))) .eq. 'file') then
+    if (lowercase(trim(text_in_scheme(1:4))) == 'file') then
       scheme = 'file'
       land_dry_dep_vel = 0.
       sea_dry_dep_vel = 0.
@@ -573,13 +573,13 @@ contains
     henry_constant = 0.0
     henry_temp = 0.0
 
-    if (trim(lowercase(text_in_scheme(1:8))) .eq. 'fraction') then
+    if (trim(lowercase(text_in_scheme(1:8))) == 'fraction') then
       scheme = 'Fraction'
       henry_constant = 0.0
       henry_temp = 0.0
     end if
 
-    if (trim(lowercase(text_in_scheme(1:5))) .eq. 'henry') then
+    if (trim(lowercase(text_in_scheme(1:5))) == 'henry') then
       scheme = 'Henry'
       flag = parse(text_in_param, 'henry', henry_constant)
       flag = parse(text_in_param, 'dependence', henry_temp)

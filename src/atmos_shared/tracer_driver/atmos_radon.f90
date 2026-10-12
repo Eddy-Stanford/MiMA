@@ -48,8 +48,8 @@ module atmos_radon_mod
   logical :: module_is_initialized = .false.
 
 !---- version number -----
-  character(len=128) :: version = '$Id: atmos_radon.f90,v 11.0 2004/09/28 19:26:41 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
+  character(len=128) :: version = '$Id: atmos_radon.f90 (MiMA) $'
+  character(len=128) :: tagname = '$Name:  $'
 !-----------------------------------------------------------------------
 
 contains
@@ -78,8 +78,8 @@ contains
     real, dimension(size(radon, 1), size(radon, 2), size(radon, 3)) :: &
       source, sink
     logical, dimension(size(radon, 1), size(radon, 2)) ::  maskeq, masknh
-    real radon_flux, dtr, deg60, deg70, deg300, deg336
-    integer i, j, kb, id, jd, kd, lat1
+    real :: radon_flux, dtr, deg60, deg70, deg300, deg336
+    integer :: i, j, kb, id, jd, kd
 !-----------------------------------------------------------------------
 
     id = size(radon, 1); jd = size(radon, 2); kd = size(radon, 3)
