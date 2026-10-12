@@ -261,6 +261,12 @@ contains
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=rrtm_radiation_nml)
     end if
+    select case (trim(precip_albedo_mode))
+    case ('full', 'lscale', 'conv')
+    case default
+      call error_mesg('rrtm_radiation_init', 'precip_albedo_mode must be ''full'', ''lscale'' or ''conv'', not '// &
+                      trim(precip_albedo_mode), FATAL)
+    end select
 !----
 !------------ initialize diagnostic fields ---------------
 
