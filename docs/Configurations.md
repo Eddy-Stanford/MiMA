@@ -39,7 +39,7 @@ MiMA can run the [Held and Suarez (1994)](https://doi.org/10.1175/1520-0477(1994
 
 The forcing depends only on latitude and sigma, so it works at any horizontal resolution and with any vertical levels.
 
-For the standard **dry** benchmark, switch off radiation, moist physics and the boundary layer, which also leaves the surface state unchanged. A complete example (T42, 20 evenly spaced sigma levels, flat topography) is in `examples/held_suarez/`; it needs a `RESTART/` directory but no `INPUT/` data files (see [Running the examples](GettingStarted.md#running-the-examples)):
+For the standard **dry** benchmark, switch off radiation, moist physics and the boundary layer, which also leaves the surface state unchanged. A complete example (T42, 20 evenly spaced sigma levels, flat topography) is in `examples/held_suarez/`; it needs a `RESTART/` directory but no `INPUT/` data files (`land_model_nml land_mask = 'none'`, so no land-sea mask file; see [Running the examples](GettingStarted.md#running-the-examples)):
 
 ```fortran
 &radiation_nml
