@@ -37,7 +37,7 @@ To move a v1 run directory to v2.0:
     * replace `do_grey_radiation`/`do_rrtm_radiation` with `&radiation_nml radiation_scheme`;
     * rename `&grey_radiation_nml` to `&gray_radiation_nml`;
     * delete `&fms_io_nml` and add `&sat_vapor_pres_nml do_simple = .true. /`;
-    * delete every variable that no longer exists (an unknown variable stops the model);
+    * delete every variable that no longer exists (an unknown variable stops the model; `tools/mimadoc validate --nml` lists them, see [How errors show up](#how-errors-show-up));
     * check the [changed defaults](#changed-defaults) for every variable you did not set.
 3. Make sure `field_table` has a `sphum` tracer ([field_table changes](#field_table-changes)).
 4. Update module and field names in `diag_table` (mainly the radiation diagnostics), and check it with `tools/mimadoc validate` ([diag_table changes](#diag_table-changes)).
@@ -78,6 +78,8 @@ v2.0 reads namelists with FMS's `check_nml_error`:
 * A variable that no longer exists in a group that still exists is a **fatal error** ("Unknown namelist, or mistyped namelist variable in namelist ..."). You must delete it.
 * A whole group that no longer exists (e.g. `&ocean_rough_nml`, `&fms_io_nml`) is **silently ignored**. Delete it anyway, so that your `input.nml` does not suggest settings that have no effect. The one exception is `&simple_surface_nml`, which stops the model ([Checks for old settings](#checks-for-old-settings)).
 * A MiMA group that is missing takes the code defaults, which are now the values of the shipped `input/input.nml`. (The FMS groups keep FMS's defaults; e.g. `&topography_nml` must still point to the files in `INPUT/`.)
+
+`python3 /path/to/MiMA/tools/mimadoc validate diag_table --nml input.nml` finds these before a run: it reports every variable that is not in its MiMA group and `&simple_surface_nml` as errors, and warns about groups that neither MiMA nor FMS reads (the variables of the FMS groups are not checked).
 
 ### Replaced settings
 

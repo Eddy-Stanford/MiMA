@@ -12,7 +12,8 @@ from . import diag_table, markers, render
 from .diagnostics import Inventory
 from .evaluate import Evaluator
 from .fortran import built_sources, parse_tree
-from .namelists import namelist_defaults, namelist_reference, read_namelist_file
+from .namelists import (check_namelist_file, namelist_defaults, namelist_reference,
+                        read_namelist_file)
 
 # Pages with generated regions, relative to the repository root.
 PAGES = ["docs/Diagnostics.md", "docs/Parameters.md"]
@@ -111,7 +112,7 @@ def cmd_generate(model, args, check):
 def cmd_validate(model, args):
     nml = read_namelist_file(args.nml) if args.nml else None
     defaults = namelist_defaults(model.namelists)
-    rc = 0
+    rc = check_namelist_file(args.nml, model.namelists, sys.stdout) if args.nml else 0
     for t in args.diag_table:
         rc = max(rc, diag_table.validate(t, model.rows, nml, defaults))
     return rc
@@ -158,7 +159,8 @@ def main(argv=None):
     p = sub.add_parser("validate", help="check diag_table files against the source")
     p.add_argument("diag_table", nargs="+")
     p.add_argument("--nml", metavar="INPUT_NML",
-                   help="also check that each field is registered with these namelist settings")
+                   help="also check the namelist groups and variables of this input.nml, "
+                        "and that each field is registered with its settings")
     p = sub.add_parser("list", help="list the registered fields (and namelists)")
     p.add_argument("--csv", help="write the fields as CSV")
     p.add_argument("--json", help="write the fields and namelists as JSON")
@@ -166,9 +168,24 @@ def main(argv=None):
     if not args.cmd:
         ap.print_help()
         return 2
-    model = Model(os.path.abspath(args.root or default_root()))
-    if args.cmd in ("generate", "check"):
-        return cmd_generate(model, args, check=args.cmd == "check")
+    root = os.path.abspath(args.root or default_root())
+    # check the inputs before the source tree is parsed, which takes a few seconds
+    src = os.path.join(root, "src")
+    missing = [] if os.path.isdir(src) else ["%s: no such directory (see --root)" % src]
     if args.cmd == "validate":
-        return cmd_validate(model, args)
-    return cmd_list(model, args)
+        missing += ["%s: no such file" % f for f in args.diag_table + [args.nml or ""]
+                    if f and not os.path.isfile(f)]
+    for m in missing:
+        sys.stderr.write("mimadoc: %s\n" % m)
+    if missing:
+        return 2
+    try:
+        model = Model(root)
+        if args.cmd in ("generate", "check"):
+            return cmd_generate(model, args, check=args.cmd == "check")
+        if args.cmd == "validate":
+            return cmd_validate(model, args)
+        return cmd_list(model, args)
+    except (OSError, UnicodeDecodeError) as e:
+        sys.stderr.write("mimadoc: %s\n" % e)
+        return 2
