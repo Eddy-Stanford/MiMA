@@ -47,13 +47,12 @@ contains
   !> Sets up the grid-point latitudes, longitudes and areas and the reference pressure
   !> profiles (for surface pressures of 1013.25 and 810.6 hPa), and initializes the physics
   !> driver.
-  subroutine spectral_physics_init(Time, axes, Surf_diff, nhum_in, p_half)
+  subroutine spectral_physics_init(Time, axes, Surf_diff, nhum_in)
 
     type(time_type), intent(in) :: Time  !! current time
     integer, intent(in), dimension(:) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
     type(surf_diff_type), intent(inout) :: Surf_diff  !! surface data of the implicit vertical diffusion
     integer, intent(in) :: nhum_in  !! tracer index of the humidity
-    real, intent(in), dimension(:, :, :) :: p_half  !! pressure at half levels [Pa]
     real, allocatable, dimension(:, :, :, :) :: grid_tracers
 
     real, allocatable, dimension(:) :: rad_lon, rad_lat, wts_lat, lon_boundaries, lat_boundaries
@@ -115,7 +114,7 @@ contains
     grid_tracers = 0.
 
     call physics_driver_init(Time, lon_boundaries, lat_boundaries, grid_domain, axes, radiation_ref_press, grid_tracers, &
-                             Surf_diff, p_half)
+                             Surf_diff)
 
     if (sum(grid_tracers) /= 0.) then
       call error_mesg('spectral_physics_init', 'This version of the spectral atmospheric model not coded to handle'// &

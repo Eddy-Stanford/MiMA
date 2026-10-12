@@ -176,7 +176,7 @@ contains
   !> and saturation vapour pressure, initializes the physics modules and reads
   !> `INPUT/physics_driver.res.nc` if it exists.
   subroutine physics_driver_init(Time, lonb, latb, domain_in, axes, pref, &
-                                 trs, Surf_diff, phalf, mask, kbot, &
+                                 trs, Surf_diff, mask, kbot, &
                                  diffm, difft)
 
     type(time_type), intent(in)              :: Time  !! current time
@@ -189,7 +189,6 @@ contains
     !! `pref(nlev+1,1)` = 101325 and `pref(nlev+1,2)` = 81060 [Pa]
     real, dimension(:, :, :, :), intent(inout)           :: trs  !! atmospheric tracer fields
     type(surf_diff_type), intent(inout)           :: Surf_diff  !! surface data of the implicit vertical diffusion
-    real, dimension(:, :, :), intent(in)              :: phalf  !! pressure at half levels [Pa]
     real, dimension(:, :, :), intent(in), optional  :: mask
     !! mask to remove points below ground (eta vertical coordinate)
     integer, dimension(:, :), intent(in), optional  :: kbot
@@ -289,8 +288,7 @@ contains
 !-----------------------------------------------------------------------
 !    initialize atmos_tracer_driver_mod.
 !-----------------------------------------------------------------------
-    call atmos_tracer_driver_init(lonb, latb, trs, axes, time, &
-                                  phalf, mask)
+    call atmos_tracer_driver_init(trs, axes, time, mask)
 
 !---------------------------------------------------------------------
 !    initialize  various clocks used to time the physics components.
@@ -519,7 +517,7 @@ contains
     frac_land = 0.0
     call atmos_tracer_driver(is, ie, js, je, Time, lon, lat, &
                              frac_land, p_half, p_full, r, u, v, t, &
-                             q, u_star, rdt, rm, dt, z_half, &
+                             q, u_star, rdt, rm, z_half, &
                              z_full, t_surf_rad, albedo, &
                              Time_next, kbot)
     call mpp_clock_end(tracer_clock)

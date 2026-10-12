@@ -181,11 +181,11 @@ contains
       call get_initial_fields(ug(:, :, :, 1), vg(:, :, :, 1), tg(:, :, :, 1), psg(:, :, 1), grid_tracers(:, :, :, 1, :))
     end if
 
-    ! before spectral_physics_init, so that the physics is initialized with the pressures
+    ! the pressures and heights for the physics of the first step
     call compute_pressures_and_heights( &
       tg(:, :, :, current), psg(:, :, current), z_full, z_half, p_full, p_half, grid_tracers(:, :, :, current, nhum))
 
-    call spectral_physics_init(Time, get_axis_id(), Surf_diff, nhum, p_half)
+    call spectral_physics_init(Time, get_axis_id(), Surf_diff, nhum)
 
     module_is_initialized = .true.
 

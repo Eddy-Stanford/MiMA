@@ -71,7 +71,7 @@ contains
   !> losses.
   subroutine atmos_tracer_driver(is, ie, js, je, Time, lon, lat, land, phalf, pfull, r, &
                                  u, v, t, q, u_star, rdt, rm, &
-                                 dt, z_half, z_full, t_surf_rad, albedo, &
+                                 z_half, z_full, t_surf_rad, albedo, &
                                  Time_next, &
                                  kbot)
 
@@ -89,7 +89,6 @@ contains
     real, intent(inout), dimension(:, :, :, :)       :: rdt
     !! tendency of the tracer array, to which the tracer tendencies are added
     real, intent(inout), dimension(:, :, :, :)       :: rm  !! tracer array at the previous time step
-    real, intent(in)                              :: dt !! time step [s] (not used)
     real, intent(in), dimension(:, :, :)         :: z_half !! height at half levels [m]
     real, intent(in), dimension(:, :, :)         :: z_full !! height at full levels [m]
     real, intent(in), dimension(:, :)           :: t_surf_rad !! surface temperature [K]
@@ -152,14 +151,12 @@ contains
   !> The tracer manager provides a simple fixed or exponential profile if this is given in the
   !> field table; a more complicated profile should be set up in the initialization of the
   !> tracer code.
-  subroutine atmos_tracer_driver_init(lonb, latb, r, axes, Time, phalf, mask)
+  subroutine atmos_tracer_driver_init(r, axes, Time, mask)
 
 !-----------------------------------------------------------------------
-    real, intent(in), dimension(:)               :: lonb, latb  !! longitudes and latitudes of the cell corners [rad] (not used)
     real, intent(inout), dimension(:, :, :, :)         :: r  !! tracer fields (nlon, nlat, nlev, ntrace)
     type(time_type), intent(in)                                :: Time  !! model time
     integer, intent(in)                                :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
-    real, intent(in), dimension(:, :, :)           :: phalf  !! pressure at half levels [Pa] (not used)
     real, intent(in), dimension(:, :, :), optional :: mask
     !! 1. above the ground, 0. below (nlon, nlat, nlev)
 
