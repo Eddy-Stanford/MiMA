@@ -18,7 +18,7 @@ module vert_diff_mod
   use constants_mod, only: GRAV, RDGAS, RVGAS, CP_AIR
 
   use fms_mod, only: error_mesg, FATAL, uppercase, &
-                     write_version_number, stdlog, &
+                     stdlog, &
                      mpp_pe, mpp_root_pe
 
   use field_manager_mod, only: MODEL_ATMOS
@@ -68,10 +68,6 @@ module vert_diff_mod
   logical :: use_virtual_temp_vert_diff
   integer :: sphum, mix_rat
 
-!--------------------- version number ---------------------------------
-
-  character(len=128) :: version = '$Id: vert_diff.f90,v 12.0 2005/04/14 15:50:38 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
   logical            :: module_is_initialized = .false.
 
   real, parameter :: d608 = (RVGAS - RDGAS)/RDGAS
@@ -93,8 +89,6 @@ contains
     !! heat the air by the kinetic energy dissipated by the momentum diffusion
     logical, optional, intent(in)    :: use_virtual_temp_vert_diff_in
     !! use the virtual temperature for the air density (default `.false.`)
-
-    call write_version_number(version, tagname)
 
 ! get the tracer number for specific humidity
     sphum = get_tracer_index(MODEL_ATMOS, 'sphum')

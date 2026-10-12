@@ -30,7 +30,6 @@ module damping_driver_mod
   use mg_drag_mod, only: mg_drag, mg_drag_init, mg_drag_end
   use cg_drag_mod, only: cg_drag_init, cg_drag_calc, cg_drag_end
   use fms_mod, only: mpp_pe, mpp_root_pe, stdlog, &
-                     write_version_number, &
                      input_nml_file, error_mesg, &
                      check_nml_error, &
                      FATAL
@@ -103,8 +102,6 @@ module damping_driver_mod
 !   note:
 !     rfactr = coeff. for damping momentum at the top level
 
-  character(len=128) :: version = '$Id: damping_driver.f90,v 10.0 2003/10/24 22:00:25 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
 !-----------------------------------------------------------------------
 
 contains
@@ -327,7 +324,6 @@ contains
     read (input_nml_file, nml=damping_driver_nml, iostat=io)
     ierr = check_nml_error(io, 'damping_driver_nml')
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=damping_driver_nml)
     end if

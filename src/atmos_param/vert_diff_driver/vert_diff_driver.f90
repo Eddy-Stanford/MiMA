@@ -20,7 +20,7 @@ module vert_diff_driver_mod
 
   use fms_mod, only: input_nml_file, error_mesg, &
                      check_nml_error, FATAL, mpp_pe, mpp_root_pe, &
-                     write_version_number, stdlog
+                     stdlog
 
   use constants_mod, only: CP_AIR, GRAV
 
@@ -58,12 +58,6 @@ module vert_diff_driver_mod
   real, allocatable, dimension(:, :, :) :: dt_t_down, dt_q_down
   !! tendencies of temperature and specific humidity after the downward sweep, kept for the
   !! diagnostics of the diffusion sent after the upward sweep (allocated only if one is used)
-
-!-----------------------------------------------------------------------
-!---- version number ----
-
-  character(len=128) :: version = '$Id: vert_diff_driver.f90,v 12.0.4.1 2005/05/13 18:16:38 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
 
   logical :: module_is_initialized = .false.
 
@@ -322,9 +316,8 @@ contains
     read (input_nml_file, nml=vert_diff_driver_nml, iostat=io)
     ierr = check_nml_error(io, 'vert_diff_driver_nml')
 
-!--------- write version number and namelist ------------------
+!--------- write the namelist to the log file ------------------
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=vert_diff_driver_nml)
 
 !-------- initialize gcm vertical diffusion ------

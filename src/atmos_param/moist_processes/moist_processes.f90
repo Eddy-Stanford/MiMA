@@ -36,7 +36,6 @@ module moist_processes_mod
 
   use fms_mod, only: check_nml_error, &
                      input_nml_file, &
-                     write_version_number, &
                      mpp_pe, mpp_root_pe, stdlog, &
                      error_mesg, FATAL, NOTE
 
@@ -73,9 +72,6 @@ module moist_processes_mod
 
   real, parameter :: d622 = RDGAS/RVGAS
 
-!--------------------- version number ----------------------------------
-  character(len=128) :: version = '$Id: moist_processes.f90,v 12.0.4.3 2005/05/21 02:02:03 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
   logical            :: module_is_initialized = .false.
 !-----------------------------------------------------------------------
 !-------------------- namelist data (private) --------------------------
@@ -668,9 +664,8 @@ contains
     read (input_nml_file, nml=moist_processes_nml, iostat=io)
     ierr = check_nml_error(io, 'moist_processes_nml')
 
-!--------- write version and namelist to standard log ------------
+!--------- write the namelist to the log file ------------
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) &
       write (stdlog(), nml=moist_processes_nml)
 

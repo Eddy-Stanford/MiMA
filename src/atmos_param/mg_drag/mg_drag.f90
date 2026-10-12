@@ -24,7 +24,7 @@ module mg_drag_mod
 
   use topography_mod, only: get_topog_stdev
 
-  use fms_mod, only: write_version_number, stdlog, &
+  use fms_mod, only: stdlog, &
                      mpp_pe, mpp_root_pe, error_mesg, FATAL, NOTE, &
                      input_nml_file, check_nml_error, mpp_error
   use mpp_mod, only: mpp_max
@@ -38,9 +38,6 @@ module mg_drag_mod
 !-----------------------------------------------------------------------
 
   private
-
-  character(len=128) :: version = '$Id: mg_drag.f90,v 11.0 2004/09/28 19:19:38 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
 
   real, parameter :: p00 = 1.e5
 
@@ -486,7 +483,6 @@ contains
     small = epsilon(umag)
     where (umag .lt. small) umag = 0.0
 
-
 !-----------------------------------------------------------------------
 
 !     calculate vertical derivatives of umag, to be used in
@@ -502,7 +498,6 @@ contains
       dudz(:, :, k) = (umag(:, :, k) - umag(:, :, k + 1)) &
   &                /(zhalf(:, :, k) - zhalf(:, :, k + 1))
     end do
-
 
 !     assume vertical derivative of umag at the boundaries=0 and
 !     compute 2nd derivatives there using uncentered differencing
@@ -526,7 +521,6 @@ contains
     end do
     end do
 
-
 !-----------------------------------------------------------------------
 
 !     compute wkb extension term for umag > 0
@@ -537,7 +531,6 @@ contains
     elsewhere
       extend(:, :, :) = 0.0
     end where
-
 
 !     calculate brunt vaisala frequency at 1/2 levels
 !     -----------------------------------------------------
@@ -563,7 +556,6 @@ contains
     end do
     end do
 
-
 !-----------------------------------------------------------------------
 
 !     calculate d2i (=1/d**2) for umag .gt. 0
@@ -576,7 +568,6 @@ contains
     elsewhere
       d2i(:, :, :) = 1.0e+30
     end where
-
 
 !     for 1/d**2 approaching 0 calculate d by dividing by a
 !     very small but finite number
@@ -594,7 +585,6 @@ contains
     end where
 
 !-----------------------------------------------------------------------
-
 
 !     calculation of the saturation flux profile for scheme 2
 !     -------------------------------------------------------
@@ -712,7 +702,6 @@ contains
       dtauy(:, :, k) = yn(:, :)*dterm(:, :, k)
     end do
 
-
 !     ***********************************************************
 
   end subroutine mgwd_tend
@@ -747,10 +736,9 @@ contains
     ierr = check_nml_error(io, 'mg_drag_nml')
 
 !---------------------------------------------------------------------
-! --- Output version
+! --- Write the namelist to the log file
 !---------------------------------------------------------------------
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=mg_drag_nml)
 
 !---------------------------------------------------------------------

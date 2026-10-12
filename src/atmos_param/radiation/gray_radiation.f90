@@ -21,7 +21,7 @@ module gray_radiation_mod
 
   use fms_mod, only: input_nml_file, check_nml_error, &
                      mpp_pe, mpp_root_pe, &
-                     write_version_number, stdlog
+                     stdlog
 
   use constants_mod, only: stefan, cp_air, grav
 
@@ -32,16 +32,6 @@ module gray_radiation_mod
 !==================================================================================
   implicit none
   private
-!==================================================================================
-
-! version information
-
-  character(len=128), parameter :: version = &
-                                   '$Id: gray_radiation.f90,v 1.1.2.2 2005/05/21 02:01:56 pjp Exp $'
-
-  character(len=128), parameter :: tagname = &
-                                   '$Name:  $'
-
 !==================================================================================
 
 ! public interfaces
@@ -110,7 +100,6 @@ contains
     read (input_nml_file, nml=gray_radiation_nml, iostat=io)
     ierr = check_nml_error(io, 'gray_radiation_nml')
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=gray_radiation_nml)
     end if

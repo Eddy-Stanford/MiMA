@@ -17,7 +17,7 @@ module radiation_mod
 
   use fms_mod, only: input_nml_file, check_nml_error, &
                      mpp_pe, mpp_root_pe, stdlog, &
-                     error_mesg, FATAL, write_version_number
+                     error_mesg, FATAL
   use time_manager_mod, only: time_type
   use mpp_domains_mod, only: domain2d
   use constants_mod, only: cp_air
@@ -31,9 +31,6 @@ module radiation_mod
   private
 
   public :: radiation_init, radiation_down, radiation_precip_accum, radiation_end
-
-  character(len=128) :: version = '$Id: radiation.f90 $'
-  character(len=128) :: tagname = '$Name: $'
 
 !-------------------- namelist -----------------------------------------
 
@@ -66,7 +63,6 @@ contains
     read (input_nml_file, nml=radiation_nml, iostat=io)
     ierr = check_nml_error(io, 'radiation_nml')
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=radiation_nml)
 
     select case (trim(radiation_scheme))

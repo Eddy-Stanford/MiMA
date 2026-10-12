@@ -23,7 +23,7 @@ module moist_conv_mod
   use fms_mod, only: error_mesg, input_nml_file, &
                      check_nml_error, &
                      FATAL, WARNING, mpp_pe, mpp_root_pe, &
-                     write_version_number, stdlog
+                     stdlog
   use constants_mod, only: HLv, HLs, cp_air, grav, rdgas, rvgas
 
   use field_manager_mod, only: MODEL_ATMOS
@@ -47,11 +47,6 @@ module moist_conv_mod
 
   namelist /moist_conv_nml/ HC, TOLmin, TOLmax, ITSMOD
 
-!-----------------------------------------------------------------------
-!---- VERSION NUMBER -----
-
-  character(len=128) :: version = '$Id: moist_conv.f90,v 11.0.2.1 2005/05/13 18:16:37 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
   logical            :: module_is_initialized = .false.
 
 !---------- initialize constants used by this module -------------------
@@ -517,7 +512,6 @@ contains
 !---------- output namelist --------------------------------------------
 
     if (mpp_pe() == mpp_root_pe()) then
-      call write_version_number(version, tagname)
       write (stdlog(), nml=moist_conv_nml)
     end if
 

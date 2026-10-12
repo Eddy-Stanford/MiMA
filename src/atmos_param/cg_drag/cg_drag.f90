@@ -28,7 +28,7 @@ module cg_drag_mod
                      check_nml_error, &
                      error_mesg, FATAL, NOTE, &
                      input_nml_file, &
-                     stdlog, write_version_number
+                     stdlog
   use time_manager_mod, only: time_manager_init, time_type, get_time, &
                               operator(-)
   use mpp_domains_mod, only: domain2d
@@ -43,12 +43,6 @@ module cg_drag_mod
 
   implicit none
   private
-
-!---------------------------------------------------------------------
-!----------- ****** VERSION NUMBER ******* ---------------------------
-
-  character(len=128)  :: version = '$Id: cg_drag.F90,v 19.0 2014/09/08 $'
-  character(len=128)  :: tagname = '$Name: riga $'
 
 !---------------------------------------------------------------------
 !-------  interfaces --------
@@ -254,9 +248,8 @@ contains
     ierr = check_nml_error(io, 'cg_drag_nml')
 
 !---------------------------------------------------------------------
-!    write version number and namelist to logfile.
+!    write the namelist to the log file.
 !---------------------------------------------------------------------
-    call write_version_number(version, tagname)
     logunit = stdlog()
     if (mpp_pe() == mpp_root_pe()) write (logunit, nml=cg_drag_nml)
 
@@ -337,7 +330,6 @@ contains
       call error_mesg('cg_drag_init', 'damp_level_pressure must not be below the source '// &
                       'level (source_level_pressure)', FATAL)
     end if
-
 
 !---------------------------------------------------------------------
 !    define the number of waves in the gravity wave spectrum, and define

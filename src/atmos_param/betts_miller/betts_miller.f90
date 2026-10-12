@@ -25,7 +25,7 @@ module betts_miller_mod
 
   use fms_mod, only: error_mesg, input_nml_file, &
                      check_nml_error, mpp_pe, mpp_root_pe, &
-                     FATAL, write_version_number, stdlog
+                     FATAL, stdlog
 
   use sat_vapor_pres_mod, only: escomp
   use constants_mod, only: HLv, HLf, Cp_air, Grav, rdgas, rvgas, &
@@ -37,12 +37,6 @@ module betts_miller_mod
 !  ---- public interfaces ----
 
   public betts_miller, betts_miller_init
-
-!-----------------------------------------------------------------------
-!   ---- version number ----
-
-  character(len=128) :: version = '$Id: betts_miller.f90,v 1.1.2.1 2005/05/13 18:26:51 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
 
 !-----------------------------------------------------------------------
 !   ---- local/private data ----
@@ -678,7 +672,6 @@ contains
   !> Initializes the module: reads `betts_miller_nml` and writes it to the log file.
   subroutine betts_miller_init()
 
-
     integer io, ierr
 
 !----------- read namelist ---------------------------------------------
@@ -688,7 +681,6 @@ contains
 
 !---------- output namelist --------------------------------------------
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=betts_miller_nml)
     end if

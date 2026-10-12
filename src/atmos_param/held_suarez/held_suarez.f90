@@ -18,7 +18,7 @@ module held_suarez_mod
 
   use fms_mod, only: input_nml_file, check_nml_error, &
                      mpp_pe, mpp_root_pe, stdlog, &
-                     error_mesg, FATAL, write_version_number
+                     error_mesg, FATAL
   use time_manager_mod, only: time_type
   use constants_mod, only: kappa, cp_air, seconds_per_day
   use diag_manager_mod, only: register_diag_field, send_data
@@ -27,9 +27,6 @@ module held_suarez_mod
   private
 
   public :: held_suarez_init, held_suarez_forcing, held_suarez_end
-
-  character(len=128) :: version = '$Id: held_suarez.f90 $'
-  character(len=128) :: tagname = '$Name: $'
 
 !-------------------- namelist -----------------------------------------
 
@@ -74,7 +71,6 @@ contains
     read (input_nml_file, nml=held_suarez_nml, iostat=io)
     ierr = check_nml_error(io, 'held_suarez_nml')
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=held_suarez_nml)
 
     if (ka <= 0. .or. ks <= 0. .or. (do_rayleigh_friction .and. kf <= 0.)) &

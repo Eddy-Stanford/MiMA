@@ -18,7 +18,7 @@ module mima_monin_obukhov_mod
   use constants_mod, only: grav, vonkarm
 
   use fms_mod, only: check_nml_error, &
-                     input_nml_file, write_version_number, &
+                     input_nml_file, &
                      mpp_pe, mpp_root_pe, stdlog, &
                      error_mesg, FATAL
 
@@ -64,11 +64,6 @@ module mima_monin_obukhov_mod
     module procedure mo_diff_one_lev_0d, mo_diff_one_lev_1d, mo_diff_one_lev_2d
   end interface
 
-!--------------------- version number ---------------------------------
-
-  character(len=128) :: version = '$Id: monin_obukhov.f90,v 1.5.4.1 2005/05/13 18:16:40 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
-
 !=======================================================================
 
 !  DEFAULT VALUES OF NAMELIST PARAMETERS:
@@ -103,7 +98,6 @@ contains
 
 !---------- output namelist to log-------------------------------------
 
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) then
       write (stdlog(), nml=monin_obukhov_nml)
     end if

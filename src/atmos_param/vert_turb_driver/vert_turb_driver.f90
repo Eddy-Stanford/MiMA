@@ -21,8 +21,7 @@ module vert_turb_driver_mod
 
   use fms_mod, only: mpp_pe, mpp_root_pe, stdlog, &
                      error_mesg, input_nml_file, &
-                     check_nml_error, FATAL, &
-                     write_version_number
+                     check_nml_error, FATAL
 
   implicit none
   private
@@ -31,11 +30,6 @@ module vert_turb_driver_mod
 
   public vert_turb_driver_init, vert_turb_driver_end, vert_turb_driver
 
-!-----------------------------------------------------------------------
-!--------------------- version number ----------------------------------
-
-  character(len=128) :: version = '$Id: vert_turb_driver.f90,v 11.0.8.1 2005/05/13 18:16:38 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
   logical            :: module_is_initialized = .false.
 
 !---------------- private data -------------------
@@ -275,7 +269,6 @@ contains
 !---------- output namelist --------------------------------------------
 
     if (mpp_pe() == mpp_root_pe()) then
-      call write_version_number(version, tagname)
       write (stdlog(), nml=vert_turb_driver_nml)
     end if
 

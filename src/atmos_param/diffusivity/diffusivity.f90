@@ -17,7 +17,7 @@ module diffusivity_mod
   use fms_mod, only: error_mesg, FATAL, &
                      check_nml_error, input_nml_file, &
                      mpp_pe, mpp_root_pe, &
-                     write_version_number, stdlog
+                     stdlog
 
   use mima_monin_obukhov_mod, only: mo_diff
 
@@ -28,11 +28,6 @@ module diffusivity_mod
 !=======================================================================
 
   public diffusivity, pbl_depth, molecular_diff
-
-!--------------------- version number ----------------------------------
-
-  character(len=128) :: version = '$Id: diffusivity.f90,v 10.0.6.1 2005/05/13 18:16:36 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
 
 !=======================================================================
 
@@ -92,7 +87,6 @@ contains
 !---------- output namelist to log-------------------------------------
 
     if (mpp_pe() == mpp_root_pe()) then
-      call write_version_number(version, tagname)
       write (stdlog(), nml=diffusivity_nml)
     end if
 
@@ -100,7 +94,6 @@ contains
 
     return
   end subroutine diffusivity_init
-
 
 !=======================================================================
 

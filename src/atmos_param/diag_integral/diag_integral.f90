@@ -23,7 +23,7 @@ module mima_diag_integral_mod
                      input_nml_file, check_nml_error, &
                      fms_init, &
                      mpp_pe, mpp_root_pe, &
-                     FATAL, write_version_number, &
+                     FATAL, &
                      stdlog
   use constants_mod, only: radius, constants_init
   use mpp_mod, only: mpp_sum, mpp_init
@@ -32,12 +32,6 @@ module mima_diag_integral_mod
 
   implicit none
   private
-
-!---------------------------------------------------------------------
-!----------- version number for this module -------------------
-
-  character(len=128) :: version = '$Id: diag_integral.f90,v 11.0 2004/09/28 19:15:46 fms Exp $'
-  character(len=128) :: tagname = '$Name: lima $'
 
 !---------------------------------------------------------------------
 !------ interfaces ------
@@ -243,9 +237,8 @@ contains
       end select
 
 !---------------------------------------------------------------------
-!    write version number and namelist to logfile.
+!    write the namelist to the log file.
 !---------------------------------------------------------------------
-      call write_version_number(version, tagname)
       if (mpp_pe() == mpp_root_pe()) &
         write (stdlog(), nml=diag_integral_nml)
 

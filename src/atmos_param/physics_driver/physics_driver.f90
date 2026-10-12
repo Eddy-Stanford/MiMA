@@ -36,7 +36,6 @@ module physics_driver_mod
                      mpp_clock_end, CLOCK_MODULE_DRIVER, &
                      MPP_CLOCK_SYNC, fms_init, &
                      input_nml_file, stdlog, &
-                     write_version_number, &
                      error_mesg, FATAL, &
                      NOTE, check_nml_error, &
                      mpp_pe, mpp_root_pe
@@ -78,12 +77,6 @@ module physics_driver_mod
 
   implicit none
   private
-
-!---------------------------------------------------------------------
-!----------- version number for this module -------------------
-
-  character(len=128) :: version = '$Id: physics_driver.f90,v 12.0.6.2 2005/05/16 13:56:54 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
 
 !---------------------------------------------------------------------
 !-------  interfaces --------
@@ -245,9 +238,8 @@ contains
     call check_sat_vapor_pres
 
 !--------------------------------------------------------------------
-!    write version number and namelist to log file.
+!    write the namelist to the log file.
 !--------------------------------------------------------------------
-    call write_version_number(version, tagname)
     if (mpp_pe() == mpp_root_pe()) &
       write (stdlog(), nml=physics_driver_nml)
 

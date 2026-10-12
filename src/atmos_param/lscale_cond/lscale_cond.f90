@@ -17,7 +17,7 @@ module lscale_cond_mod
 !-----------------------------------------------------------------------
   use fms_mod, only: error_mesg, input_nml_file, &
                      check_nml_error, mpp_pe, mpp_root_pe, FATAL, &
-                     write_version_number, stdlog
+                     stdlog
   use sat_vapor_pres_mod, only: escomp, descomp
   use constants_mod, only: HLv, HLs, Cp_Air, Grav, rdgas, rvgas
 
@@ -28,11 +28,6 @@ module lscale_cond_mod
 
   public lscale_cond, lscale_cond_init, lscale_cond_end
 
-!-----------------------------------------------------------------------
-!   ---- version number ----
-
-  character(len=128) :: version = '$Id: lscale_cond.f90,v 10.0.6.1 2005/05/13 18:16:37 pjp Exp $'
-  character(len=128) :: tagname = '$Name:  $'
   logical            :: module_is_initialized = .false.
 
 !-----------------------------------------------------------------------
@@ -231,7 +226,6 @@ contains
   !> Initializes the module: reads `lscale_cond_nml` and writes it to the log file.
   subroutine lscale_cond_init()
 
-
     integer io, ierr
 
 !----------- read namelist ---------------------------------------------
@@ -242,7 +236,6 @@ contains
 !---------- output namelist --------------------------------------------
 
     if (mpp_pe() == mpp_root_pe()) then
-      call write_version_number(version, tagname)
       write (stdlog(), nml=lscale_cond_nml)
     end if
 
