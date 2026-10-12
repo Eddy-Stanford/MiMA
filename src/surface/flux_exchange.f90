@@ -45,7 +45,7 @@ module flux_exchange_mod
 
   use diag_manager_mod, only: register_diag_field, send_data
 
-  use time_manager_mod, only: time_type
+  use time_manager_mod, only: time_type, operator(-)
   use field_manager_mod, only: MODEL_ATMOS
   use tracer_manager_mod, only: get_number_tracers, query_method
 
@@ -308,10 +308,12 @@ contains
   !> Called after the down sweep of the vertical diffusion. The sensible heat and moisture
   !> fluxes and their derivatives with respect to the surface temperature are updated with
   !> the lowest-level changes of the down sweep. The local surface heating of
-  !> `local_heating_nml` is added to `Exch` (zero if there is none).
+  !> `local_heating_nml` is added to `Exch` (zero if there is none); it is evaluated at the
+  !> start of the step (`Time - Atm%Time_step`), the time at which the physics evaluates
+  !> the atmospheric part of the local heating.
   subroutine flux_down_from_atmos(Time, Atm, Exch)
 
-    type(time_type), intent(in)  :: Time  !! current time
+    type(time_type), intent(in)  :: Time  !! time at the end of the step (for `Exch%Time`)
     type(atmos_data_type), intent(in)  :: Atm
     !! atmospheric state, including the surface radiation and precipitation and the data of
     !! the down sweep of the vertical diffusion (`Atm%Surf_diff`)
@@ -350,8 +352,10 @@ contains
     flux_q = flux_q + dedq_atm*f_q_delt_n
     dedt_surf = dedt_surf + dedq_atm*e_q_n
 
-! The local surface heating (Exch%extra_heating stays 0 without it)
-    if (do_surface_heating) call horizontal_heating(Time, lon2d, lat2d, Exch%extra_heating)
+! The local surface heating (Exch%extra_heating stays 0 without it), at the start of the
+! step like the atmospheric part in physics_driver_down
+    if (do_surface_heating) &
+      call horizontal_heating(Time - Atm%Time_step, lon2d, lat2d, Exch%extra_heating)
 
     Exch%flux_lw = flux_lw
     Exch%flux_sw = Atm%flux_sw
