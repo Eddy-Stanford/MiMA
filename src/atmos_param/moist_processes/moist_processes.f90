@@ -671,8 +671,8 @@ contains
     if (id_cape > 0 .or. id_cin > 0) then
 ! calculate r
       rin = qin/(1.0 - qin)
-      do j = js, je
-        do i = is, ie
+      do j = 1, jx
+        do i = 1, ix
           call capecalcnew(kx, pfull(i, j, :), phalf(i, j, :), CP_AIR, RDGAS, RVGAS, &
                            HLV, KAPPA, tin(i, j, :), rin(i, j, :), cape(i, j), cin(i, j))
         end do
