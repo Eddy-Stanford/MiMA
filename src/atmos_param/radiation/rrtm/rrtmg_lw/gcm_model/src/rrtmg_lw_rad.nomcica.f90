@@ -86,7 +86,7 @@
              taucld  ,cicewp  ,cliqwp  ,reice   ,reliq   , &
              tauaer  , &
              uflx    ,dflx    ,hr      ,uflxc   ,dflxc,  hrc, &
-             duflx_dt,duflxc_dt )
+             duflx_dt,duflxc_dt, iaerlw )
 
 ! -------- Description --------
 
@@ -299,6 +299,8 @@
                                                       ! change in clear sky upward longwave flux (w/m2/k)
                                                       ! with respect to surface temperature
                                                       !    Dimensions: (ncol,nlay+1)
+!mima optional input: aerosol option, 0 (no aerosols: tauaer is not used) or 10 (default)
+      integer(kind=im), intent(in), optional :: iaerlw
 
 ! ----- Local -----
 
@@ -440,6 +442,10 @@
 ! iaer = 0, no aerosols
 ! icld = 10, input total aerosol optical depth (tauaer) directly
       iaer = 10
+!mima
+      if (present(iaerlw)) then
+         if (iaerlw .eq. 0) iaer = 0
+      endif
 
 ! Call model and data initialization, compute lookup tables, perform
 ! reduction of g-points from 256 to 140 for input absorption coefficient 

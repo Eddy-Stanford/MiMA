@@ -41,7 +41,8 @@
              fac00, fac01, fac10, fac11, &
              selffac, selffrac, indself, forfac, forfrac, indfor, &
              pbbfd, pbbfu, pbbcd, pbbcu, puvfd, puvcd, pnifd, pnicd, &
-             pbbfddir, pbbcddir, puvfddir, puvcddir, pnifddir, pnicddir)
+             pbbfddir, pbbcddir, puvfddir, puvcddir, pnifddir, pnicddir, &
+             lclear)
 ! ---------------------------------------------------------------------------
 !
 ! Purpose: Contains spectral loop to compute the shortwave radiative fluxes, 
@@ -189,6 +190,12 @@
       real(kind=rb), intent(out) :: pnicddir(:)
       real(kind=rb), intent(out) :: pnifddir(:)
 
+!mima optional input: .true. if the cloud fraction pclfr is zero in every layer (icld = 0).
+!     The total-sky fluxes then equal the clear-sky ones bit for bit (zclear = 1, zcloud = 0),
+!     so the clear-sky ones are copied instead of being computed again by vrtqdr_sw.
+      logical, intent(in), optional :: lclear
+      logical :: lclr
+
 ! Output - inactive                                            !   All Dimensions: (nlayers+1)
 !      real(kind=rb), intent(out) :: puvcu(:)
 !      real(kind=rb), intent(out) :: puvfu(:)
@@ -260,6 +267,9 @@
       ib2 = iend
       klev = nlayers
       iw = 0
+!mima
+      lclr = .false.
+      if (present(lclear)) lclr = lclear
       repclc = 1.e-12_rb
 !      zincflux = 0.0_rb
 
@@ -558,10 +568,16 @@
       
 ! Vertical quadrature for cloudy fluxes
 
+!mima no clouds: the total-sky inputs equal the clear-sky ones
+            if (lclr) then
+               zfd(1:klev+1,iw) = zcd(1:klev+1,iw)
+               zfu(1:klev+1,iw) = zcu(1:klev+1,iw)
+            else
             call vrtqdr_sw (klev, iw, &
                             zref, zrefd, ztra, ztrad, &
                             zdbt, zrdnd, zrup, zrupd, ztdbt, &
                             zfd, zfu)
+            endif
 
 ! Upwelling and downwelling fluxes at levels
 !   Two-stream calculations go from top to bottom; 

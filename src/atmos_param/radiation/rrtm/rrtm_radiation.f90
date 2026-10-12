@@ -681,7 +681,7 @@ contains
          zeros, taucld, zeros, zeros, 10*ones, 10*ones, &
          tauaer, &
          ! output
-         uflx, dflx, hr, uflxc, dflxc, hrc)
+         uflx, dflx, hr, uflxc, dflxc, hrc, iaerlw=iaer)
     else
       call rrtmg_lw &
         (ncols_rrt, nlay_rrt, icld, idrv, &
@@ -694,7 +694,7 @@ contains
          zeros, taucld, zeros, zeros, 10*ones, 10*ones, &
          tauaer, &
          ! output
-         uflx, dflx, hr, uflxc, dflxc, hrc)
+         uflx, dflx, hr, uflxc, dflxc, hrc, iaerlw=iaer)
     end if
 
     lwijk = reshape(hr(:, sk:1:-1), (/si/lonstep, sj, sk/))*daypersec
