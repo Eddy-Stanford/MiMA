@@ -112,7 +112,7 @@ contains
   !> gravity-wave drag and the constant drag (whichever are switched on) to `udt`, `vdt`
   !> and `tdt`, and sends their diagnostics.
   subroutine damping_driver(is, js, lat, Time, delt, pfull, phalf, zfull, zhalf, &
-                            u, v, t, q, r, udt, vdt, tdt, qdt, rdt, &
+                            u, v, t, udt, vdt, tdt, &
                             mask, kbot)
 
 !-----------------------------------------------------------------------
@@ -122,15 +122,12 @@ contains
     real, intent(in)                :: delt  !! physics time step [s]
     real, intent(in), dimension(:, :, :)   :: pfull, phalf, &
                                               zfull, zhalf, &
-                                              u, v, t, q
+                                              u, v, t
     !! `pfull`, `phalf`: pressure at full and half levels [Pa]; `zfull`, `zhalf`: height at
     !! full and half levels [m]; `u`, `v`: zonal and meridional wind [m/s]; `t`: temperature
-    !! [K]; `q`: specific humidity [kg/kg] (not used)
-    real, intent(in), dimension(:, :, :, :) :: r  !! tracers (not used)
-    real, intent(inout), dimension(:, :, :)   :: udt, vdt, tdt, qdt
-    !! tendencies of u [m/s2], v [m/s2], temperature [K/s] and specific humidity [kg/kg/s]
-    !! (`qdt` is not changed)
-    real, intent(inout), dimension(:, :, :, :) :: rdt  !! tracer tendencies (not changed)
+    !! [K]
+    real, intent(inout), dimension(:, :, :)   :: udt, vdt, tdt
+    !! tendencies of u [m/s2], v [m/s2] and temperature [K/s]
     real, intent(in), dimension(:, :, :), optional :: mask  !! mask for the diagnostics
     integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 

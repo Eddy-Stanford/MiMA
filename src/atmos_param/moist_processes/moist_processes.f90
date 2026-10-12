@@ -127,6 +127,7 @@ module moist_processes_mod
   logical, dimension(:), allocatable :: tracers_in_mca
   integer :: num_mca_tracers = 0
   integer :: num_tracers = 0
+  integer :: nhum = 0  ! tracer index of the humidity (`sphum` or `mix_rat`)
 
 !-----------------------------------------------------------------------
 
@@ -141,8 +142,8 @@ contains
   !> the tendencies so far (`tm + tdt*dt`, the default).
   subroutine moist_processes(is, ie, js, je, Time, dt, &
                              phalf, pfull, zhalf, zfull, omega, diff_t, &
-                             t, q, r, u, v, tm, qm, rm, um, vm, &
-                             tdt, qdt, rdt, udt, vdt, &
+                             t, r, u, v, tm, rm, um, vm, &
+                             tdt, rdt, udt, vdt, &
                              lprec, fprec, gust_cv, area, &
                              lat, mask, kbot)
 
@@ -152,18 +153,19 @@ contains
     real, intent(in)                      :: dt  !! time step (from t(n-1) to t(n+1) for leapfrog) [s]
     real, intent(in), dimension(:, :, :)   :: phalf, pfull, zhalf, zfull, &
                                               omega, diff_t, &
-                                              t, q, u, v, tm, qm, um, vm
+                                              t, u, v, tm, um, vm
     !! `phalf`, `pfull`: pressure at half and full levels [Pa]; `zhalf`, `zfull`, `omega`,
-    !! `diff_t`: not used; `t`, `q`, `u`, `v`: temperature [K], specific humidity [kg/kg] and
-    !! zonal and meridional wind [m/s] at the current time level; `tm`, `qm`, `um`, `vm`: the
-    !! same at the previous time level (the winds are not used)
+    !! `diff_t`: not used; `t`, `u`, `v`: temperature [K] and zonal and meridional wind [m/s]
+    !! at the current time level; `tm`, `um`, `vm`: the same at the previous time level (the
+    !! winds are not used)
     real, intent(in), dimension(:, :, :, :) :: r, rm
-    !! tracers at the current and previous time levels
-    real, intent(inout), dimension(:, :, :)  :: tdt, qdt, udt, vdt
-    !! tendencies of temperature [K/s], specific humidity [kg/kg/s] and zonal and meridional
-    !! wind [m/s2]; the tendencies of the moist processes are added to `tdt` and `qdt` (`udt`
-    !! and `vdt` are not used)
-    real, intent(inout), dimension(:, :, :, :):: rdt  !! tracer tendencies (wet deposition is subtracted)
+    !! tracers at the current and previous time levels, including the humidity [kg/kg]
+    real, intent(inout), dimension(:, :, :)  :: tdt, udt, vdt
+    !! tendencies of temperature [K/s] and zonal and meridional wind [m/s2]; the tendencies of
+    !! the moist processes are added to `tdt` (`udt` and `vdt` are not used)
+    real, intent(inout), dimension(:, :, :, :):: rdt
+    !! tracer tendencies: the moist tendency of the humidity is added, and the wet deposition
+    !! is subtracted
     real, intent(out), dimension(:, :)     :: lprec, fprec, gust_cv
     !! `lprec`, `fprec`: rain and snow rates [kg/m2/s]; `gust_cv`: convective gustiness [m/s]
     real, intent(in), dimension(:, :)     :: area  !! grid box area [m2] (not used)
@@ -222,10 +224,10 @@ contains
 
     if (use_tau) then
       tin(:, :, :) = t(:, :, :)
-      qin(:, :, :) = q(:, :, :)
+      qin(:, :, :) = r(:, :, :, nhum)
     else
       tin(:, :, :) = tm(:, :, :) + tdt(:, :, :)*dt
-      qin(:, :, :) = qm(:, :, :) + qdt(:, :, :)*dt
+      qin(:, :, :) = rm(:, :, :, nhum) + rdt(:, :, :, nhum)*dt
     end if
 
     if (use_mask) then
@@ -332,7 +334,7 @@ contains
       end if
 
 !------- add on tendency ----------
-      tdt = tdt + ttnd; qdt = qdt + qtnd
+      tdt = tdt + ttnd; rdt(:, :, :, nhum) = rdt(:, :, :, nhum) + qtnd
 
 !------- save total precip and snow ---------
       lprec = lprec + rain
@@ -354,7 +356,7 @@ contains
       rain = rain*dtinv; snow = snow*dtinv
 
 !-------- add on tendency ----------
-      tdt = tdt + ttnd; qdt = qdt + qtnd
+      tdt = tdt + ttnd; rdt(:, :, :, nhum) = rdt(:, :, :, nhum) + qtnd
 !------- save total precip and snow ---------
       lprec = lprec + rain
       fprec = fprec + snow
@@ -365,7 +367,7 @@ contains
 
 ! Do wet deposition for the convective routine here (prognostic tracers only: rdt has
 ! no diagnostic tracers)
-! qdt should give the vertical distribution here
+! qtnd gives the vertical distribution here
     do n = 1, size(rdt, 4)
       wetdeptnd = 0.0
       call wet_deposition(n, t, pfull, phalf, rain, snow, qtnd, tracer(:, :, :, n), &
@@ -500,7 +502,7 @@ contains
       rain = rain*dtinv; snow = snow*dtinv
 
 !------- add on tendency ----------
-      tdt = tdt + ttnd; qdt = qdt + qtnd
+      tdt = tdt + ttnd; rdt(:, :, :, nhum) = rdt(:, :, :, nhum) + qtnd
 
 !------- save total precip and snow ---------
       lprec = lprec + rain
@@ -511,7 +513,7 @@ contains
     end if
 ! Do wet deposition for the large scale routine here (only with large-scale condensation:
 ! otherwise rain, snow and qtnd are still those of the convection)
-! qdt should give the vertical distribution here
+! qtnd gives the vertical distribution here
     if (do_lsc) then
       do n = 1, size(rdt, 4)
         wetdeptnd = 0.0
@@ -651,11 +653,12 @@ contains
   !> Initializes the module: reads `moist_processes_nml`, initializes the selected schemes,
   !> finds the tracers transported by moist convective adjustment and registers the
   !> diagnostics.
-  subroutine moist_processes_init(axes, Time)
+  subroutine moist_processes_init(axes, Time, nhum_in)
 
 !-----------------------------------------------------------------------
     integer, intent(in) :: axes(4)  !! diagnostic axes (lon, lat, pfull, phalf)
     type(time_type), intent(in) :: Time  !! current time
+    integer, intent(in) :: nhum_in  !! tracer index of the humidity
 
     integer :: io, ierr, n
     character(len=80)  :: scheme
@@ -665,6 +668,8 @@ contains
 
     read (input_nml_file, nml=moist_processes_nml, iostat=io)
     ierr = check_nml_error(io, 'moist_processes_nml')
+
+    nhum = nhum_in
 
 !--------- write the namelist to the log file ------------
 

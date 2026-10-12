@@ -160,6 +160,7 @@ module physics_driver_mod
   ! module has been initialized ?
   integer   :: nt                       ! total no. of tracers
   integer   :: ntp                      ! total no. of prognostic tracers
+  integer   :: nhum                     ! tracer index of the humidity
 !---------------------------------------------------------------------
 !---------------------------------------------------------------------
 
@@ -176,7 +177,7 @@ contains
   !> and saturation vapour pressure, initializes the physics modules and reads
   !> `INPUT/physics_driver.res.nc` if it exists.
   subroutine physics_driver_init(Time, lonb, latb, domain_in, axes, pref, &
-                                 trs, Surf_diff, mask, kbot, &
+                                 trs, Surf_diff, nhum_in, mask, kbot, &
                                  diffm, difft)
 
     type(time_type), intent(in)              :: Time  !! current time
@@ -189,6 +190,9 @@ contains
     !! `pref(nlev+1,1)` = 101325 and `pref(nlev+1,2)` = 81060 [Pa]
     real, dimension(:, :, :, :), intent(inout)           :: trs  !! atmospheric tracer fields
     type(surf_diff_type), intent(inout)           :: Surf_diff  !! surface data of the implicit vertical diffusion
+    integer, intent(in)              :: nhum_in
+    !! tracer index of the humidity (`sphum` or `mix_rat`) in `trs` and the tracer arguments
+    !! of `physics_driver_down` and `physics_driver_up`
     real, dimension(:, :, :), intent(in), optional  :: mask
     !! mask to remove points below ground (eta vertical coordinate)
     integer, dimension(:, :), intent(in), optional  :: kbot
@@ -251,9 +255,10 @@ contains
     kd = size(trs, 3)
     call get_number_tracers(MODEL_ATMOS, num_tracers=nt, &
                             num_prog=ntp)
+    nhum = nhum_in
 
 !-----------------------------------------------------------------------
-    call moist_processes_init(axes, Time)
+    call moist_processes_init(axes, Time, nhum)
 
 !-----------------------------------------------------------------------
 !    initialize damping_driver_mod.
@@ -355,12 +360,12 @@ contains
                                  Time_prev, Time, Time_next, &
                                  lat, lon, area, &
                                  p_half, p_full, z_half, z_full, &
-                                 u, v, t, q, r, um, vm, tm, qm, rm, &
+                                 u, v, t, r, um, vm, tm, rm, &
                                  rough_mom, &
                                  albedo, t_surf_rad, &
                                  u_star, b_star, &
                                  dtau_du, dtau_dv, tau_x, tau_y, &
-                                 udt, vdt, tdt, qdt, rdt, &
+                                 udt, vdt, tdt, rdt, &
                                  flux_sw, flux_lw, gust, &
                                  Surf_diff, &
                                  mask, kbot, &
@@ -370,19 +375,20 @@ contains
     !! starting and ending subdomain i, j indices of the physics window
     type(time_type), intent(in)             :: Time_prev, Time, &
                                                Time_next
-    !! times of the previous level (of `um`, `vm`, `tm`, `qm`, `rm`), the current level (of
-    !! `u`, `v`, `t`, `q`, `r`) and the next level (used for the diagnostics)
+    !! times of the previous level (of `um`, `vm`, `tm`, `rm`), the current level (of `u`,
+    !! `v`, `t`, `r`) and the next level (used for the diagnostics)
     real, dimension(:, :), intent(in)             :: lat, lon, area
     !! latitudes and longitudes of the model points [rad]; grid box area [m2] (not used)
     real, dimension(:, :, :), intent(in)             :: p_half, p_full, &
                                                         z_half, z_full, &
-                                                        u, v, t, q, &
-                                                        um, vm, tm, qm
+                                                        u, v, t, &
+                                                        um, vm, tm
     !! `p_half`, `p_full`: pressure at half and full levels [Pa]; `z_half`, `z_full`: height
-    !! at half and full levels [m]; `u`, `v`, `t`, `q`: zonal and meridional wind [m/s],
-    !! temperature [K] and specific humidity [kg/kg] at the current time level; `um`, `vm`,
-    !! `tm`, `qm`: the same at the previous time level
-    real, dimension(:, :, :, :), intent(inout)          :: r  !! tracers at the current time level
+    !! at half and full levels [m]; `u`, `v`, `t`: zonal and meridional wind [m/s] and
+    !! temperature [K] at the current time level; `um`, `vm`, `tm`: the same at the previous
+    !! time level
+    real, dimension(:, :, :, :), intent(inout)          :: r
+    !! tracers at the current time level, including the humidity [kg/kg] (`nhum`)
     real, dimension(:, :, :, :), intent(inout)          :: rm  !! tracers at the previous time level
     real, dimension(:, :), intent(in)             :: rough_mom, &
                                                      albedo, t_surf_rad, &
@@ -392,10 +398,10 @@ contains
     !! temperature [K]; friction velocity [m/s]; buoyancy scale [m/s2]; derivatives of the
     !! zonal and meridional surface stress with respect to the lowest-level wind [kg/m2/s]
     real, dimension(:, :), intent(inout)          :: tau_x, tau_y  !! zonal and meridional surface stress [N/m2]
-    real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt, qdt
-    !! tendencies of the zonal and meridional wind [m/s2], temperature [K/s] and specific
-    !! humidity [kg/kg/s]
-    real, dimension(:, :, :, :), intent(inout)          :: rdt  !! tracer tendencies
+    real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt
+    !! tendencies of the zonal and meridional wind [m/s2] and temperature [K/s]
+    real, dimension(:, :, :, :), intent(inout)          :: rdt
+    !! tracer tendencies, including that of the humidity [kg/kg/s]
     real, dimension(:, :), intent(out)            :: flux_sw, flux_lw, gust
     !! `flux_sw`: net downward shortwave flux at the surface [W/m2]; `flux_lw`: downward
     !! longwave flux at the surface [W/m2]; `gust`: gustiness [m/s]
@@ -448,8 +454,8 @@ contains
 !---------------------------------------------------------------------
     if (do_check_args) call check_args &
       (lat, lon, area, p_half, p_full, z_half, z_full, &
-       u, v, t, q, r, um, vm, tm, qm, rm, &
-       udt, vdt, tdt, qdt, rdt)
+       u, v, t, r, um, vm, tm, rm, &
+       udt, vdt, tdt, rdt)
 
 !---------------------------------------------------------------------
 !    compute the physics time step (from tau-1 to tau+1).
@@ -462,7 +468,7 @@ contains
 
     call mpp_clock_begin(radiation_clock)
     call radiation_down(is, js, Time, Time_next, lat, lon, p_full, p_half, z_full, z_half, &
-                        t, q, t_surf_rad, albedo, tdt, flux_sw, flux_lw)
+                        t, r(:, :, :, nhum), t_surf_rad, albedo, tdt, flux_sw, flux_lw)
     call mpp_clock_end(radiation_clock)
 
 !----------------------------------------------------------------------
@@ -487,8 +493,7 @@ contains
       call mpp_clock_begin(damping_clock)
       call damping_driver(is, js, lat, Time_next, dt, &
                           p_full, p_half, z_full, z_half, &
-                          um, vm, tm, qm, rm(:, :, :, 1:ntp), &
-                          udt, vdt, tdt, qdt, rdt, &
+                          um, vm, tm, udt, vdt, tdt, &
                           mask=mask, kbot=kbot)
       call mpp_clock_end(damping_clock)
     end if
@@ -501,8 +506,9 @@ contains
       call mpp_clock_begin(turb_clock)
       call vert_turb_driver(is, js, Time_next, dt, &
                             p_half, p_full, z_half, z_full, u_star, &
-                            b_star, u, v, t, q, um, vm, tm, qm, &
-                            udt, vdt, tdt, qdt, &
+                            b_star, u, v, t, r(:, :, :, nhum), &
+                            um, vm, tm, rm(:, :, :, nhum), &
+                            udt, vdt, tdt, rdt(:, :, :, nhum), &
                             diff_t_vert, diff_m_vert, gust, z_pbl, &
                             mask=mask, kbot=kbot)
       call mpp_clock_end(turb_clock)
@@ -517,7 +523,7 @@ contains
     frac_land = 0.0
     call atmos_tracer_driver(is, ie, js, je, Time, lon, lat, &
                              frac_land, p_half, p_full, r, u, v, t, &
-                             q, u_star, rdt, rm, z_half, &
+                             r(:, :, :, nhum), u_star, rdt, rm, z_half, &
                              z_full, t_surf_rad, albedo, &
                              Time_next, kbot)
     call mpp_clock_end(tracer_clock)
@@ -562,16 +568,18 @@ contains
 
 !-----------------------------------------------------------------------
 !    call vert_diff_driver_down to calculate the first pass atmos-
-!    pheric vertical diffusion.
+!    pheric vertical diffusion. the humidity tendency is passed both on
+!    its own and as part of rdt: it is only read there, and the tracer
+!    diffusion skips the humidity, so neither changes data the other sees.
 !-----------------------------------------------------------------------
       call mpp_clock_begin(diff_down_clock)
       call vert_diff_driver_down(is, js, Time_next, dt, p_half, &
                                  p_full, z_full, &
                                  diff_m(is:ie, js:je, :), &
                                  diff_t(is:ie, js:je, :), &
-                                 um, vm, tm, qm, rm(:, :, :, 1:ntp), &
+                                 um, vm, tm, rm(:, :, :, nhum), rm(:, :, :, 1:ntp), &
                                  dtau_du, dtau_dv, tau_x, tau_y, &
-                                 udt, vdt, tdt, qdt, rdt, &
+                                 udt, vdt, tdt, rdt(:, :, :, nhum), rdt, &
                                  Surf_diff, &
                                  mask=mask, kbot=kbot)
       call mpp_clock_end(diff_down_clock)
@@ -597,8 +605,8 @@ contains
                                lat, lon, area, &
                                p_half, p_full, z_half, z_full, &
                                omega, &
-                               u, v, t, q, r, um, vm, tm, qm, rm, &
-                               udt, vdt, tdt, qdt, rdt, &
+                               u, v, t, r, um, vm, tm, rm, &
+                               udt, vdt, tdt, rdt, &
                                Surf_diff, &
                                lprec, fprec, gust, &
                                mask, kbot)
@@ -607,26 +615,26 @@ contains
     !! starting and ending subdomain i, j indices of the physics window
     type(time_type), intent(in)             :: Time_prev, Time, &
                                                Time_next
-    !! times of the previous level (of `um`, `vm`, `tm`, `qm`, `rm`), the current level (of
-    !! `u`, `v`, `t`, `q`, `r`) and the next level (used for the diagnostics)
+    !! times of the previous level (of `um`, `vm`, `tm`, `rm`), the current level (of `u`,
+    !! `v`, `t`, `r`) and the next level (used for the diagnostics)
     real, dimension(:, :), intent(in)             :: lat, lon, area
     !! latitudes and longitudes of the model points [rad]; grid box area [m2] (not used)
     real, dimension(:, :, :), intent(in)             :: p_half, p_full, &
                                                         omega, &
                                                         z_half, z_full, &
-                                                        u, v, t, q, &
-                                                        um, vm, tm, qm
+                                                        u, v, t, &
+                                                        um, vm, tm
     !! `p_half`, `p_full`: pressure at half and full levels [Pa]; `omega`: vertical pressure
     !! velocity [Pa/s]; `z_half`, `z_full`: height at half and full levels [m]; `u`, `v`,
-    !! `t`, `q`: zonal and meridional wind [m/s], temperature [K] and specific humidity
-    !! [kg/kg] at the current time level; `um`, `vm`, `tm`, `qm`: the same at the previous
-    !! time level
+    !! `t`: zonal and meridional wind [m/s] and temperature [K] at the current time level;
+    !! `um`, `vm`, `tm`: the same at the previous time level
     real, dimension(:, :, :, :), intent(in)             :: r, rm
-    !! tracers at the current and previous time levels
-    real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt, qdt
-    !! tendencies of the zonal and meridional wind [m/s2], temperature [K/s] and specific
-    !! humidity [kg/kg/s]
-    real, dimension(:, :, :, :), intent(inout)          :: rdt  !! tracer tendencies
+    !! tracers at the current and previous time levels, including the humidity [kg/kg]
+    !! (`nhum`)
+    real, dimension(:, :, :), intent(inout)          :: udt, vdt, tdt
+    !! tendencies of the zonal and meridional wind [m/s2] and temperature [K/s]
+    real, dimension(:, :, :, :), intent(inout)          :: rdt
+    !! tracer tendencies, including that of the humidity [kg/kg/s]
     type(surf_diff_type), intent(inout)          :: Surf_diff  !! surface data of the implicit vertical diffusion
     real, dimension(:, :), intent(out)            :: lprec, fprec
     !! liquid and frozen precipitation rates [kg/m2/s]
@@ -675,7 +683,7 @@ contains
       call mpp_clock_begin(diff_up_clock)
 ! XXX df's version of vert_diff_driver_up requires t for one of his new diagnostic fields
       call vert_diff_driver_up(is, js, Time_next, dt, p_half, &
-                               Surf_diff, tdt, qdt, mask=mask, &
+                               Surf_diff, tdt, rdt(:, :, :, nhum), mask=mask, &
                                kbot=kbot, t=t)
       call mpp_clock_end(diff_up_clock)
     end if
@@ -690,8 +698,8 @@ contains
       call moist_processes(is, ie, js, je, Time_next, dt, &
                            p_half, p_full, z_half, z_full, omega, &
                            diff_t(is:ie, js:je, :), &
-                           t, q, r, u, v, tm, qm, rm, um, vm, &
-                           tdt, qdt, rdt, udt, vdt, &
+                           t, r, u, v, tm, rm, um, vm, &
+                           tdt, rdt, udt, vdt, &
                            lprec, fprec, &
                            gust_cv, area, lat, mask=mask, kbot=kbot)
       call mpp_clock_end(moist_processes_clock)
@@ -853,8 +861,8 @@ contains
 !#####################################################################
   !> Checks that the input arrays of `physics_driver_down` have consistent sizes.
   subroutine check_args(lat, lon, area, p_half, p_full, z_half, z_full, &
-                        u, v, t, q, r, um, vm, tm, qm, rm, &
-                        udt, vdt, tdt, qdt, rdt, mask, kbot)
+                        u, v, t, r, um, vm, tm, rm, &
+                        udt, vdt, tdt, rdt, mask, kbot)
 
 !----------------------------------------------------------------------
 !    check_args determines if the input arrays to physics_driver_down
@@ -864,10 +872,10 @@ contains
     real, dimension(:, :), intent(in)          :: lat, lon, area
     real, dimension(:, :, :), intent(in)          :: p_half, p_full, &
                                                      z_half, z_full, &
-                                                     u, v, t, q, um, vm, &
-                                                     tm, qm
+                                                     u, v, t, um, vm, &
+                                                     tm
     real, dimension(:, :, :, :), intent(in)          :: r, rm
-    real, dimension(:, :, :), intent(in)          :: udt, vdt, tdt, qdt
+    real, dimension(:, :, :), intent(in)          :: udt, vdt, tdt
     real, dimension(:, :, :, :), intent(in)          :: rdt
     real, dimension(:, :, :), intent(in), optional :: mask
     integer, dimension(:, :), intent(in), optional :: kbot
@@ -878,7 +886,7 @@ contains
 !      lat            latitude of model points [ radians ]
 !      lon            longitude of model points [ radians ]
 !      area           grid box area - currently not used [ m**2 ]
-!      p_half         pressure at half levels (offset from t,q,u,v,r)
+!      p_half         pressure at half levels (offset from t,u,v,r)
 !                     [ Pa ]
 !      p_full         pressure at full levels [ Pa }
 !      z_half         height at half levels [ m ]
@@ -886,17 +894,14 @@ contains
 !      u              zonal wind at current time step [ m / s ]
 !      v              meridional wind at current time step [ m / s ]
 !      t              temperature at current time step [ deg k ]
-!      q              specific humidity at current time step  kg / kg ]
-!      r              multiple 3d tracer fields at current time step
+!      r              multiple 3d tracer fields at current time step,
+!                     including the specific humidity
 !      um,vm          zonal and meridional wind at previous time step
-!      tm,qm          temperature and specific humidity at previous
-!                     time step
+!      tm             temperature at previous time step
 !      rm             multiple 3d tracer fields at previous time step
 !      udt            zonal wind tendency [ m / s**2 ]
 !      vdt            meridional wind tendency [ m / s**2 ]
 !      tdt            temperature tendency [ deg k / sec ]
-!      qdt            specific humidity tendency
-!                     [  kg vapor / kg air / sec ]
 !      rdt            multiple tracer tendencies [ unit / unit / sec ]
 !
 !   intent(in), optional:
@@ -939,16 +944,13 @@ contains
     ierr = ierr + check_dim(u, 'u', id, jd, kd)
     ierr = ierr + check_dim(v, 'v', id, jd, kd)
     ierr = ierr + check_dim(t, 't', id, jd, kd)
-    ierr = ierr + check_dim(q, 'q', id, jd, kd)
     ierr = ierr + check_dim(um, 'um', id, jd, kd)
     ierr = ierr + check_dim(vm, 'vm', id, jd, kd)
     ierr = ierr + check_dim(tm, 'tm', id, jd, kd)
-    ierr = ierr + check_dim(qm, 'qm', id, jd, kd)
 
     ierr = ierr + check_dim(udt, 'udt', id, jd, kd)
     ierr = ierr + check_dim(vdt, 'vdt', id, jd, kd)
     ierr = ierr + check_dim(tdt, 'tdt', id, jd, kd)
-    ierr = ierr + check_dim(qdt, 'qdt', id, jd, kd)
 
     if (nt > 0) then
       ierr = ierr + check_dim(r, 'r', id, jd, kd, nt)

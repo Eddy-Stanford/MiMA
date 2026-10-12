@@ -114,7 +114,7 @@ contains
     grid_tracers = 0.
 
     call physics_driver_init(Time, lon_boundaries, lat_boundaries, grid_domain, axes, radiation_ref_press, grid_tracers, &
-                             Surf_diff)
+                             Surf_diff, nhum)
 
     if (sum(grid_tracers) /= 0.) then
       call error_mesg('spectral_physics_init', 'This version of the spectral atmospheric model not coded to handle'// &
@@ -169,15 +169,15 @@ contains
                              rad_lat_2d, rad_lon_2d, area_2d, &
                              p_half, p_full, z_half, z_full, &
                              ug(:, :, :, current), vg(:, :, :, current), &
-                             tg(:, :, :, current), grid_tracers(:, :, :, current, nhum), &
+                             tg(:, :, :, current), &
                              grid_tracers(:, :, :, current, :), ug(:, :, :, previous), vg(:, :, :, previous), &
-                             tg(:, :, :, previous), grid_tracers(:, :, :, previous, nhum), &
+                             tg(:, :, :, previous), &
                              grid_tracers(:, :, :, previous, :), &
                              rough_mom, albedo, &
                              t_surf, u_star, b_star, &
                              dtau_du, dtau_dv, tau_x, tau_y, &
                              dt_ug, dt_vg, dt_tg, &
-                             dt_tracers(:, :, :, nhum), dt_tracers, flux_sw(:, :), &
+                             dt_tracers, flux_sw(:, :), &
                              flux_lw, gust, Surf_diff)
 
     return
@@ -214,13 +214,13 @@ contains
                            rad_lat_2d, rad_lon_2d, area_2d, &
                            p_half, p_full, z_half, z_full, &
                            wg_full, ug(:, :, :, current), vg(:, :, :, current), &
-                           tg(:, :, :, current), grid_tracers(:, :, :, current, nhum), &
+                           tg(:, :, :, current), &
                            grid_tracers(:, :, :, current, :), &
                            ug(:, :, :, previous), vg(:, :, :, previous), &
-                           tg(:, :, :, previous), grid_tracers(:, :, :, previous, nhum), &
+                           tg(:, :, :, previous), &
                            grid_tracers(:, :, :, previous, :), &
                            dt_ug, dt_vg, dt_tg, &
-                           dt_tracers(:, :, :, nhum), dt_tracers, Surf_diff, &
+                           dt_tracers, Surf_diff, &
                            lprec, fprec, gust)
 
     return
