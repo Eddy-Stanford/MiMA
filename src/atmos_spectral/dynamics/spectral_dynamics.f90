@@ -949,6 +949,8 @@ contains
     real, dimension(is:ie, js:je, num_levels) :: dt_ug_tmp, dt_vg_tmp, dt_tg_tmp
     real, dimension(is:ie, js:je, num_levels) :: dt_ug_damp, dt_vg_damp, dt_tg_damp
     real, dimension(is:ie, js:je, num_levels, num_tracers) :: dt_tracers_tmp
+    complex, dimension(ms:me, ns:ne, 2*num_levels) :: divs_vors
+    real, dimension(is:ie, js:je, 2*num_levels) :: divg_vorg
 
     integer :: j, k, time_level
     real    :: delta_t, temperature_correction
@@ -1069,8 +1071,12 @@ contains
         robert_complete_for_fields = .true.
       end if
 
-      call trans_spherical_to_grid(divs(:, :, :, future), divg)
-      call trans_spherical_to_grid(vors(:, :, :, future), vorg)
+      ! divergence and vorticity in one transform (the transforms do not mix levels)
+      divs_vors(:, :, 1:num_levels) = divs(:, :, :, future)
+      divs_vors(:, :, num_levels + 1:2*num_levels) = vors(:, :, :, future)
+      call trans_spherical_to_grid(divs_vors, divg_vorg)
+      divg = divg_vorg(:, :, 1:num_levels)
+      vorg = divg_vorg(:, :, num_levels + 1:2*num_levels)
       call uv_grid_from_vor_div(vors(:, :, :, future), divs(:, :, :, future), ug(:, :, :, future), vg(:, :, :, future))
       call trans_spherical_to_grid(ts(:, :, :, future), tg(:, :, :, future))
       call trans_spherical_to_grid(ln_ps(:, :, future), ln_psg)
