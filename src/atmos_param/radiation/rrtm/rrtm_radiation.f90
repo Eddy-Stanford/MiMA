@@ -182,7 +182,7 @@ module rrtm_radiation
                                                       !! < 0: `dt_rad`. 86400 removes the diurnal cycle.
   !  The diurnal cycle has been observed to create strong atmospheric tides with topography.
   integer(kind=im)   :: lonstep = 4                       !! compute radiation only at every `lonstep`-th longitude and
-                                                          !! interpolate
+                                                          !! interpolate; must divide the number of longitudes
   logical            :: balance_sw_columns = .true.       !! share the sunlit columns of the shortwave calculation evenly
   !! among the processes. RRTMG skips the columns where the sun is down, so the processes whose latitude bands are
   !! more in daylight have more work and the others wait for them. With `.true.` processes with more sunlit columns
@@ -235,7 +235,7 @@ contains
     use fms_mod, only: input_nml_file, check_nml_error,  &
                                 &mpp_pe, mpp_root_pe, &
                                 &write_version_number, stdlog, &
-                                &error_mesg, NOTE, WARNING
+                                &error_mesg, NOTE, WARNING, FATAL
     use time_manager_mod, only: time_type
 ! Local variables
     implicit none
@@ -337,6 +337,10 @@ contains
     t_last = -int(dt_rad, 8)
     day_last = 0
 
+    ! run_rrtmg takes every lonstep-th column of the whole processor domain, which holds
+    ! the full longitude circle, and interpolates between them cyclically
+    if (lonstep < 1 .or. mod(size(lonb) - 1, lonstep) /= 0) call error_mesg(mod_name, &
+         'lonstep must divide the number of longitudes on each processor', FATAL)
     ncols_rrt = ncols/lonstep
     nlay_rrt = nlay
 
@@ -565,6 +569,8 @@ contains
     si = size(tdt, 1)
     sj = size(tdt, 2)
     sk = size(tdt, 3)
+    if (si*sj /= ncols_rrt*lonstep) &
+      call error_mesg('run_rrtm', 'the physics window must be the whole processor domain', FATAL)
 
     if (.not. use_dyofyr) dyofyr = 0 !use solrad instead of day of year
 
