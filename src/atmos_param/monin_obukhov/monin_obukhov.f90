@@ -934,8 +934,6 @@ contains
     z0_1d = reshape(z0, shape1)
     zt_1d = reshape(zt, shape1)
     zq_1d = reshape(zq, shape1)
-    u_star_1d = reshape(u_star, shape1)
-    b_star_1d = reshape(b_star, shape1)
 
     call mo_drag_1d &
       (pt_1d, pt0_1d, z_1d, z0_1d, zt_1d, zq_1d, speed_1d, &
