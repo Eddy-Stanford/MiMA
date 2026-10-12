@@ -55,6 +55,10 @@ module vert_diff_driver_mod
 
   character(len=9), parameter :: mod_name = 'vert_diff'
 
+  real, allocatable, dimension(:, :, :) :: dt_t_down, dt_q_down
+  !! tendencies of temperature and specific humidity after the downward sweep, kept for the
+  !! diagnostics of the diffusion sent after the upward sweep (allocated only if one is used)
+
 !-----------------------------------------------------------------------
 !---- version number ----
 
@@ -104,8 +108,8 @@ contains
     real, intent(in), dimension(:, :, :), optional :: mask  !! mask for the diagnostics
     integer, intent(in), dimension(:, :), optional :: kbot  !! index of the lowest model level
 
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tt, dpg, q_2, entrop_vdif_sens, entrop_vdif_kediss
-    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: dissipative_heat
+    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: tt, dpg, q_2, entrop_vdif_kediss
+    real, dimension(size(t, 1), size(t, 2), size(t, 3)) :: dissipative_heat, dt_u_in, dt_v_in
     integer :: k, ntp, kx
     logical :: used
     real, dimension(size(t, 1), size(t, 2)) :: diag2
@@ -127,23 +131,11 @@ contains
     je = js + size(t, 2) - 1
 
 !-----------------------------------------------------------------------
-!---- to do diagnostics on dt_t, dt_q, dt_u, and dt_v at this point add
-!-----in the negative value of the field.  Note that the multiplication
-!---- by 2 is necessary to get the correct value because sum_diag_phys
-!---- is called twice for this single field
+!---- the diffusion tendencies are sent once, as the change of the total
+!---- tendencies across the sweeps: keep the input u and v tendencies
 !-----------------------------------------------------------------------
-
-!------- diagnostics for uwnd_diff -------
-    if (id_udt_vdif > 0) then
-      used = send_data(id_udt_vdif, -2.*dt_u, Time, is, js, 1, &
-                       rmask=mask)
-    end if
-
-!------- diagnostics for vwnd_diff -------
-    if (id_vdt_vdif > 0) then
-      used = send_data(id_vdt_vdif, -2.*dt_v, Time, is, js, 1, &
-                       rmask=mask)
-    end if
+    if (id_udt_vdif > 0) dt_u_in = dt_u
+    if (id_vdt_vdif > 0) dt_v_in = dt_v
 
 !-----------------------------------------------------------------------
 !---- local temperature ----
@@ -165,65 +157,29 @@ contains
                             dt_u, dt_v, dt_t, dt_q, dt_trs(:, :, :, 1:ntp), &
                             dissipative_heat, Surf_diff, kbot)
 
-!-----------------------------------------------------------------------
-!-----------------------------------------------------------------------
-!---- to do diagnostics on dt_u, and dt_v at this point add
-!-----in the value of the field.  Note that the multiplication
-!---- by 2 is necessary to get the correct value because sum_diag_phys
-!---- is called twice for this single field
-!-----------------------------------------------------------------------
-
 !------ preliminary calculations for vert integrals -----
-    if (id_sens_vdif > 0 .or. id_evap_vdif > 0 .or. id_diss_heat_vdif > 0) then
+    if (id_diss_heat_vdif > 0) then
       do k = 1, size(p_half, 3) - 1
         dpg(:, :, k) = (p_half(:, :, k + 1) - p_half(:, :, k))/GRAV
       end do
       if (present(mask)) dpg = dpg*mask
     end if
 
-!------- diagnostics for dt/dt_diff -------
-    if (id_tdt_vdif > 0) then
-      used = send_data(id_tdt_vdif, -2.*dt_t, Time, is, js, 1, &
-                       rmask=mask)
-    end if
-    if (id_entrop_vdif_sens > 0) then
-      kx = size(p_half, 3) - 1
-      do k = 1, kx
-        entrop_vdif_sens(:, :, k) = -2.*dt_t(:, :, k)/t(:, :, k)*p_half(:, :, kx + 1)/1.e5
-      end do
-      used = send_data(id_entrop_vdif_sens, entrop_vdif_sens, Time, is, js, 1, &
-                       rmask=mask)
-    end if
-
-!------- diagnostics for dq/dt_diff -------
-    if (id_qdt_vdif > 0) then
-      used = send_data(id_qdt_vdif, -2.*dt_q, Time, is, js, 1, &
-                       rmask=mask)
-    end if
-
-!------- diagnostics for sens_diff -------
-    if (id_sens_vdif > 0) then
-!         --- compute column changes ---
-      diag2 = sum(dt_t*dpg, 3)
-      used = send_data(id_sens_vdif, -2.*CP_AIR*diag2, Time, is, js)
-    end if
-
-!------- diagnostics for evap_diff -------
-    if (id_evap_vdif > 0) then
-!         --- compute column changes ---
-      diag2 = sum(dt_q*dpg, 3)
-      used = send_data(id_evap_vdif, -2.*diag2, Time, is, js)
+!------- keep dt/dt and dq/dt for the diagnostics of vert_diff_driver_up -------
+    if (allocated(dt_t_down)) then
+      dt_t_down(is:ie, js:je, :) = dt_t
+      dt_q_down(is:ie, js:je, :) = dt_q
     end if
 
 !------- diagnostics for uwnd_diff -------
     if (id_udt_vdif > 0) then
-      used = send_data(id_udt_vdif, 2.*dt_u, Time, is, js, 1, &
+      used = send_data(id_udt_vdif, dt_u - dt_u_in, Time, is, js, 1, &
                        rmask=mask)
     end if
 
 !------- diagnostics for vwnd_diff -------
     if (id_vdt_vdif > 0) then
-      used = send_data(id_vdt_vdif, 2.*dt_v, Time, is, js, 1, &
+      used = send_data(id_vdt_vdif, dt_v - dt_v_in, Time, is, js, 1, &
                        rmask=mask)
     end if
 
@@ -276,7 +232,8 @@ contains
 
     integer :: k, kx
     logical :: used
-    real, dimension(size(p_half, 1), size(p_half, 2), size(p_half, 3) - 1) :: dpg, entrop_vdif_sens
+    real, dimension(size(p_half, 1), size(p_half, 2), size(p_half, 3) - 1) :: dpg, entrop_vdif_sens, &
+                                                                          tdt_vdif, qdt_vdif
     real, dimension(size(p_half, 1), size(p_half, 2)) :: diag2
     integer :: ie, je
 
@@ -287,23 +244,27 @@ contains
 
     call gcm_vert_diff_up(is, js, delt, Surf_diff, dt_t, dt_q, kbot)
 
-!-----------------------------------------------------------------------
-!---- to do diagnostics on dt_t and dt_q at this point add in the
-!---- the postive value of the field.  Note that the multiplication
-!---- by 2 is necessary to get the correct value because sum_diag_phys
-!---- is called twice for this single field
-!-----------------------------------------------------------------------
-!------- diagnostics for dt/dt_diff -------
+    if (.not. allocated(dt_t_down)) return
 
+!-----------------------------------------------------------------------
+!---- the diffusion tendencies of temperature and moisture: the change of
+!---- dt_t and dt_q over the upward sweep and the surface coupling, since
+!---- the end of vert_diff_driver_down (the dissipative heating is
+!---- tdt_diss_vdif)
+!-----------------------------------------------------------------------
+    tdt_vdif = dt_t - dt_t_down(is:ie, js:je, :)
+    qdt_vdif = dt_q - dt_q_down(is:ie, js:je, :)
+
+!------- diagnostics for dt/dt_diff -------
     if (id_tdt_vdif > 0) then
-      used = send_data(id_tdt_vdif, 2.*dt_t, Time, is, js, 1, &
+      used = send_data(id_tdt_vdif, tdt_vdif, Time, is, js, 1, &
                        rmask=mask)
     end if
     if (present(t)) then
       if (id_entrop_vdif_sens > 0) then
         kx = size(p_half, 3) - 1
         do k = 1, kx
-          entrop_vdif_sens(:, :, k) = 2.*dt_t(:, :, k)/t(:, :, k)*p_half(:, :, kx + 1)/1.e5
+          entrop_vdif_sens(:, :, k) = tdt_vdif(:, :, k)/t(:, :, k)*p_half(:, :, kx + 1)/1.e5
         end do
         used = send_data(id_entrop_vdif_sens, entrop_vdif_sens, Time, is, js, 1, &
                          rmask=mask)
@@ -312,7 +273,7 @@ contains
 
 !------- diagnostics for dq/dt_diff -------
     if (id_qdt_vdif > 0) then
-      used = send_data(id_qdt_vdif, 2.*dt_q, Time, is, js, 1, &
+      used = send_data(id_qdt_vdif, qdt_vdif, Time, is, js, 1, &
                        rmask=mask)
     end if
 
@@ -327,15 +288,15 @@ contains
 !------- diagnostics for sens_diff -------
     if (id_sens_vdif > 0) then
 !         --- compute column changes ---
-      diag2 = sum(dt_t*dpg, 3)
-      used = send_data(id_sens_vdif, 2.*CP_AIR*diag2, Time, is, js)
+      diag2 = sum(tdt_vdif*dpg, 3)
+      used = send_data(id_sens_vdif, CP_AIR*diag2, Time, is, js)
     end if
 
 !------- diagnostics for evap_diff -------
     if (id_evap_vdif > 0) then
 !         --- compute column changes ---
-      diag2 = sum(dt_q*dpg, 3)
-      used = send_data(id_evap_vdif, 2.*diag2, Time, is, js)
+      diag2 = sum(qdt_vdif*dpg, 3)
+      used = send_data(id_evap_vdif, diag2, Time, is, js)
     end if
 
 !-----------------------------------------------------------------------
@@ -427,6 +388,11 @@ contains
                           'Integrated dissipative heating from vert diff', &
                           'W/m2')
 
+    if (id_tdt_vdif > 0 .or. id_qdt_vdif > 0 .or. id_sens_vdif > 0 .or. &
+        id_evap_vdif > 0 .or. id_entrop_vdif_sens > 0) then
+      allocate (dt_t_down(idim, jdim, kdim), dt_q_down(idim, jdim, kdim))
+    end if
+
 !-----------------------------------------------------------------------
 
     module_is_initialized = .true.
@@ -441,6 +407,7 @@ contains
   subroutine vert_diff_driver_end
 
     call vert_diff_end
+    if (allocated(dt_t_down)) deallocate (dt_t_down, dt_q_down)
 
 !-----------------------------------------------------------------------
 
