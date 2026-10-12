@@ -10,8 +10,9 @@
 !> * `do_cg_drag`: non-orographic gravity-wave drag after Alexander and Dunkerton (1999)
 !>   (`cg_drag_mod`);
 !> * `do_const_drag`: an idealized, time-independent "gravity-wave" drag on u at pressures
-!>   below e (about 2.7) hPa, modelled on the Alexander-Dunkerton winter average, linear in ln(p),
-!>   with a cubic latitudinal profile and a seasonal cosine in time.
+!>   below e (about 2.7) hPa, modelled on the Alexander-Dunkerton winter average, linear in ln(p)
+!>   (from zero at e hPa to `const_drag_amp` at the lowest full-level pressure of the global
+!>   domain), with a cubic latitudinal profile and a seasonal cosine in time.
 !>
 !> With `do_conserve_energy`, the kinetic energy removed by the Rayleigh friction heats
 !> the air.
@@ -37,6 +38,7 @@ module damping_driver_mod
                               register_static_field, send_data
   use time_manager_mod, only: time_type, get_time, length_of_year !mj
   use constants_mod, only: cp_air, grav, PI
+  use mpp_mod, only: mpp_min
   use mpp_domains_mod, only: domain2d
 
   implicit none
@@ -154,7 +156,7 @@ contains
     integer :: k, j, i
 !-----------------------------------------------------------------------
 !mj constant drag TOA
-    real :: minp, cosday
+    real :: pmin, minp, cosday
     integer :: seconds, days, daysperyear
 !-----------------------------------------------------------------------
 
@@ -277,10 +279,14 @@ contains
       call get_time(Time, seconds, days)
       cosday = cos(2*PI*days/daysperyear)
       utnd = 0.
-      minp = log(minval(pfull*0.01)) - 1.
+      ! lowest pressure over the global domain (not only this PE), so that the drag does not
+      ! depend on the domain decomposition
+      pmin = minval(pfull)
+      call mpp_min(pmin)
+      minp = log(pmin*0.01) - 1.
       where (pfull*0.01 < exp(1.))
         ! vertical: linear in ln(p)
-        utnd = -const_drag_amp*((log(pfull*0.01) - 1.)/minp)**1.
+        utnd = -const_drag_amp*((log(pfull*0.01) - 1.)/minp)
       end where
       ! latitudinal: 3rd order polynomial, and cosine in time
       do k = 1, size(utnd, 3)
