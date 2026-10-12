@@ -9,14 +9,12 @@
 !> surface-pressure tendencies are corrected to match.
 !> `implicit_init` works with global fields, the rest on the spectral domain.
 module implicit_mod
-!||zn, pjk 5/13/99
-!following vb's changes to old implicit_mod.
 
-  use fms_mod, only: error_mesg, FATAL, write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use constants_mod, only: rdgas, radius, cp_air
 
-  use press_and_geopot_mod, only: pressure_variables
+  use press_and_geopot_mod, only: pressure_variables, zero_top_pressure
 
   use matrix_invert_mod, only: invert
 
@@ -37,9 +35,6 @@ module implicit_mod
   end interface
 
   logical :: module_is_initialized = .false.
-
-  character(len=128), parameter :: version = '$Id: implicit.f90,v 11.0 2004/09/28 19:29:40 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
 
   real, allocatable, dimension(:)   :: ref_temperature_implicit
   real, allocatable, dimension(:)   :: ref_ln_p_half, ref_ln_p_full, del_ln_p_half, del_ln_p_full
@@ -85,12 +80,11 @@ contains
     real, dimension(size(ref_temperature_implicit_in, 1)) :: p_full_work_1, p_full_work_2, ln_p_full_work_1, ln_p_full_work_2
     real, dimension(size(ref_temperature_implicit_in, 1) + 1) :: p_half_work_1, p_half_work_2, ln_p_half_work_1, ln_p_half_work_2
 
-    real :: surface_p_1, eps = 1.e-5
+    real :: surface_p_1
+    real, parameter :: eps = 1.e-5
     integer :: k
 
     if (module_is_initialized) return
-
-    call write_version_number(version, tagname)
 
     call get_spec_domain(ms, me, ns, ne)
 
@@ -128,18 +122,12 @@ contains
 
     call pressure_variables(p_half_work_1, ref_ln_p_half, p_full_work_1, ref_ln_p_full, ref_surf_p_implicit)
 
-!del_ln_p_half = dln_p_half_dps(ref_surf_p_implicit)
-!del_ln_p_full = dln_p_full_dps(ref_surf_p_implicit)
-
-!  functions dln_p_half_dps and del_ln_p_full are used nowhere else and
-!  they perform very simple calculations, so it only makes the code more
-!  confusing to do these calculations in functions.
-
+! d(ln p_half)/d(ps) at the reference state
     do k = 2, num_levels + 1
       del_ln_p_half(k) = bk(k)/(pk(k) + bk(k)*ref_surf_p_implicit)
     end do
 
-    if (pk(1) .eq. 0.0) then
+    if (zero_top_pressure()) then
       del_ln_p_half(1) = 1.0/ref_surf_p_implicit
     else
       del_ln_p_half(1) = bk(1)/(pk(1) + bk(1)*ref_surf_p_implicit)
@@ -252,13 +240,13 @@ contains
     complex, dimension(0:size(divs, 1) - 1, 0:size(divs, 2) - 1, size(divs, 3)) :: dt_ts_temp
     complex, dimension(num_levels) ::  work
     complex, dimension(0:size(divs, 1) - 1, 0:size(divs, 2) - 1) :: dt_ps_temp
-    integer :: m, n, L, kk
+    integer :: m, n, L
 
     if (.not. module_is_initialized) then
       call error_mesg('implicit_correction', 'failed to initialize implicit', FATAL)
     end if
 
-    if (dt_in .ne. dt) then
+    if (dt_in /= dt) then
       dt = dt_in
       xi = dt*alpha
       call build_wave_matrices
@@ -268,9 +256,8 @@ contains
 
     do n = 0, size(divs, 2) - 1
       do m = 0, size(divs, 1) - 1
-!||zn, pjk 5/13/99, following vb's dmsm/implicit.f90
         L = wavenumber(m + ms, n + ns)
-        if (L .le. num_total_wavenumbers) then
+        if (L <= num_total_wavenumbers) then
           work = matmul(wave_matrix(:, :, L), dt_divs(m, n, :))
           dt_divs(m, n, :) = work
         end if
@@ -290,7 +277,6 @@ contains
   !> Adds the implicit gravity-wave terms of the previous and current levels to the
   !> divergence tendency.
   subroutine adjust_dt_divs(dt_divs, dt_ts, dt_ln_ps, divs, ts, ln_ps, previous, current)
-    !||zn, pjk 5/13/99, following vb's dmsm/implicit.f90. (0:,0:) -> (:,:)
     complex, intent(inout), dimension(:, :, :) :: dt_divs
     complex, intent(inout), dimension(:, :, :) :: dt_ts
     complex, intent(inout), dimension(:, :) :: dt_ln_ps
@@ -330,7 +316,6 @@ contains
 !-----------------------------------------------------------------------
 
   function linear_geopotential_3d(del_t, del_ln_p_half, del_ln_p_full, t, ln_p_half, ln_p_full) result(geopot)
-!||zn, pjk 5/13/99, following vb's dmsm/implicit.f90. (0:,0:) -> (:,:)
 
     complex, intent(in), dimension(:, :, :) :: del_t
     complex, intent(in), dimension(:, :, :) :: del_ln_p_half
@@ -419,7 +404,7 @@ contains
     complex, intent(out), dimension(0:, 0:)   :: dt_p_surf
     complex, intent(out), dimension(0:, 0:, :) :: dt_t
 
-    real ::  dp, dp_inv, dlog_1, dlog_3, p_full_ref
+    real ::  dp, dp_inv, dlog_1, dlog_3
     complex, dimension(0:size(div, 1) - 1, 0:size(div, 2) - 1) :: dmean, dmean_tot
     complex, dimension(0:size(div, 1) - 1, 0:size(div, 2) - 1, size(div, 3) + 1) :: vert_vel, temp
 

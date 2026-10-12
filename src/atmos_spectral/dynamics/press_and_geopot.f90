@@ -16,8 +16,7 @@
 !>   109, 758-766.
 module press_and_geopot_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                     write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use constants_mod, only: grav, rdgas, rvgas
 
@@ -27,6 +26,7 @@ module press_and_geopot_mod
 
   public :: press_and_geopot_init, press_and_geopot_end, pressure_variables, half_level_pressures
   public :: compute_geopotential, compute_pressures_and_heights, compute_z_bot
+  public :: zero_top_pressure
 
   !> Returns the half-level pressures `pk + bk*surface_p` [Pa] for a surface pressure field
   !> or a single value.
@@ -41,11 +41,6 @@ module press_and_geopot_mod
     module procedure pressure_variables_1d, &
       pressure_variables_3d
   end interface
-
-!===============================================================================================
-
-  character(len=128), parameter :: version = '$Id: press_and_geopot.f90,v 11.0 2004/09/28 19:29:51 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
 
 !===============================================================================================
 
@@ -72,11 +67,7 @@ contains
     character(len=*), intent(in)        :: vert_difference_option_in  !! vertical differencing (`'simmons_and_burridge'`)
     real, intent(in), dimension(:, :) :: surf_geopotential_in  !! surface geopotential [m2/s2]
 
-    integer :: k
-
     if (module_is_initialized) return
-
-    call write_version_number(version, tagname)
 
     num_levels = size(pk_in, 1) - 1
 
@@ -97,6 +88,22 @@ contains
 
     return
   end subroutine press_and_geopot_init
+
+!-----------------------------------------------------------------------
+
+  !> Returns whether the top half level is at zero pressure (`pk(1) = bk(1) = 0`).
+  !>
+  !> The top full level is then set apart: `ln(p_full(1)) = ln(p_half(2)) - 1`, and the
+  !> geopotential and the semi-implicit scheme start at the second half level.
+  logical function zero_top_pressure()
+
+    if (.not. module_is_initialized) then
+      call error_mesg('zero_top_pressure', 'press_and_geopot_init has not been called', FATAL)
+    end if
+
+    zero_top_pressure = pk(1) == 0.0 .and. bk(1) == 0.0
+
+  end function zero_top_pressure
 
 !-----------------------------------------------------------------------
 
@@ -156,7 +163,7 @@ contains
 
     ! simmons_and_burridge; with a zero pressure at the top, the top full level is set apart
     kstart = 1
-    if (pk(1) .eq. 0.0 .and. bk(1) .eq. 0.0) kstart = 2
+    if (zero_top_pressure()) kstart = 2
 
 ! the levels are shared out over the threads; each element is computed as in serial
 !$omp parallel if(size(p_half, 1)*size(p_half, 2) > 1) default(shared) private(k, alpha)
@@ -210,10 +217,11 @@ contains
     real, dimension(size(psg, 1), size(psg, 2)) ::    p_half_bot, p_half_nxt
     real, dimension(size(psg, 1), size(psg, 2)) :: ln_p_half_bot, ln_p_half_nxt
     real, dimension(size(psg, 1), size(psg, 2)) :: ln_p_full_bot, alpha, virtual_t
+    integer :: kb   ! the lowest full level
 
-    num_levels = size(pk, 1) - 1
-    p_half_bot = pk(num_levels + 1) + psg*bk(num_levels + 1)
-    p_half_nxt = pk(num_levels) + psg*bk(num_levels)
+    kb = size(pk, 1) - 1
+    p_half_bot = pk(kb + 1) + psg*bk(kb + 1)
+    p_half_nxt = pk(kb) + psg*bk(kb)
     ln_p_half_bot = log(p_half_bot)
 
     if (trim(vert_difference_option) == 'simmons_and_burridge') then
@@ -287,7 +295,7 @@ contains
 
     geopot_half(:, :, num_levels + 1) = surf_geopotential
 
-    if (pk(1) .eq. 0.0) then
+    if (zero_top_pressure()) then
       ktop = 2
       geopot_half(:, :, 1) = 0.0
     else

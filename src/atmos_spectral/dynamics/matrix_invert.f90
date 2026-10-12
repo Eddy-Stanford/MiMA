@@ -3,17 +3,12 @@
 !> Original authors: Triveni N. Upadhyay.
 module matrix_invert_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                     write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   implicit none
+  private
 
-  public  :: invert
-  integer, private :: maxmag
-
-  character(len=128), parameter :: version = '$Id matrix_invert.f90 $'  !! version string
-  character(len=128), parameter :: tagname = '$Name: lima $'  !! tag name
-  logical :: entry_to_logfile_done = .false.  !! whether the version has been written to the log file
+  public :: invert
 
 contains
 
@@ -29,14 +24,9 @@ contains
 
     real, dimension(2*size(matrix, 1)) :: dd, h
     real, dimension(2*size(matrix, 1), size(matrix, 1)) :: ac, temp
-    real :: min_det = 1.0e-30
+    real, parameter :: min_det = 1.0e-30
     character(len=24) :: chtmp
     integer :: n, i, j, L, m, k
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
 
     n = size(matrix, 1)
 
@@ -92,19 +82,19 @@ contains
 
   !> Returns the offset from the start of `h` (0 for the first element) of the element with
   !> the largest magnitude.
-  function max_mag(h, m) result(max)
+  function max_mag(h, m) result(imax)
 
     integer, intent(in) :: m  !! length of `h`
     real, intent(in) :: h(m)  !! values to search
-    integer :: max, i
+    integer :: imax, i
     real :: rmax
 
-    max = 0
+    imax = 0
     rmax = abs(h(1))
     do i = 1, m
       if (abs(h(i)) > rmax) then
         rmax = abs(h(i))
-        max = i - 1
+        imax = i - 1
       end if
     end do
     return

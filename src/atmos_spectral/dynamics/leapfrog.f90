@@ -9,8 +9,6 @@
 !> the new level is final.
 module leapfrog_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, write_version_number
-
 !===================================================================================================
   implicit none
   private
@@ -26,8 +24,7 @@ module leapfrog_mod
   !> Robert filter to the current level (the part that does not involve the future level).
   interface leapfrog_2level_A
     module procedure leapfrog_2level_A_2d_complex, &
-      leapfrog_2level_A_3d_complex, &
-      leapfrog_2level_A_3d_real
+      leapfrog_2level_A_3d_complex
   end interface
 
   !> Completes the Robert filter started by `leapfrog_2level_A`: adds `robert_coeff` times the
@@ -38,12 +35,7 @@ module leapfrog_mod
       leapfrog_2level_B_3d_real
   end interface
 
-  character(len=128), parameter :: version = '$Id leapfrog.f90 $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
-
   public :: leapfrog, leapfrog_2level_A, leapfrog_2level_B
-
-  logical :: entry_to_logfile_done = .false.
 
 contains
 
@@ -55,11 +47,6 @@ contains
     complex, intent(in), dimension(:, :, :) :: dt_a
     integer, intent(in) :: previous, current, future
     real, intent(in) :: delta_t, robert_coeff
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
 
     if (previous == current) then
       a(:, :, :, future) = a(:, :, :, previous) + delta_t*dt_a
@@ -80,40 +67,10 @@ contains
     integer, intent(in) :: current, future
     real, intent(in) :: robert_coeff
 
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
-
     a(:, :, :, current) = a(:, :, :, current) + robert_coeff*a(:, :, :, future)
 
     return
   end subroutine leapfrog_2level_B_3d_complex
-
-!================================================================================
-
-  subroutine leapfrog_2level_A_3d_real(a, dt_a, previous, current, future, delta_t, robert_coeff)
-
-    real, intent(inout), dimension(:, :, :, :) :: a
-    real, intent(in), dimension(:, :, :) :: dt_a
-    integer, intent(in) :: previous, current, future
-    real, intent(in) :: delta_t, robert_coeff
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
-
-    if (previous == current) then
-      a(:, :, :, future) = a(:, :, :, previous) + delta_t*dt_a
-      a(:, :, :, current) = a(:, :, :, current) + robert_coeff*(a(:, :, :, previous) - 2.0*a(:, :, :, current))
-    else
-      a(:, :, :, current) = a(:, :, :, current) + robert_coeff*(a(:, :, :, previous) - 2.0*a(:, :, :, current))
-      a(:, :, :, future) = a(:, :, :, previous) + delta_t*dt_a
-    end if
-
-    return
-  end subroutine leapfrog_2level_A_3d_real
 
 !================================================================================
 
@@ -122,11 +79,6 @@ contains
     real, intent(inout), dimension(:, :, :, :) :: a
     integer, intent(in) :: current, future
     real, intent(in) :: robert_coeff
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
 
     a(:, :, :, current) = a(:, :, :, current) + robert_coeff*a(:, :, :, future)
 
@@ -145,11 +97,6 @@ contains
     complex, dimension(size(a, 1), size(a, 2), 1, size(a, 3)) :: a_3d
     complex, dimension(size(a, 1), size(a, 2), 1)           :: dt_a_3d
 
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
-
     a_3d(:, :, 1, :) = a
     dt_a_3d(:, :, 1) = dt_a
     call leapfrog_2level_A_3d_complex(a_3d, dt_a_3d, previous, current, future, delta_t, robert_coeff)
@@ -165,11 +112,6 @@ contains
     real, intent(in) :: robert_coeff
     complex, dimension(size(a, 1), size(a, 2), 1, size(a, 3)) :: a_3d
 
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
-
     a_3d(:, :, 1, :) = a
     call leapfrog_2level_B_3d_complex(a_3d, current, future, robert_coeff)
     a = a_3d(:, :, 1, :)
@@ -183,11 +125,6 @@ contains
     complex, intent(in), dimension(:, :, :) :: dt_a
     integer, intent(in) :: previous, current, future
     real, intent(in) :: delta_t, robert_coeff
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
 
     if (previous == current) then
       a(:, :, :, future) = a(:, :, :, previous) + delta_t*dt_a
@@ -212,11 +149,6 @@ contains
 
     complex, dimension(size(a, 1), size(a, 2), 1, size(a, 3)) :: a_3d
     complex, dimension(size(a, 1), size(a, 2), 1)           :: dt_a_3d
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
 
     a_3d(:, :, 1, :) = a
     dt_a_3d(:, :, 1) = dt_a

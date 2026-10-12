@@ -5,10 +5,10 @@
 !> (monotone slopes) in longitude and latitude, each applied to a field first advected by
 !> half a step in the other direction. Fluxes across the poles are zero, and zonal Courant
 !> numbers larger than 1 are handled by integer shifts. The advection uses its own domain
-!> decomposition, `advection_domain`, in latitude only, with a halo of 2 rows.
+!> decomposition, in latitude only (as the grid of the dynamics), with a halo of 2 rows.
 module fv_advection_mod
 
-  use fms_mod, only: mpp_pe, mpp_npes, mpp_root_pe, error_mesg, FATAL, write_version_number
+  use fms_mod, only: mpp_npes, error_mesg, FATAL
 
   use constants_mod, only: radius, pi
 
@@ -18,16 +18,12 @@ module fv_advection_mod
   implicit none
   private
 
-  character(len=128), parameter :: version = '$Id: fv_advection.f90,v 10.0 2003/10/24 22:01:00 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
-
-  type(domain2D), save, public :: advection_domain  !! domain decomposition (in latitude only) used by the advection
+  type(domain2D), save :: advection_domain  ! domain decomposition (in latitude only) used by the advection
 
   logical :: module_is_initialized = .false.
-  logical :: monotone = .true.
-  integer :: is, ie, js, je, pe, npes, nx, ny, nz
+  integer :: is, ie, js, je, nx, ny
 
-  real, allocatable, dimension(:) :: y, yy, c, s, cc, dy, dyy, dyyy, dy_plus, dy_minus
+  real, allocatable, dimension(:) :: y, yy, c, cc, dy, dyy, dy_plus, dy_minus
   real :: dx
 
   public :: fv_advection_init, fv_advection_end
@@ -49,27 +45,20 @@ contains
 !===========================================================================================
 
   !> Sets up the grid geometry and the advection domain.
-  subroutine fv_advection_init(nx_in, ny_in, yy_in, degrees_lon, advection_layout)
+  subroutine fv_advection_init(nx_in, ny_in, yy_in, degrees_lon)
 
     integer, intent(in) ::  nx_in, ny_in  !! `nx_in`, `ny_in`: numbers of longitudes and latitudes
     real, intent(in), dimension(:) :: yy_in  !! latitudes of the cell edges (`ny_in`+1 values) [rad]
     real, intent(in) :: degrees_lon  !! longitude range of the grid [deg] (less than 360 in a sector model)
-    integer, intent(in), optional :: advection_layout(2)  !! processor layout (default: `1, npes`)
 
-    integer :: i, j
     integer :: layout(2)
 
     if (module_is_initialized) return
 
-    call write_version_number(version, tagname)
-
-    pe = mpp_pe()
-    npes = mpp_npes()
-
     nx = nx_in
     ny = ny_in
 
-    allocate (y(ny), c(ny), s(ny), yy(ny + 1), cc(ny + 1), dy(-1:ny + 2), dyy(ny + 1), dyyy(0:ny + 1))
+    allocate (y(ny), c(ny), yy(ny + 1), cc(ny + 1), dy(-1:ny + 2), dyy(ny + 1))
     allocate (dy_plus(0:ny + 1), dy_minus(0:ny + 1))
 
     yy = yy_in
@@ -77,7 +66,6 @@ contains
     y = 0.5*(yy(2:ny + 1) + yy(1:ny))
 
     c = cos(y)
-    s = sin(y)
     cc = cos(yy)
 
     dy(1:ny) = yy(2:ny + 1) - yy(1:ny)  ! distance between half level points (size of grid boxes)
@@ -98,12 +86,10 @@ contains
     dy = dy*radius
     dyy = dyy*radius
 
-    dx = (degrees_lon/360.)*2.0*pi*radius/float(nx)
+    dx = (degrees_lon/360.)*2.0*pi*radius/real(nx)
 
 !1D decomposition along Y only
-    layout = (/1, npes/)
-
-    if (present(advection_layout)) layout = advection_layout
+    layout = (/1, mpp_npes()/)
 
     call mpp_define_domains((/1, nx, 1, ny/), layout, advection_domain, yhalo=2)
 
@@ -406,7 +392,7 @@ contains
 
     i_left = ii
     i_right = i_left + 1
-    where (i_right .gt. nx) i_right = 1
+    where (i_right > nx) i_right = 1
 
     bb = b - floor(b)
 
@@ -462,8 +448,8 @@ contains
 
     ii = ii - floor(b)
 
-    where (ii .gt. nx) ii = ii - nx
-    where (ii .lt. 1) ii = ii + nx
+    where (ii > nx) ii = ii - nx
+    where (ii < 1) ii = ii + nx
 
     return
   end subroutine find_cell_x
@@ -486,20 +472,16 @@ contains
     slope(1:n - 1, :, :) = (grad(2:n, :, :) + grad(1:n - 1, :, :))/2
     slope(n, :, :) = (grad(1, :, :) + grad(n, :, :))/2
 
-    if (monotone) then
+! monotone (van Leer) limiter
+    q_min(2:n - 1, :, :) = min(q(1:n - 2, :, :), q(2:n - 1, :, :), q(3:n, :, :))
+    q_min(1, :, :) = min(q(n, :, :), q(1, :, :), q(2, :, :))
+    q_min(n, :, :) = min(q(n - 1, :, :), q(n, :, :), q(1, :, :))
 
-      q_min(2:n - 1, :, :) = min(q(1:n - 2, :, :), q(2:n - 1, :, :), q(3:n, :, :))
-      q_min(1, :, :) = min(q(n, :, :), q(1, :, :), q(2, :, :))
-      q_min(n, :, :) = min(q(n - 1, :, :), q(n, :, :), q(1, :, :))
+    q_max(2:n - 1, :, :) = max(q(1:n - 2, :, :), q(2:n - 1, :, :), q(3:n, :, :))
+    q_max(1, :, :) = max(q(n, :, :), q(1, :, :), q(2, :, :))
+    q_max(n, :, :) = max(q(n - 1, :, :), q(n, :, :), q(1, :, :))
 
-      q_max(2:n - 1, :, :) = max(q(1:n - 2, :, :), q(2:n - 1, :, :), q(3:n, :, :))
-      q_max(1, :, :) = max(q(n, :, :), q(1, :, :), q(2, :, :))
-      q_max(n, :, :) = max(q(n - 1, :, :), q(n, :, :), q(1, :, :))
-
-      slope = sign(1.0, slope)*min(abs(slope), 2.0*(q - q_min), 2.0*(q_max - q))
-    else
-      slope = sign(1.0, slope)*min(abs(slope), 2.0*q)
-    end if
+    slope = sign(1.0, slope)*min(abs(slope), 2.0*(q - q_min), 2.0*(q_max - q))
 
     return
   end subroutine slope_x
@@ -551,54 +533,30 @@ contains
     real, intent(out), dimension(:, js - 1:, :) :: slope
 
     real, dimension(nx, js - 1:je + 1, size(q, 3)) :: q_max, q_min
-    integer :: j, i
+    integer :: j
 
     do j = js - 1, je + 1
       slope(:, j, :) = (q(:, j + 1, :) - q(:, j, :))*dy_plus(j) &
                        + (q(:, j, :) - q(:, j - 1, :))*dy_minus(j)
     end do
 
-    if (monotone) then
-      q_min = min(q(:, js - 2:je, :), q(:, js - 1:je + 1, :), q(:, js:je + 2, :))
-      q_max = max(q(:, js - 2:je, :), q(:, js - 1:je + 1, :), q(:, js:je + 2, :))
+! monotone (van Leer) limiter
+    q_min = min(q(:, js - 2:je, :), q(:, js - 1:je + 1, :), q(:, js:je + 2, :))
+    q_max = max(q(:, js - 2:je, :), q(:, js - 1:je + 1, :), q(:, js:je + 2, :))
 
-      slope = sign(1.0, slope)* &
-              min(abs(slope), 2.0*(q(:, js - 1:je + 1, :) - q_min), 2.0*(q_max - q(:, js - 1:je + 1, :)))
-    else
-      slope = sign(1.0, slope)*min(abs(slope), 2.0*q(:, js - 1:je + 1, :))
-    end if
+    slope = sign(1.0, slope)* &
+            min(abs(slope), 2.0*(q(:, js - 1:je + 1, :) - q_min), 2.0*(q_max - q(:, js - 1:je + 1, :)))
     return
   end subroutine slope_sphere
 
 !===========================================================================================
 
-  subroutine solid_body(u, v)
-
-!  used for check-out only
-
-    real, intent(out), dimension(nx, ny) :: u, v
-    real :: beta
-    integer :: i, j
-
-    beta = 45.0
-
-    do j = 1, ny
-      do i = 1, nx
-        v(i, j) = -sin(beta*pi/180.0)*sin(2.*pi*float(i)/float(nx))
-        u(i, j) = cos(beta*pi/180.0)*c(j) &
-                  + sin(beta*pi/180.0)*cos(2.*pi*float(i)/float(nx))*s(j)
-      end do
-    end do
-
-  end subroutine solid_body
-
-!===========================================================================================
   !> Deallocates the grid geometry arrays.
   subroutine fv_advection_end
 
     if (.not. module_is_initialized) return
 
-    deallocate (y, yy, c, s, cc, dy, dyy, dyyy, dy_plus, dy_minus)
+    deallocate (y, yy, c, cc, dy, dyy, dy_plus, dy_minus)
     module_is_initialized = .false.
 
     return

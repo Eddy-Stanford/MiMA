@@ -1,7 +1,7 @@
 !> Hole filling for grid-point tracers: negative values are filled from the neighbouring points.
 module water_borrowing_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, write_version_number, error_mesg, FATAL
+  use fms_mod, only: error_mesg, FATAL
 
   use transforms_mod, only: get_grid_domain
 
@@ -9,10 +9,6 @@ module water_borrowing_mod
   private
 
   public :: water_borrowing
-
-  character(len=128), parameter :: version = '$Id: water_borrowing.f90,v 10.0 2003/10/24 22:01:01 fms Exp $'
-  character(len=128), parameter :: tagname = '$Name: lima $'
-  logical :: entry_to_logfile_done = .false.
 
 contains
 
@@ -33,11 +29,6 @@ contains
     integer :: num_lon, num_lat, num_levels, ibeg, iend, inc, i, j, k, is, ie, js, je
     real :: neighboring_water, total_water, ratio
     real, dimension(size(qg, 1), size(qg, 3)) :: dp
-
-    if (.not. entry_to_logfile_done) then
-      call write_version_number(version, tagname)
-      entry_to_logfile_done = .true.
-    end if
 
     call get_grid_domain(is, ie, js, je)
     num_lon = size(qg, 1); num_lat = size(qg, 2); num_levels = size(qg, 3)
@@ -94,28 +85,6 @@ contains
               dt_qg(i, j, k + 1) = dt_qg(i, j, k + 1) + (ratio - 1)*qg(i, j, k + 1)/delta_t
             end if
           end if
-!     if(total_water < 0. .and. neighboring_water > 0.) then
-
-!------  Put all neighboring water into water hole and zero out neighboring water (pjp)
-
-!       dt_qg(i,j,k) = dt_qg(i,j,k) + neighboring_water/(dp(i,k)*delta_t)
-!       if(i == 1) then
-!         dt_qg(num_lon,j,k) = dt_qg(num_lon,j,k) - qg(num_lon,j,k)/delta_t
-!       else
-!         dt_qg(i-1,j,k) = dt_qg(i-1,j,k) - qg(i-1,j,k)/delta_t
-!       endif
-!       if(i == num_lon) then
-!         dt_qg(1,j,k)   = dt_qg(1,j,k  ) - qg(1,j,k  )/delta_t
-!       else
-!         dt_qg(i+1,j,k) = dt_qg(i+1,j,k) - qg(i+1,j,k)/delta_t
-!       endif
-!       if(k /= 1) then
-!         dt_qg(i,j,k-1) = dt_qg(i,j,k-1) - qg(i,j,k-1)/delta_t
-!       endif
-!       if(k /= num_levels) then
-!         dt_qg(i,j,k+1) = dt_qg(i,j,k+1) - qg(i,j,k+1)/delta_t
-!       endif
-!     endif
         end do
       end do
     end do

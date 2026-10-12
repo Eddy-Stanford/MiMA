@@ -9,8 +9,7 @@
 !> wind) and divergence (meridional wind) is applied. The damping is implicit in time.
 module spectral_damping_mod
 
-  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, &
-                     write_version_number
+  use fms_mod, only: error_mesg, FATAL
 
   use transforms_mod, only: get_eigen_laplacian, get_spec_domain
 
@@ -28,9 +27,6 @@ module spectral_damping_mod
   real, allocatable, dimension(:)   :: damping_zmu_sponge, damping_zmv_sponge
   logical :: module_is_initialized = .false.
   integer :: ms, me, ns, ne, num_levels
-
-  character(len=128), parameter :: version = '$Id: spectral_damping.f90,v 10.0.2.1 2005/05/13 18:16:39 pjp Exp $'
-  character(len=128), parameter :: tagname = '$Name:  $'
 
   public :: spectral_damping_init, spectral_damping_end, compute_spectral_damping
   public :: compute_spectral_damping_vor, compute_spectral_damping_div
@@ -60,11 +56,9 @@ contains
     real    :: damping_coeff_vor_local, damping_coeff_div_local
     integer :: damping_order_vor_local, damping_order_div_local
     real, dimension(0:num_fourier, 0:num_spherical) :: eigen
-    character(len=8) :: ch_tmp
 
     if (module_is_initialized) return
 
-    call write_version_number(version, tagname)
     num_levels = num_levels_in
 
     call get_spec_domain(ms, me, ns, ne)
