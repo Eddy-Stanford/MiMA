@@ -44,8 +44,7 @@ module atmos_model_mod
 
   public update_atmos_model_down, update_atmos_model_up
   public atmos_model_init, atmos_model_end, atmos_data_type
-  public land_ice_atmos_boundary_type, land_atmos_boundary_type
-  public ice_atmos_boundary_type
+  public land_ice_atmos_boundary_type
 !-----------------------------------------------------------------------
 
   !> State of the atmosphere seen by the surface and the coupler: grid, lowest-level
@@ -53,8 +52,6 @@ module atmos_model_mod
   type atmos_data_type
     type(domain2d)               :: domain             !! domain decomposition
     integer                       :: axes(4)            !! diagnostic axis ids of the grid (lon, lat, pfull, phalf)
-    real, pointer, dimension(:)   :: glon_bnd => null() !! longitudes of the grid-box boundaries, global grid [rad]
-    real, pointer, dimension(:)   :: glat_bnd => null() !! latitudes of the grid-box boundaries, global grid [rad]
     real, pointer, dimension(:)   :: lon_bnd => null() !! longitudes of the grid-box boundaries, this PE's subdomain [rad]
     real, pointer, dimension(:)   :: lat_bnd => null() !! latitudes of the grid-box boundaries, this PE's subdomain [rad]
     real, pointer, dimension(:, :) :: t_bot => null() !! temperature at the lowest model level [K]
@@ -79,11 +76,11 @@ module atmos_model_mod
 
   !> Fields passed from the surface to the atmosphere.
   !>
-  !> Declared and allocated by `coupler_main`.
+  !> Declared by `coupler_main` and allocated by `flux_exchange_init`.
   type land_ice_atmos_boundary_type
     real, dimension(:, :), pointer :: t => null() !! surface temperature [K]
     real, dimension(:, :), pointer :: albedo => null() !! surface albedo
-    real, dimension(:, :), pointer :: land_frac => null() !! land fraction of the grid box
+    real, dimension(:, :), pointer :: land_frac => null() !! land fraction of the grid box (0; not used by the physics)
     real, dimension(:, :), pointer :: dt_t => null()
     !! change of the lowest-level temperature for the up sweep of the vertical diffusion [K]
     real, dimension(:, :), pointer :: dt_q => null()
@@ -97,21 +94,10 @@ module atmos_model_mod
     !! [kg/m2/s]
     real, dimension(:, :), pointer :: u_star => null() !! friction velocity [m/s]
     real, dimension(:, :), pointer :: b_star => null() !! buoyancy scale [m/s2]
-    real, dimension(:, :), pointer :: q_star => null() !! moisture scale [kg/kg] (not set by `flux_exchange_mod`)
+    real, dimension(:, :), pointer :: q_star => null()
+    !! moisture scale [kg/kg] (0: not set by `flux_exchange_mod`; not used by the physics)
     real, dimension(:, :), pointer :: rough_mom => null() !! roughness length for momentum [m]
-    real, dimension(:, :, :), pointer :: data => null() !! collective field for the named fields above (not used)
-    integer                         :: xtype                   !! `REGRID`, `REDIST` or `DIRECT` (not used)
   end type land_ice_atmos_boundary_type
-
-  !> Fields passed from the land alone to the atmosphere (none at present).
-  type :: land_atmos_boundary_type
-    real, dimension(:, :), pointer :: data => null() !! not used
-  end type land_atmos_boundary_type
-
-  !> Fields passed from the sea ice alone to the atmosphere (none at present).
-  type :: ice_atmos_boundary_type
-    real, dimension(:, :), pointer :: data => null() !! not used
-  end type ice_atmos_boundary_type
 
 !Balaji
   integer :: atmClock
@@ -219,7 +205,7 @@ contains
     !! initial time of the experiment, current time and atmospheric time step
 
     integer :: unit, ntrace, ntprog, ntdiag, ntfamily, i, j
-    integer :: mlon, mlat, nlon, nlat
+    integer :: nlon, nlat
     integer :: ierr, io
     type(restart_file_type) :: rst
 !-----------------------------------------------------------------------
@@ -248,13 +234,10 @@ contains
 !-----------------------------------------------------------------------
 !---- allocate space ----
 
-    call atmosphere_resolution(mlon, mlat, global=.true.)
     call atmosphere_resolution(nlon, nlat, global=.false.)
     call atmosphere_domain(Atmos%domain)
 
-    allocate (Atmos%glon_bnd(mlon + 1), &
-              Atmos%glat_bnd(mlat + 1), &
-              Atmos%lon_bnd(nlon + 1), &
+    allocate (Atmos%lon_bnd(nlon + 1), &
               Atmos%lat_bnd(nlat + 1), &
               Atmos%t_bot(nlon, nlat), &
               Atmos%q_bot(nlon, nlat), &
@@ -280,8 +263,6 @@ contains
 
     call get_atmosphere_axes(Atmos%axes)
 
-    call atmosphere_boundary(Atmos%glon_bnd, Atmos%glat_bnd, &
-                             global=.true.)
     call atmosphere_boundary(Atmos%lon_bnd, Atmos%lat_bnd, &
                              global=.false.)
 
@@ -386,9 +367,7 @@ contains
 
 !-------- deallocate space --------
 
-    deallocate (Atmos%glon_bnd, &
-                Atmos%glat_bnd, &
-                Atmos%lon_bnd, &
+    deallocate (Atmos%lon_bnd, &
                 Atmos%lat_bnd, &
                 Atmos%t_bot, &
                 Atmos%q_bot, &
