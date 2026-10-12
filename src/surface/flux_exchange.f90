@@ -102,6 +102,11 @@ module flux_exchange_mod
 
   real, allocatable, dimension(:, :) :: albedo_bg, rough_mom, rough_heat, rough_moist
 
+! Static fields for surface_flux and the local surface heating, set by flux_exchange_init
+  real, allocatable, dimension(:, :) :: u_surf, v_surf  ! surface velocity: 0 (no currents)
+  logical, allocatable, dimension(:, :) :: all_points, no_points  ! .true. and .false. everywhere
+  real, allocatable, dimension(:, :) :: lon2d, lat2d  ! grid-box centres [rad] (surface heating only)
+
   real, allocatable, dimension(:, :) :: e_t_n, f_t_delt_n, &
                                         e_q_n, f_q_delt_n
 
@@ -137,10 +142,7 @@ contains
     !! fraction (0)
 
     real, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
-      u_surf, v_surf, q_star, q_surf, cd_q, cd_t, cd_m, wind
-
-    logical, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
-      mask, seawater
+      q_star, q_surf, cd_q, cd_t, cd_m, wind
 
     logical :: used
 
@@ -151,20 +153,12 @@ contains
 
     dt_step = dt
 
-    u_surf = 0.0
-    v_surf = 0.0
+! Boundary%rough_mom and, without the bucket, Boundary%albedo are static (flux_exchange_init)
+    if (Land%do_bucket) then
+      Boundary%albedo = albedo_bg
+      call land_model_boundary(Land, Boundary%albedo)
+    end if
 
-    mask = .true.
-    ! ocean points, where surface_flux uses the NCAR ocean fluxes if ncar_ocean_flux is set
-    seawater = Ocean%mask
-
-    Boundary%rough_mom = rough_mom
-    Boundary%albedo = albedo_bg
-    if (Land%do_bucket) call land_model_boundary(Land, Boundary%albedo)
-
-    cd_t = 0.0
-    cd_m = 0.0
-    cd_q = 0.0
 ! surface_flux reads q_surf only at its land points (there are none here, see below)
     q_surf = 0.0
 
@@ -186,9 +180,9 @@ contains
                       cd_m, cd_t, cd_q, wind, Boundary%u_star, Boundary%b_star, q_star, &
                       dhdt_surf, dedt_surf, dedq_surf, drdt_surf, &
                       dhdt_atm, dedq_atm, Boundary%dtaudu, Boundary%dtaudv, &
-                      .not. mask, &  ! land: none
-                      seawater, &    ! ocean points (used only with ncar_ocean_flux)
-                      mask)          ! avail: all points
+                      no_points, &   ! land: none
+                      Ocean%mask, &  ! seawater: the ocean points (used only with ncar_ocean_flux)
+                      all_points)    ! avail: all points
 
 ! Bucket: the land evaporates beta times the potential (saturated) rate
     if (Land%do_bucket) then
@@ -203,8 +197,6 @@ contains
 
     Boundary%u_flux = flux_u
     Boundary%v_flux = flux_v
-
-    Boundary%land_frac = 0.0
 
 !=======================================================================
 !-------------------- diagnostics section ------------------------------
@@ -320,11 +312,8 @@ contains
 
     real, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
       gamma, dtmass, delta_t, delta_q, dflux_t, dflux_q
-    real, dimension(size(Atm%t_bot, 1), size(Atm%t_bot, 2)) :: &
-      lon2d, lat2d
 
     real    :: cp_inv
-    integer :: i, j
 
     flux_lw = Atm%flux_lw - flux_lw
 
@@ -354,20 +343,8 @@ contains
     flux_q = flux_q + dedq_atm*f_q_delt_n
     dedt_surf = dedt_surf + dedq_atm*e_q_n
 
-    !###############################
-    ! additional heating
-    !
-    if (do_surface_heating) then
-      do j = 1, size(Atm%t_bot, 2)
-        do i = 1, size(Atm%t_bot, 1)
-          lat2d(i, j) = 0.5*(Atm%lat_bnd(j + 1) + Atm%lat_bnd(j))
-          lon2d(i, j) = 0.5*(Atm%lon_bnd(i + 1) + Atm%lon_bnd(i))
-        end do
-      end do
-      call horizontal_heating(Time, lon2d, lat2d, Exch%extra_heating)
-    else
-      Exch%extra_heating = 0.0 ! for diagnostics output
-    end if
+! The local surface heating (Exch%extra_heating stays 0 without it)
+    if (do_surface_heating) call horizontal_heating(Time, lon2d, lat2d, Exch%extra_heating)
 
     Exch%flux_lw = flux_lw
     Exch%flux_sw = Atm%flux_sw
@@ -432,19 +409,26 @@ contains
       used = send_data(id_qflux_implied, qflux_implied, Time)
     end if
 
-    where (Land%mask)
-      t_surf = Land%t_surf
-      heat_capacity = Land%cap
-    elsewhere
-      t_surf = Ocean%t_surf
-      heat_capacity = Ocean%cap
-    end where
+    if (id_t_surf > 0 .or. id_entrop_evap > 0 .or. id_entrop_shflx > 0 .or. id_entrop_lwflx > 0) then
+      where (Land%mask)
+        t_surf = Land%t_surf
+      elsewhere
+        t_surf = Ocean%t_surf
+      end where
+    end if
 
     if (id_t_surf > 0) used = send_data(id_t_surf, t_surf, Time)
     if (id_t_flux > 0) used = send_data(id_t_flux, flux_t, Time)
     if (id_r_flux > 0) used = send_data(id_r_flux, flux_lw, Time)
     if (id_q_flux > 0) used = send_data(id_q_flux, flux_q, Time)
-    if (id_heat > 0) used = send_data(id_heat, heat_capacity, Time)
+    if (id_heat > 0) then
+      where (Land%mask)
+        heat_capacity = Land%cap
+      elsewhere
+        heat_capacity = Ocean%cap
+      end where
+      used = send_data(id_heat, heat_capacity, Time)
+    end if
     if (id_entrop_evap > 0) then
       entrop_evap = flux_q/t_surf
       used = send_data(id_entrop_evap, entrop_evap, Time)
@@ -589,7 +573,7 @@ contains
               Boundary%rough_mom(id, jd))
 
     Boundary%t = 0.0
-    Boundary%albedo = 0.0
+    Boundary%albedo = albedo_bg
     Boundary%land_frac = 0.0
     Boundary%dtaudu = 0.0
     Boundary%dtaudv = 0.0
@@ -600,7 +584,7 @@ contains
     Boundary%u_star = 0.0
     Boundary%b_star = 0.0
     Boundary%q_star = 0.0
-    Boundary%rough_mom = 0.0
+    Boundary%rough_mom = rough_mom
 
 !------ the exchange fields for the ocean and land models ------
 
@@ -624,12 +608,29 @@ contains
     Exch%dt = 0.0
     Exch%Time = Time
 
+!------ static fields of the step ------
+
+    allocate (u_surf(id, jd), v_surf(id, jd), all_points(id, jd), no_points(id, jd))
+    u_surf = 0.0
+    v_surf = 0.0
+    all_points = .true.
+    no_points = .false.
+
 !mj adding local surface heating
     if (do_local_heating) then
       do j = 1, ngauss
         if (hamp(j) .ne. 0. .and. pcenter(j) .lt. 0.) then
           do_surface_heating = .true.
         end if
+      end do
+    end if
+    if (do_surface_heating) then
+      allocate (lon2d(id, jd), lat2d(id, jd))
+      do j = 1, jd
+        do i = 1, id
+          lat2d(i, j) = 0.5*(Atm%lat_bnd(j + 1) + Atm%lat_bnd(j))
+          lon2d(i, j) = 0.5*(Atm%lon_bnd(i + 1) + Atm%lon_bnd(i))
+        end do
       end do
     end if
 
