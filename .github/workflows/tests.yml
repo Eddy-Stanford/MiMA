@@ -7,8 +7,8 @@
 # runner size) on an arm64 laptop: apt 27 s, cold build (FMS + MiMA) 122 s, MiMA-only
 # rebuild 32 s, ctest 71 s for 12 tests. Expect the hosted runners to be slower.
 #
-# FMS is downloaded and built by CMake (cmake/MiMAFMS.cmake, about 10 minutes on a
-# runner); the build directory is cached so that later runs reuse the FMS objects and
+# FMS is downloaded and built by CMake (cmake/MiMAFMS.cmake, most of the cold build
+# time); the build directory is cached so that later runs reuse the FMS objects and
 # only recompile MiMA.
 name: Tests
 
