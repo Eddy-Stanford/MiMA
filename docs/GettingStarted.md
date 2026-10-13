@@ -222,6 +222,8 @@ The [`examples/`](https://github.com/Eddy-Stanford/MiMA/tree/main/examples) dire
 
 * `examples/gray/`: the test case with gray radiation instead of RRTM (see [Radiation options](Configurations.md#radiation-options)). It needs `navy_topography.data.nc` and `navy_pctwater.data.nc` from `input/INPUT/`.
 * `examples/held_suarez/`: the dry Held-Suarez (1994) benchmark at T42 with 20 levels (see [Held-Suarez forcing](Configurations.md#held-suarez-forcing)). It needs no input data.
+* `examples/bucket_snow/`: the test case with a bucket land hydrology and snow on land (see [Bucket land and snow](Configurations.md#bucket-land-and-snow)), and a `diag_table` with the soil water and the snow budget. It needs the same `input/INPUT/` files as the test case.
+* `examples/aquaplanet/`: the Aqua-Planet Experiment "qobs" case (Neale and Hoskins, 2000): no land, flat topography, the SST held at the qobs profile, perpetual equinox, with the physics of the test case (see [Fixed surface](Configurations.md#fixed-surface)). It needs `ozone_1990.nc` from `input/INPUT/`.
 
 To install an example in `exec/` in place of the test case, choose it with `MIMA_RUN_CONFIG` when configuring:
 
@@ -239,7 +241,7 @@ cp examples/held_suarez/input.nml examples/held_suarez/diag_table examples/held_
 cp build/mima ~/runs/hs/
 ```
 
-For the gray example, also copy `input/INPUT` to the run directory.
+For the gray, bucket-and-snow and aquaplanet examples, also copy `input/INPUT` to the run directory.
 
 ## Output
 

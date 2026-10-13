@@ -10,8 +10,9 @@ model can provide, with the namelist settings it needs.
 * [Fields by module](#fields-by-module)
 
 Ready-made tables are in the repository: `input/diag_table` (the default RRTM test
-case), `examples/gray/diag_table` (gray radiation) and
-`examples/held_suarez/diag_table` (dry Held-Suarez).
+case), `examples/gray/diag_table` (gray radiation),
+`examples/held_suarez/diag_table` (dry Held-Suarez), `examples/bucket_snow/diag_table`
+(the soil water and the snow budget) and `examples/aquaplanet/diag_table` (APE qobs).
 
 ## How to write a diag_table
 

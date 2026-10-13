@@ -153,6 +153,8 @@ The surface temperature stays at its initial value. This is the surface of the m
 
 The initial temperature of the land is the ocean's (`t_init = 'ocean'`), so there is no land-sea contrast unless you set `t_init` or `sst_init` otherwise. The surface fluxes are still computed; only the temperature is held. `sst_init` also takes the APE profiles (`'ape_control'`, `'ape_qobs'`), `'uniform'` (temperature `Tm`) and `'file'`, and `sst_offset` [K] is added to the initial temperature, which a fixed ocean keeps.
 
+A complete aquaplanet is in `examples/aquaplanet/`: the Aqua-Planet Experiment "qobs" case with `land_mask = 'none'`, flat topography, `ocean_model = 'fixed'` and `sst_init = 'ape_qobs'`, perpetual equinox (`obliq = 0.` in `astro_nml`), `solr_cnst = 1365.` and 348 ppmv CO<sub>2</sub>, and otherwise the physics of the test case. Unlike the APE protocol it has no clouds and uses the seasonal `ozone_1990`. `sst_offset = 4.` gives the qobs+4K experiment and `sst_init = 'ape_control'` the control SST.
+
 ### Q-flux from a file
 
 A slab ocean can read its Q-flux from a file instead of the analytic formula. The usual use is to obtain the Q-flux that keeps a slab ocean at a given SST climatology, so that a slab-ocean run reproduces the SST of a prescribed-SST run:
@@ -230,6 +232,8 @@ The model also stops for `do_snow` without `hydrology = 'bucket'` or with `land_
 Diagnostics: bucket: `land/water`, `land/beta`, `land/runoff`, `land/water_clip`; snow: `land/snow`, `land/melt`, `land/sublimation`, `land/frost`; the rates are in kg/m2/s. `water_clip` is the water that had to be added to keep the bucket from going negative; it is the only place where water is not conserved. `water` and `snow` are saved in `RESTART/land_model.res.nc`.
 
 **Status: verified for conservation, not climate-validated.** In short runs (days to weeks) the water budget closes to 1e-13 kg/m2 and the land energy budget to 1e-9 W/m2, and the snow albedo and the restart round trip were checked. The slow processes, such as the spin-up of the soil moisture over years or the snow accumulation on the polar ice sheets (bounded here by `snow_max`), have not been examined. `surface_flux` still uses the saturated humidity at the surface for the buoyancy, an approximation over dry land. Check the water budget and the snow before relying on it for a long run.
+
+A complete setup is in `examples/bucket_snow/`: the default test case with the bucket and snow switched on as above, and a `diag_table` with the soil water, the snow and their budget terms (see [Running the examples](GettingStarted.md#running-the-examples)).
 
 ### Land-sea mask
 

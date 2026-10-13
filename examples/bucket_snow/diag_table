@@ -1,0 +1,59 @@
+"MiMA bucket land and snow"
+0001 1 1 0 0 0
+# Output for the bucket-and-snow example (examples/bucket_snow/input.nml).
+# All fields and their units are listed in docs/Diagnostics.md. Check this file
+# with:  python3 /path/to/MiMA/tools/mimadoc validate diag_table --nml input.nml
+#
+# file name,       output frequency, units, format, time units, time axis name
+"atmos_daily",     1, "days", 1, "days", "time",
+"atmos_monthly",  30, "days", 1, "days", "time",
+#
+# daily means: the surface and the snow pack
+ "dynamics",       "ps",          "ps",          "atmos_daily",   "all", .true.,  "none", 2,
+ "flux",           "t_surf",      "t_surf",      "atmos_daily",   "all", .true.,  "none", 2,
+ "flux",           "t_ref",       "t_ref",       "atmos_daily",   "all", .true.,  "none", 2,
+ "flux",           "albedo",      "albedo",      "atmos_daily",   "all", .true.,  "none", 2,
+ "moist",          "precip",      "precip",      "atmos_daily",   "all", .true.,  "none", 2,
+ "land",           "snow",        "snow",        "atmos_daily",   "all", .true.,  "none", 2,
+ "land",           "water",       "water",       "atmos_daily",   "all", .true.,  "none", 2,
+#
+# 30-day means
+ "dynamics",       "bk",          "bk",          "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",       "pk",          "pk",          "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",       "zsurf",       "zsurf",       "atmos_monthly", "all", .false., "none", 2,
+ "dynamics",       "ps",          "ps",          "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "slp",         "slp",         "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "ucomp",       "ucomp",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "vcomp",       "vcomp",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "temp",        "temp",        "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "sphum",       "sphum",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "omega",       "omega",       "atmos_monthly", "all", .true.,  "none", 2,
+ "dynamics",       "height",      "height",      "atmos_monthly", "all", .true.,  "none", 2,
+# surface energy and water fluxes
+ "flux",           "t_surf",      "t_surf",      "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "t_ref",       "t_ref",       "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "rh_ref",      "rh_ref",      "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "shflx",       "shflx",       "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "evap",        "evap",        "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "lwflx",       "lwflx",       "atmos_monthly", "all", .true.,  "none", 2,
+ "flux",           "albedo",      "albedo",      "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "olr",         "olr",         "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "swnet_toa",   "swnet_toa",   "atmos_monthly", "all", .true.,  "none", 2,
+ "radiation",      "swnet_sfc",   "swnet_sfc",   "atmos_monthly", "all", .true.,  "none", 2,
+# precipitation and its phase
+ "moist",          "precip",      "precip",      "atmos_monthly", "all", .true.,  "none", 2,
+# snowfall: convective plus large-scale (precip_phase in moist_processes_nml)
+ "moist",          "snow_conv",   "snow_conv",   "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "snow_ls",     "snow_ls",     "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "prec_conv",   "prec_conv",   "atmos_monthly", "all", .true.,  "none", 2,
+ "moist",          "prec_ls",     "prec_ls",     "atmos_monthly", "all", .true.,  "none", 2,
+# land: the static mask, the bucket and the snow budget (rates in kg/m2/s)
+ "land",           "land_mask",   "land_mask",   "atmos_monthly", "all", .false., "none", 2,
+ "land",           "water",       "water",       "atmos_monthly", "all", .true.,  "none", 2,
+ "land",           "beta",        "beta",        "atmos_monthly", "all", .true.,  "none", 2,
+ "land",           "runoff",      "runoff",      "atmos_monthly", "all", .true.,  "none", 2,
+ "land",           "water_clip",  "water_clip",  "atmos_monthly", "all", .true.,  "none", 2,
+ "land",           "snow",        "snow",        "atmos_monthly", "all", .true.,  "none", 2,
+ "land",           "melt",        "melt",        "atmos_monthly", "all", .true.,  "none", 2,
+ "land",           "sublimation", "sublimation", "atmos_monthly", "all", .true.,  "none", 2,
+ "land",           "frost",       "frost",       "atmos_monthly", "all", .true.,  "none", 2,

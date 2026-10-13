@@ -30,7 +30,7 @@ MiMA writes each output file listed in `diag_table` (e.g. `atmos_daily.nc`) as a
 
 See [Getting started](docs/GettingStarted.md) for details on the build options, the test configuration, output and restarts.
 
-Other complete configurations (gray radiation, dry Held-Suarez) are in [`examples/`](examples/); see [Running the examples](docs/GettingStarted.md#running-the-examples).
+Other complete configurations (gray radiation, dry Held-Suarez, bucket land with snow, an aquaplanet) are in [`examples/`](examples/); see [Running the examples](docs/GettingStarted.md#running-the-examples).
 
 ## Documentation
 
