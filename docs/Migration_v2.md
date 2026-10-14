@@ -96,6 +96,10 @@ v2.0 reads namelists with FMS's `check_nml_error`:
 | `&vert_turb_driver_nml do_mellor_yamada = .true.` | removed; only the non-local K scheme (`do_diffusivity`, default now `.true.`) remains |
 | `use_df_stuff = .true.` (in five groups) | removed; the `.true.` formulation is the only one |
 | `&*_nml do_netcdf_restart` ([`physics_driver_nml`](Parameters.md#physics_driver_nml), [`atmos_model_nml`](Parameters.md#atmos_model_nml), [`mg_drag_nml`](Parameters.md#mg_drag_nml)) | removed; restarts are always netCDF |
+| `&cg_drag_nml Bt_0 = B` | `Bt = B` |
+| `&cg_drag_nml nk = 1` (the wavelengths 30*10**n km, n = 1..`nk`; `nk = 1`: 300 km) | `wavelength = 300.e3` [m] (the default); one wavelength only |
+| `&cg_drag_nml flag = 0` / `flag = 1` (spectrum centred on the source wind / on c = 0, except in the tropical band, where it was always centred on the source wind) | `centre_on_source_wind = .true.` (the default) / `.false.` (at all latitudes) |
+| `&cg_drag_nml` latitude bands: `Bt_eq`, `Bt_nh`, `Bt_sh`, `phi0n`, `phi0s`, `dphin`, `dphis`, `cwtropics`, `kelvin_kludge`, and the narrow spectrum `Bn`, `cn` | removed: the source spectrum is the same at every latitude (`Bt`, `Bw`, `cw`). The shipped settings (`Bt_eq = Bt_0`, `Bt_nh = Bt_sh = 0`, `cwtropics = cw`, `kelvin_kludge = 1`, `Bn = 0`) gave exactly that, so they need only `Bt = Bt_0`. Setting an old key stops the model with this mapping. |
 
 ### Removed variables in groups that still exist
 
@@ -227,12 +231,11 @@ The code defaults were changed to the values in the shipped `input/input.nml` (B
 | | `do_conserve_energy` | `.false.` | `.true.` |
 | [`cg_drag_nml`](Parameters.md#cg_drag_nml) | `cg_drag_freq` | 0 | 21600 |
 | | `damp_level_pressure` | 80. | 85. |
-| | `Bt_0`, `Bt_eq` | 0.004, 0. | 0.0043, 0.0043 |
-| | `Bt_nh`, `Bt_sh` | 0.001, -0.001 | 0., 0. |
-| | `phi0n`, `phi0s` | 30., -30. | 15., -15. |
-| | `dphin`, `dphis` | 5., -5. | 10., -10. |
-| | `cw`, `cwtropics` | 40., 40. | 35., 35. |
-| | `flag` | 1 | 0 |
+| | `Bt` (v1 `Bt_0`) | 0.004 | 0.0043 |
+| | `cw` | 40. | 35. |
+| | `centre_on_source_wind` (v1 `flag`) | `.false.` (`flag = 1`) | `.true.` (`flag = 0`) |
+
+The v1 defaults of the removed `cg_drag_nml` latitude bands (`Bt_eq = 0`, `Bt_nh = 0.001`, `Bt_sh = -0.001`, `phi0n = 30`, `phi0s = -30`, `dphin = 5`, `dphis = -5`, `cwtropics = 40`) have no v2.0 equivalent; see [Replaced settings](#replaced-settings).
 
 Behaviour that depended on defaults of **removed** switches also changes:
 
@@ -253,7 +256,7 @@ Behaviour that depended on defaults of **removed** switches also changes:
        do_simple = .true. /
    ```
 
-4. Delete the variables in [Removed variables](#removed-variables-in-groups-that-still-exist) from the groups that still exist. In a namelist derived from the v1 `input/input.nml` these are: `do_bmmass`, `do_bmomp`, `do_strat`, `do_ras`, `do_diag_clouds`, `do_rh_clouds`, `use_df_stuff` ([`moist_processes_nml`](Parameters.md#moist_processes_nml)); `beta`, `use_df_stuff` ([`moist_conv_nml`](Parameters.md#moist_conv_nml)); `use_df_stuff` ([`lscale_cond_nml`](Parameters.md#lscale_cond_nml), [`surface_flux_nml`](Parameters.md#surface_flux_nml)); `do_entrain`, `use_df_stuff` ([`diffusivity_nml`](Parameters.md#diffusivity_nml)); `do_mellor_yamada`, `do_shallow_conv`, `use_df_stuff` ([`vert_turb_driver_nml`](Parameters.md#vert_turb_driver_nml)); `weighttop`, `weightminus1`, `weightminus2` ([`cg_drag_nml`](Parameters.md#cg_drag_nml)).
+4. Delete the variables in [Removed variables](#removed-variables-in-groups-that-still-exist) from the groups that still exist. In a namelist derived from the v1 `input/input.nml` these are: `do_bmmass`, `do_bmomp`, `do_strat`, `do_ras`, `do_diag_clouds`, `do_rh_clouds`, `use_df_stuff` ([`moist_processes_nml`](Parameters.md#moist_processes_nml)); `beta`, `use_df_stuff` ([`moist_conv_nml`](Parameters.md#moist_conv_nml)); `use_df_stuff` ([`lscale_cond_nml`](Parameters.md#lscale_cond_nml), [`surface_flux_nml`](Parameters.md#surface_flux_nml)); `do_entrain`, `use_df_stuff` ([`diffusivity_nml`](Parameters.md#diffusivity_nml)); `do_mellor_yamada`, `do_shallow_conv`, `use_df_stuff` ([`vert_turb_driver_nml`](Parameters.md#vert_turb_driver_nml)); `weighttop`, `weightminus1`, `weightminus2` ([`cg_drag_nml`](Parameters.md#cg_drag_nml)). In `&cg_drag_nml` also rename `Bt_0` to `Bt` and delete `Bt_eq`, `Bt_nh`, `Bt_sh`, `phi0n`, `phi0s`, `dphin`, `dphis`, `flag`, `Bn`, `cn`, `cwtropics` and `kelvin_kludge` ([Replaced settings](#replaced-settings)).
 5. Replace `&simple_surface_nml` by the surface groups, using the [mapping table](#old-to-new-namelist-mapping), and change `diag_table` ([Names in the diag_table](#names-in-the-diag_table)).
 6. Delete the [groups of removed schemes](#removed-namelist-groups), e.g. `&ocean_rough_nml`.
 7. Replace any [removed option values](#removed-option-values) (`vert_coord_option = 'mcm'`/`'v197'`, ...).
@@ -412,6 +415,7 @@ The other fatal errors each have a message that says what to change:
 * only one of `ocean_model.res.nc` and `land_model.res.nc` in `INPUT/`, or a restart with no surface temperature at some points (not after a change of the land mask, which is accepted: see [Surface restart files](#surface-restart-files));
 * an initial surface temperature outside 150-400 K at an ocean or land point, from a cold start or a restart (for example an `sst_file` with fill values over land, which the land takes on a cold start with `t_init = 'ocean'`);
 * `warmpool_localization_choice` or `north_sea_heat` in `&qflux_nml` (replaced by `warmpool_pattern`, and removed);
+* `Bt_0`, `nk`, `flag` or one of the removed latitude-band keys in `&cg_drag_nml` ([Replaced settings](#replaced-settings));
 * a `heat_capacity` of the ocean that is not positive, or a land `heat_capacity <= 0` that the ocean value does not make positive.
 
 ## field_table changes
@@ -632,6 +636,9 @@ v2.0 does not reproduce v1. The fixes below change the results of the shipped co
 | The local surface heating (`pcenter < 0`) is evaluated at the start of the step, the time of the atmospheric part (D-02); it led the atmospheric part by one step, as in v1 | surface sources with `lonmove`, `latmove` or `twidth >= 0` only | not measured | not measured | a static surface source is unchanged |
 | The global mean removed by `qflux_remove_mean` at every step is the FMS reproducing (EFP) sum instead of the exact sum (D-06; still independent of the decomposition) | `qflux_source = 'file'` with `qflux_remove_mean = .true.` only | round-off | round-off | the analytic Q-flux and the warm pool are bit for bit unchanged |
 | Periodic moving local-heating sources use the exact (real) time offset instead of whole seconds, and a source rising with `pmove < 0` stops at 0.01 hPa instead of producing NaN | periodic moving or rising sources only | not measured | not measured | |
+| `cg_drag` expressions with several divisions are written as single fractions (for example the intermittency `eps = Bt/(rho0*Bsum)`), so that the order of evaluation is clear | `do_cg_drag = .true.` | round-off only | round-off only | not a physical change |
+| **`cg_drag` source level**: the source level is the highest level with a reference pressure greater than `source_level_pressure` at the equator, as documented, and the number of levels below it shrinks with cos(latitude). The conversion to an integer truncated instead of rounding, so the source was one level higher at every latitude except near the poles (where both are level kmax - 1): with the default 40 levels 276 hPa instead of 325 hPa at the equator | `do_cg_drag = .true.` | not measured | not measured | the waves are launched lower, so `Bt`, `Bw` and `cw` may need retuning |
+| **`cg_drag` momentum conservation**: the flux deposited in the layer between two full levels is shared between the two model levels by the pressure thickness of the layer on each side of the half level, and converted to an acceleration with the mass of each model level (dp/g); the flux that reaches the model top is spread over the levels down to `damp_level_pressure` in proportion to their mass. The column now receives exactly the deposited momentum. The BUG-13 fix divided the top flux by the mass between the full levels 1 and `damp_level`+1 instead of the mass of the model levels it is applied to (12.5% too much momentum with the default levels), and the average of the layer forcings to the levels (AD99 eq. 27, exact only for equally spaced levels) returned 91% of the flux deposited in the top layer. The extra level above the model top is gone: every wave that passes the top level is deposited in the damping layer | `do_cg_drag = .true.` | not measured | not measured | mainly the top three levels (up to about 12% of the drag there); about 1% below |
 
 The radius and SVP changes, and BUG-01, 04, 14 and 15 individually, change the 30-day zonal means by one to two times the noise level: they are systematic, but small. **BUG-13 is not small**: it weakens the gravity-wave drag above `damp_level_pressure` (0.85 hPa) by about a third and changes the winds above about 1 hPa substantially. After 30 days:
 
@@ -640,7 +647,7 @@ The radius and SVP changes, and BUG-01, 04, 14 and 15 individually, change the 3
 | Zonal-mean *u* rms (max) diff. [m/s] | 11 (27) | 6.7 (17) | 4.9 (14) | 3.3 (9.1) | 1.7 (4.5) | 0.8 (2.0) | 0.4 (1.6) | 0.3 (1.3) |
 | GWD rms, before → after the fix [m/s/day] | 11.2 → 7.3 | 11.5 → 7.5 | 1.6 → 1.5 | 0.8 → 0.7 | 0.6 → 0.6 | 0.2 → 0.2 | 0.1 → 0.1 | 0.1 → 0.1 |
 
-If your work focuses on the upper stratosphere or mesosphere, the `cg_drag` tuning (`Bt_0`, `Bt_eq`, `cw`, ... in [`cg_drag_nml`](Parameters.md#cg_drag_nml)) may need revisiting.
+If your work focuses on the upper stratosphere or mesosphere, the `cg_drag` tuning (`Bt`, `Bw`, `cw`, ... in [`cg_drag_nml`](Parameters.md#cg_drag_nml)) may need revisiting.
 
 Changes that affect only some runs:
 
@@ -697,6 +704,7 @@ These matter only for user Fortran code built on MiMA's modules.
 * The spectral core sources moved from `model/`, `tools/`, `driver/coupled/` to `atmosphere/`, `dynamics/`, `diagnostics/`, `init/` and `transforms/` (which also holds the FFT, formerly `src/mima_shared/fft/fft.F90`, now `fft.f90`).
 * `surface_flux` lost its `rough_scale` and `dt` arguments; `atmos_data_type` lost `glon_bnd`/`glat_bnd`; `land_atmos_boundary_type` and `ice_atmos_boundary_type` are gone; `surface_flux_init` is public and called by `flux_exchange_init`.
 * `land_ice_atmos_boundary_type` no longer has `land_frac` or `q_star`. `atmosphere_down(Time, t_surf, albedo, rough_mom, u_star, b_star, dtau_du, dtau_dv, tau_x, tau_y, gust, flux_sw, flux_lw, Surf_diff)` and `atmosphere_up(Time, Surf_diff, lprec, fprec, gust)`; `spectral_physics_down`/`_up` change the same way, and `spectral_physics_init(Time, axes, Surf_diff, nhum)` no longer takes `p_half`. `physics_driver_init(Time, lonb, latb, domain, axes, pref, trs, Surf_diff, nhum, mask, kbot, diffm, difft)` takes `nhum` and no longer takes `phalf`; `physics_driver_down`/`_up` no longer take `q`, `qm`, `qdt`, `frac_land` or `q_star`: the humidity is `r(:,:,:,nhum)` and its tendency `rdt(:,:,:,nhum)`. `moist_processes` no longer takes `land`, `q`, `qm` or `qdt`; `damping_driver` no longer takes `q`, `r`, `qdt` or `rdt`. `atmos_tracer_driver_init(r, axes, Time, mask)`, and `atmos_tracer_driver` no longer takes `dt`.
+* `cg_drag_calc(is, js, pfull, phalf, zfull, temp, uuu, vvv, Time, gwfcng_x, gwfcng_y)` takes `phalf` and no longer takes `lat` or `delt`.
 * `moist_processes_init(axes, Time, nhum)`; `horizontal_heating` of `local_heating_mod` takes an optional `only` source index; `local_heating` takes `Time_next` after `Time`; `betts_miller_mod` exports `capecalcnew` (optional `kick`); `mima_monin_obukhov_mod` exports `monin_obukhov_init`.
 
 ## New features

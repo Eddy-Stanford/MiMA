@@ -720,7 +720,7 @@ Declared in [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damp
 
 ### `cg_drag_nml`
 
-The Alexander and Dunkerton (1999) non-orographic gravity-wave scheme, with the changes of [Cohen et al. (2013)](https://doi.org/10.1175/JAS-D-12-0240.1) and [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1).
+The Alexander and Dunkerton (1999) non-orographic gravity-wave scheme, with the changes of [Cohen et al. (2013)](https://doi.org/10.1175/JAS-D-12-0346.1). The source spectrum is the same at every latitude. The zonal and the meridional forcing are computed independently, each with the whole source stress `Bt`, so a column launches `Bt` in the x and `Bt` in the y direction (2 `Bt` in total); about 20% of it is in waves that are already unstable at the source level and are removed there (Alexander and Dunkerton, eq. 22). See [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) for the steps of the scheme.
 
 <!-- mimadoc:namelist cg_drag_nml -->
 
@@ -730,23 +730,15 @@ Declared in [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod
 |---|---|---|---|
 | `cg_drag_freq` | integer | `21600` | [s] interval between drag calculations; the drag is held fixed in between (and saved in `cg_drag.res.nc`) |
 | `cg_drag_offset` | integer | `0` | [s] on a cold start, time to the first calculation (0: `cg_drag_freq`) |
-| `source_level_pressure` | real | `315.e+02` | [Pa] the source level is the highest level with a pressure greater than this at the equator |
-| `damp_level_pressure` | real | `0.85e+02` | [Pa] momentum flux reaching the model top is deposited from the top down to this level |
-| `nk` | integer | `1` | number of wavelengths in the spectrum |
-| `cmax` | real | `99.6` | [m/s] maximum phase speed |
+| `source_level_pressure` | real | `315.e+02` | [Pa] the source level is the highest level with a reference pressure greater than this at the equator; towards the poles the number of levels below it shrinks with cos(latitude), down to level kmax - 1 |
+| `damp_level_pressure` | real | `0.85e+02` | [Pa] momentum flux reaching the model top is deposited from the top down to the lowest level with a reference pressure below this (the top level if there is none) |
+| `Bt` | real | `0.0043` | [Pa] source momentum flux (stress), launched in each of the x and the y direction (see the module description) |
+| `Bw` | real | `0.4` | [m2/s2] amplitude of the source spectrum. The intermittency scales the deposited flux to `Bt`, so `Bw` acts only through the breaking criterion: a larger `Bw` makes the waves break lower. |
+| `cw` | real | `35.0` | [m/s] half-width at half-maximum of the source spectrum |
+| `cmax` | real | `99.6` | [m/s] maximum phase speed; 2 `cmax`/`dc` must be an integer |
 | `dc` | real | `1.2` | [m/s] phase-speed resolution |
-| `Bt_0` | real | `0.0043` | [Pa] total source momentum flux poleward of `phi0n`/`phi0s` |
-| `Bt_sh` | real | `0.00` | [Pa] additional flux in the Southern Hemisphere extratropics (tanh transition of width `dphis` at `phi0s`) |
-| `Bt_nh` | real | `0.00` | [Pa] additional flux in the Northern Hemisphere extratropics (tanh transition of width `dphin` at `phi0n`) |
-| `Bt_eq` | real | `0.0043` | [Pa] total source momentum flux between `dphis` and `dphin`; it varies linearly to `Bt_0` at `phi0n`/`phi0s` |
-| `phi0n`, `phi0s`, `dphin`, `dphis` | real | `15.`, `-15.`, `10.`, `-10.` | [deg] `phi0n`, `phi0s`: latitudes where the flux reaches `Bt_0`. `dphin`, `dphis`: edges of the tropical band (flux `Bt_eq`, spectrum width `cwtropics`), and widths of the `Bt_nh`/`Bt_sh` transitions |
-| `Bw` | real | `0.4` | [m2/s2] amplitude of the wide part of the phase-speed spectrum |
-| `Bn` | real | `0.0` | [m2/s2] amplitude of the narrow part of the phase-speed spectrum (0 in the tropical band) |
-| `cw` | real | `35.0` | [m/s] half-width of the wide spectrum outside the tropical band |
-| `cwtropics` | real | `35.0` | [m/s] half-width of the wide spectrum inside the tropical band |
-| `cn` | real | `2.0` | [m/s] half-width of the narrow spectrum |
-| `flag` | integer | `0` | `1`: spectrum peaks at c = 0; `0`: at c - u = 0 (always 0 in the tropical band) |
-| `kelvin_kludge` | real | `1.` | factor on the source flux of waves with c - u < 0 in the tropical band |
+| `wavelength` | real | `300.e3` | [m] horizontal wavelength of the waves |
+| `centre_on_source_wind` | logical | `.true.` | `.true.`: the source spectrum is centred on the wind at the source level (c - u0 = 0); `.false.`: on c = 0 |
 
 <!-- mimadoc:end -->
 

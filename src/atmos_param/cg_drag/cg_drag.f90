@@ -2,11 +2,33 @@
 !>
 !> Computes the forcing of the zonal and meridional winds by a spectrum of
 !> gravity waves launched at a source level in the troposphere, with the
-!> changes of Cohen et al. (2013) and Garfinkel et al. (2020). The forcing is
-!> recalculated every `cg_drag_freq` seconds and held fixed in between; it is
-!> saved in the restart file `RESTART/cg_drag.res.nc`. Momentum flux that
-!> reaches the model top is deposited between the top and
-!> `damp_level_pressure`.
+!> changes of Cohen et al. (2013). The forcing is recalculated every
+!> `cg_drag_freq` seconds and held fixed in between; it is saved in the restart
+!> file `RESTART/cg_drag.res.nc`.
+!>
+!> In each column, and for each wind component separately (`gwfc`):
+!>
+!> * The source spectrum (AD99 eq. 17) at the phase speeds c = -`cmax`,
+!>   -`cmax` + `dc`, ..., `cmax` is a Gaussian of amplitude `Bw` and half-width
+!>   `cw`, centred on the wind u0 at the source level (or on c = 0), with the
+!>   sign of c - u0.
+!> * The intermittency (eq. 19) scales the spectrum so that the sum of |B0| over
+!>   all phase speeds carries the source stress `Bt`.
+!> * Going up from the source, a wave is removed where it is reflected (eq. 21)
+!>   and deposits its momentum flux where it breaks (eq. 24) or meets a critical
+!>   level. The waves that are already unstable at the source level are removed
+!>   without depositing (eq. 22): with the default spectrum about 20% of `Bt`.
+!> * The momentum flux that reaches the model top is deposited between the top
+!>   and `damp_level_pressure`, so none leaves the model.
+!> * The flux deposited in the layer between two full levels is shared between
+!>   the two model levels by the pressure thickness of the layer on each side of
+!>   the half level, and converted to an acceleration with the mass of each
+!>   model level, so the column receives exactly the deposited momentum.
+!>
+!> The zonal and the meridional forcing are computed independently, each with
+!> the whole of `Bt` (the spectrum centred on u0 and on v0): a column launches
+!> `Bt` in the x and `Bt` in the y direction, 2 `Bt` in total over the four
+!> directions.
 !>
 !> Namelist: `cg_drag_nml`
 !> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#cg_drag_nml)).
@@ -17,11 +39,9 @@
 !>   of mean-flow forcing due to breaking gravity waves. J. Atmos. Sci., 56,
 !>   4167-4180.
 !> * Cohen, N. Y., E. P. Gerber, and O. Buhler, 2013: Compensation between
-!>   resolved and unresolved wave driving in the stratosphere. J. Atmos. Sci.,
-!>   70, 3780-3798, https://doi.org/10.1175/JAS-D-12-0240.1.
-!> * Garfinkel, C. I., I. White, E. P. Gerber, M. Jucker, and M. Erez, 2020:
-!>   The building blocks of Northern Hemisphere wintertime stationary waves.
-!>   J. Climate, 33, 5611-5633, https://doi.org/10.1175/JCLI-D-19-0181.1.
+!>   resolved and unresolved wave driving in the stratosphere: implications for
+!>   downward control. J. Atmos. Sci., 70, 3780-3798,
+!>   https://doi.org/10.1175/JAS-D-12-0346.1.
 module cg_drag_mod
 
   use fms_mod, only: fms_init, mpp_pe, mpp_root_pe, &
@@ -38,24 +58,13 @@ module cg_drag_mod
   use diag_manager_mod, only: diag_manager_init, &
                               register_diag_field, send_data
   use constants_mod, only: constants_init, PI, RDGAS, GRAV, CP_AIR
-
-!-------------------------------------------------------------------
+  use namelist_check_mod, only: nml_sets
 
   implicit none
   private
 
-!---------------------------------------------------------------------
-!-------  interfaces --------
-
   public cg_drag_init, cg_drag_calc, cg_drag_end, &
     cg_drag_time_vary, cg_drag_endts
-
-  private gwfc
-
-  integer, allocatable, dimension(:, :)     ::  source_level, damp_level
-
-  real, allocatable, dimension(:, :)     ::  source_amp
-  real, allocatable, dimension(:, :, :)   ::  gwd_u, gwd_v
 
 !--------------------------------------------------------------------
 !---- namelist -----
@@ -66,110 +75,51 @@ module cg_drag_mod
                                       !! (0: `cg_drag_freq`)
 
   real        :: source_level_pressure = 315.e+02
-  !! [Pa] the source level is the highest level with a pressure greater than this at the
-  !! equator
+  !! [Pa] the source level is the highest level with a reference pressure greater than this at
+  !! the equator; towards the poles the number of levels below it shrinks with cos(latitude),
+  !! down to level kmax - 1
   real       ::  damp_level_pressure = 0.85e+02
-  !! [Pa] momentum flux reaching the model top is deposited from the top down to this level
-  ! (added by cig, feb 27, 2017)
-  integer     :: nk = 1               !! number of wavelengths in the spectrum
-  real        :: cmax = 99.6          !! [m/s] maximum phase speed
+  !! [Pa] momentum flux reaching the model top is deposited from the top down to the lowest level
+  !! with a reference pressure below this (the top level if there is none)
+  real        :: Bt = 0.0043   !! [Pa] source momentum flux (stress), launched in each of the
+                               !! x and the y direction (see the module description)
+  real       :: Bw = 0.4  !! [m2/s2] amplitude of the source spectrum. The intermittency scales
+                          !! the deposited flux to `Bt`, so `Bw` acts only through the breaking
+                          !! criterion: a larger `Bw` makes the waves break lower.
+  real       :: cw = 35.0 !! [m/s] half-width at half-maximum of the source spectrum
+  real        :: cmax = 99.6          !! [m/s] maximum phase speed; 2 `cmax`/`dc` must be an integer
   real        :: dc = 1.2             !! [m/s] phase-speed resolution
-  ! previous values: 0.6
-  real        :: Bt_0 = 0.0043          !! [Pa] total source momentum flux poleward of
-                                        !! `phi0n`/`phi0s`
-
-  real        :: Bt_nh = 0.00         !! [Pa] additional flux in the Northern Hemisphere
-                                      !! extratropics (tanh transition of width `dphin` at `phi0n`)
-
-  real        :: Bt_sh = 0.00        !! [Pa] additional flux in the Southern Hemisphere
-                                     !! extratropics (tanh transition of width `dphis` at `phi0s`)
-
-! epg - 30.6.16 - I shifted these spectral parameters to the name list
-!---------------------------------------------------------------------
-!---------------------------------------------------------------------
-!   wave spectrum parameters.
-!---------------------------------------------------------------------
-
-  integer    :: flag = 0  !! `1`: spectrum peaks at c = 0; `0`: at c - u = 0 (always 0 in the
-                          !! tropical band)
-  real       :: Bw = 0.4  !! [m2/s2] amplitude of the wide part of the phase-speed spectrum
-  ! ~ u'w'
-  real       :: Bn = 0.0  !! [m2/s2] amplitude of the narrow part of the phase-speed spectrum
-                          !! (0 in the tropical band)
-  ! ~ u'w';  previous values: 5.4
-  real       :: cw = 35.0 !! [m/s] half-width of the wide spectrum outside the tropical band
-  ! previous values: 50.0, 25.0
-  real       :: cwtropics = 35.0 !! [m/s] half-width of the wide spectrum inside the tropical band
-  ! previous values: 50.0, 25.0
-  real       :: cn = 2.0 !! [m/s] half-width of the narrow spectrum
-
-  real        :: Bt_eq = 0.0043         !! [Pa] total source momentum flux between `dphis` and
-                                        !! `dphin`; it varies linearly to `Bt_0` at `phi0n`/`phi0s`
-
-  real        :: phi0n = 15., phi0s = -15., dphin = 10., dphis = -10.
-  !! [deg] `phi0n`, `phi0s`: latitudes where the flux reaches `Bt_0`. `dphin`, `dphis`: edges
-  !! of the tropical band (flux `Bt_eq`, spectrum width `cwtropics`), and widths of the
-  !! `Bt_nh`/`Bt_sh` transitions
-
-  real        :: kelvin_kludge = 1.
-  !! factor on the source flux of waves with c - u < 0 in the tropical band
+  real        :: wavelength = 300.e3  !! [m] horizontal wavelength of the waves
+  logical     :: centre_on_source_wind = .true.
+  !! `.true.`: the source spectrum is centred on the wind at the source level (c - u0 = 0);
+  !! `.false.`: on c = 0
 
   namelist /cg_drag_nml/ &
     cg_drag_freq, cg_drag_offset, &
     source_level_pressure, damp_level_pressure, &
-    nk, cmax, dc, Bt_0, &
-    Bt_sh, Bt_nh, Bt_eq, &
-    phi0n, phi0s, dphin, dphis, Bw, Bn, cw, cwtropics, cn, flag, &
-    kelvin_kludge
-
-!--------------------------------------------------------------------
-!-------- public data  -----
+    Bt, Bw, cw, cmax, dc, wavelength, centre_on_source_wind
 
 !--------------------------------------------------------------------
 !------ private data ------
 
-!--------------------------------------------------------------------
-!   these arrays must be preserved across timesteps in case the
-!   parameterization is not called every timestep (they are kept in
-!   the restart file RESTART/cg_drag.res.nc, with cgdrag_alarm):
-!
-!   gwd_u, gwd_v  time tendencies of u and v due to gravity wave
-!                 forcing [ m/s^2 ]
-!
-!--------------------------------------------------------------------
-!   these are the arrays which define the gravity wave source spectrum:
-!
-!   c0       gravity wave phase speeds [ m/s ]
-!   kwv      horizontal wavenumbers of gravity waves  [  /m ]
-!   k2       squares of wavenumbers [ /(m^2) ]
-!
-!-------------------------------------------------------------------
-  real, dimension(:), allocatable   :: c0, kwv, k2
+  integer, allocatable :: source_level(:)  ! k index of the source level at each latitude
+  integer :: damp_level  ! k index of the lowest level of the damping layer at the top
 
-  real, parameter :: deg_per_rad = 180./3.14159265358979
-  !! degrees per radian, with the 15-digit pi cg_drag has always used (`PI` of constants_mod
-  !! differs in the last bits, which would change the source bands at their edges)
+  ! gravity-wave forcing of u and v [m/s2], kept between calculation steps (and in the
+  ! restart file RESTART/cg_drag.res.nc, with cgdrag_alarm)
+  real, allocatable :: gwd_u(:, :, :), gwd_v(:, :, :)
 
-  integer    :: nc        ! number of wave speeds in spectrum
-  ! (symmetric around c = 0)
-  integer    :: klevel_of_source, klevel_of_damp
-  ! k index of the gravity wave source level at
-  ! the equator in a standard atmosphere
-  ! also k index of level up to where  mesosphere drag is dumped  (cig, feb 27 2017)
+  integer :: nc  ! number of phase speeds in the spectrum (symmetric around c = 0)
+  real, allocatable :: c0(:)  ! phase speeds [m/s]
+  real :: kwv, k2  ! horizontal wavenumber [1/m] and its square [1/m2]
 
-!---------------------------------------------------------------------
-!   variables which control module calculations:
-!
-!   cgdrag_alarm time remaining until next cg_drag calculation  [ s ]
-!
-!---------------------------------------------------------------------
-  integer          :: cgdrag_alarm
+  real, parameter :: bflim = 2.5e-5  ! minimum squared buoyancy frequency [1/s2]
+  real, parameter :: lapse_dry = GRAV/CP_AIR  ! dry adiabatic lapse rate [K/m]
+
+  integer          :: cgdrag_alarm       ! time remaining until the next calculation [s]
   type(time_type)  :: Time_last_call     ! model time of the previous call
   type(domain2d)   :: domain             ! grid domain, for the restart file
 
-!---------------------------------------------------------------------
-!   variables for netcdf diagnostic fields.
-!---------------------------------------------------------------------
   integer          :: id_kedx_cgwd, id_kedy_cgwd, id_bf_cgwd, &
                       id_gwfx_cgwd, id_gwfy_cgwd
   real             :: missing_value = -999.
@@ -177,25 +127,13 @@ module cg_drag_mod
 
   logical          :: module_is_initialized = .false.
 
-!-------------------------------------------------------------------
-!-------------------------------------------------------------------
-
 contains
-
-!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-!
-!                      PUBLIC SUBROUTINES
-!
-!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-!####################################################################
 
   !> Initializes the module: reads `cg_drag_nml`, finds the source and damping
   !> levels, sets up the phase-speed spectrum, registers the diagnostics and reads
   !> `INPUT/cg_drag.res.nc` if it exists.
   subroutine cg_drag_init(lonb, latb, domain_in, pref, Time, axes)
 
-!-------------------------------------------------------------------
     real, dimension(:), intent(in)      :: lonb, latb, pref
     !! `lonb`, `latb`: longitudes and latitudes of the cell corners [rad]; `pref`: reference
     !! pressures at full levels, plus the surface value at nlev+1, for a surface pressure of
@@ -203,89 +141,41 @@ contains
     type(domain2d), intent(in)      :: domain_in  !! domain decomposition of the model grid
     integer, dimension(4), intent(in)      :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
     type(time_type), intent(in)      :: Time  !! current time
-!-------------------------------------------------------------------
-
-!-------------------------------------------------------------------
-!   local variables:
 
     integer                 :: ierr, io, logunit
-    integer                 :: n, i, j, k
-    integer                 :: idf, jdf, kmax
-    real                    :: alarm
+    integer                 :: n, j, k
+    integer                 :: idf, jdf, kmax, klevel_of_source
+    real                    :: alarm, lat, nc_real
     type(restart_file_type) :: rst
 
-    real                    :: lat(size(lonb) - 1, size(latb) - 1)
-    real                    :: thislatdeg
-!-------------------------------------------------------------------
-!   local variables:
-!
-!       ierr           error return flag
-!       io             error return code
-!       n              loop index
-!       k              loop index
-!       idf            number of i points on this processor
-!       jdf            number of j points on this processor
-!       kmax           number of k points on this processor
-!
-!---------------------------------------------------------------------
-
-!---------------------------------------------------------------------
-!    if routine has already been executed, return.
-!---------------------------------------------------------------------
     if (module_is_initialized) return
 
-!---------------------------------------------------------------------
-!    verify that all modules used by this module have been initialized.
-!---------------------------------------------------------------------
     call fms_init
     call time_manager_init
     call diag_manager_init
     call constants_init
-!---------------------------------------------------------------------
-!    read namelist.
-!---------------------------------------------------------------------
+
+    call check_removed_keys()
     read (input_nml_file, nml=cg_drag_nml, iostat=io)
     ierr = check_nml_error(io, 'cg_drag_nml')
-
-!---------------------------------------------------------------------
-!    write the namelist to the log file.
-!---------------------------------------------------------------------
     logunit = stdlog()
     if (mpp_pe() == mpp_root_pe()) write (logunit, nml=cg_drag_nml)
 
-!---------------------------------------------------------------------
-!    the latitude bands of the source flux must cover every latitude
-!    (and dphin, dphis are also widths, so they must not be zero).
-!---------------------------------------------------------------------
-    if (.not. (phi0s <= dphis .and. dphis < 0. .and. 0. < dphin .and. dphin <= phi0n)) then
-      call error_mesg('cg_drag_init', 'cg_drag_nml needs phi0s <= dphis < 0 < dphin <= phi0n', &
-                      FATAL)
-    end if
-
-!-------------------------------------------------------------------
-!  define the grid dimensions. idf and jdf are the (i,j) dimensions of
-!  domain on this processor, kmax is the number of model layers.
-!-------------------------------------------------------------------
     kmax = size(pref(:)) - 1
     jdf = size(latb) - 1
     idf = size(lonb) - 1
 
-    allocate (source_level(idf, jdf))
-    allocate (damp_level(idf, jdf))
-    allocate (source_amp(idf, jdf))
-
 !--------------------------------------------------------------------
-!    define the k level which will serve as source level for the grav-
-!    ity waves. it is that model level just below the pressure specif-
-!    ied as the source location via namelist input.
-!    the damping level is the lowest model level above the pressure
-!    specified via namelist input, or the top level if there is none.
+!    the source level at the equator is the highest level with a
+!    reference pressure greater than source_level_pressure. the damping
+!    level is the lowest level above damp_level_pressure, or the top
+!    level if there is none.
 !--------------------------------------------------------------------
-    klevel_of_damp = 1
+    damp_level = 1
     klevel_of_source = 0
     do k = 1, kmax
       if (pref(k) < damp_level_pressure) then
-        klevel_of_damp = k
+        damp_level = k
       end if
       if (pref(k) > source_level_pressure) then
         klevel_of_source = k
@@ -297,66 +187,38 @@ contains
                       'source_level_pressure', FATAL)
     end if
 
+!    towards the poles the number of levels below the source level
+!    shrinks with cos(latitude).
+    allocate (source_level(jdf))
     do j = 1, jdf
-      do i = 1, idf
-        lat(i, j) = 0.5*(latb(j + 1) + latb(j))
-        source_level(i, j) = (kmax + 1) - ((kmax + 1 - &
-                                            klevel_of_source)*cos(lat(i, j)) + 0.5)
-
-        damp_level(i, j) = klevel_of_damp  !cig
-        thislatdeg = lat(i, j)*deg_per_rad
-!code added by ipw - nov 23, 2016
-        if (thislatdeg > phi0n) then
-          source_amp(i, j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg - phi0n)/dphin)) + &
-                             Bt_sh*0.5*(1.+tanh((thislatdeg - phi0s)/dphis))
-        elseif (thislatdeg < phi0s) then
-          source_amp(i, j) = Bt_0 + Bt_nh*0.5*(1.+tanh((thislatdeg - phi0n)/dphin)) + &
-                             Bt_sh*0.5*(1.+tanh((thislatdeg - phi0s)/dphis))
-        elseif ((thislatdeg <= dphin) .and. (thislatdeg >= dphis)) then
-          source_amp(i, j) = Bt_eq
-        elseif ((thislatdeg <= phi0n) .and. (thislatdeg > dphin)) then
-          source_amp(i, j) = Bt_0 + (Bt_eq - Bt_0)/(phi0n - dphin)*(phi0n - thislatdeg)
-        elseif ((thislatdeg < dphis) .and. (thislatdeg >= phi0s)) then
-          source_amp(i, j) = Bt_0 + (Bt_eq - Bt_0)/(phi0s - dphis)*(phi0s - thislatdeg)
-        end if
-
-      end do
+      lat = 0.5*(latb(j + 1) + latb(j))
+      source_level(j) = (kmax + 1) - nint((kmax + 1 - klevel_of_source)*cos(lat))
     end do
     source_level = min(source_level, kmax - 1)
     damp_level = min(damp_level, kmax)
-!    the flux reaching the top is deposited over levels 1..damp_level, which uses the density
-!    up to damp_level+1: gwfc defines it only up to source_level+1.
-    if (any(damp_level > source_level)) then
+!    the damping layer, where the flux reaching the top is deposited, must lie above the
+!    source level of every latitude.
+    if (damp_level > minval(source_level)) then
       call error_mesg('cg_drag_init', 'damp_level_pressure must not be below the source '// &
                       'level (source_level_pressure)', FATAL)
     end if
 
 !---------------------------------------------------------------------
-!    define the number of waves in the gravity wave spectrum, and define
-!    an array of their speeds. They are defined symmetrically around
-!    c = 0.0 m/s.
+!    the phase speeds of the spectrum, symmetric around c = 0.
 !---------------------------------------------------------------------
-    nc = 2.0*cmax/dc + 1
+    nc_real = 2.0*cmax/dc
+    if (abs(nc_real - nint(nc_real)) > 1.e-6*nc_real) then
+      call error_mesg('cg_drag_init', '2*cmax/dc must be an integer', FATAL)
+    end if
+    nc = nint(nc_real) + 1
     allocate (c0(nc))
     do n = 1, nc
       c0(n) = (n - 1)*dc - cmax
     end do
 
-!--------------------------------------------------------------------
-!    define the wavenumber kwv and its square k2 for the gravity waves
-!    contained in the spectrum. currently nk = 1, which means that the
-!    wavelength of all gravity waves considered is 300 km.
-!--------------------------------------------------------------------
-    allocate (kwv(nk))
-    allocate (k2(nk))
-    do n = 1, nk
-      kwv(n) = 2.*PI/((30.*(10.**n))*1.e3)
-      k2(n) = kwv(n)*kwv(n)
-    end do
+    kwv = 2.*PI/wavelength
+    k2 = kwv*kwv
 
-!--------------------------------------------------------------------
-!    initialize netcdf diagnostic fields.
-!-------------------------------------------------------------------
     id_bf_cgwd = &
       register_diag_field(mod_name, 'bf_cgwd', axes(1:3), Time, &
                           'buoyancy frequency from cg_drag', '1/s', &
@@ -378,10 +240,6 @@ contains
                           'effective eddy viscosity from cg_drag (meridional)', 'm2/s', &
                           missing_value=missing_value)
 
-!--------------------------------------------------------------------
-!    allocate and define module variables to hold values across
-!    timesteps, in the event that cg_drag is not called on every step.
-!--------------------------------------------------------------------
     allocate (gwd_u(idf, jdf, kmax))
     allocate (gwd_v(idf, jdf, kmax))
 
@@ -413,16 +271,27 @@ contains
 !    first call is one model step after Time (cold start or restart).
 !---------------------------------------------------------------------
     Time_last_call = Time
-!---------------------------------------------------------------------
-!    mark the module as initialized.
-!---------------------------------------------------------------------
-    module_is_initialized = .true.
 
-!---------------------------------------------------------------------
+    module_is_initialized = .true.
 
   end subroutine cg_drag_init
 
-!####################################################################
+  ! Stops with a migration message if input.nml still sets a cg_drag_nml key that was
+  ! removed in v2.0 (the namelist read would otherwise only report an unknown variable).
+  ! A mention of the key in a comment is ignored.
+  subroutine check_removed_keys()
+
+    if (nml_sets('bt_0') .or. nml_sets('bt_eq') .or. nml_sets('bt_nh') .or. nml_sets('bt_sh') .or. &
+        nml_sets('phi0n') .or. nml_sets('phi0s') .or. nml_sets('dphin') .or. nml_sets('dphis') .or. &
+        nml_sets('cwtropics') .or. nml_sets('kelvin_kludge') .or. nml_sets('bn') .or. &
+        nml_sets('cn') .or. nml_sets('nk') .or. nml_sets('flag')) &
+      call error_mesg('cg_drag_init', 'cg_drag_nml: Bt_0 is now Bt, nk is replaced by wavelength '// &
+                      '(nk = 1: 300.e3) and flag by centre_on_source_wind (flag = 0: .true.); '// &
+                      'Bt_eq, Bt_nh, Bt_sh, phi0n, phi0s, dphin, dphis, cwtropics, Bn, cn and '// &
+                      'kelvin_kludge were removed (the source spectrum is the same at all '// &
+                      'latitudes); see Migration_v2.md', FATAL)
+
+  end subroutine check_removed_keys
 
   !> Counts down the time to the next drag calculation by the model time elapsed
   !> since the previous call.
@@ -443,27 +312,16 @@ contains
     Time_last_call = Time
     cgdrag_alarm = cgdrag_alarm - dt_step
 
-!---------------------------------------------------------------------
-
   end subroutine cg_drag_time_vary
-
-!####################################################################
 
   !> Resets the countdown to `cg_drag_freq` after a calculation step.
   subroutine cg_drag_endts
 
-!--------------------------------------------------------------------
-!    if this was a calculation step, reset cgdrag_alarm to indicate
-!    the time remaining before the next calculation of gravity wave
-!    forcing.
-!--------------------------------------------------------------------
     if (cgdrag_alarm <= 0) then
       cgdrag_alarm = cgdrag_alarm + cg_drag_freq
     end if
 
   end subroutine cg_drag_endts
-
-!####################################################################
 
   !> Returns the gravity-wave forcing of u and v.
   !>
@@ -471,200 +329,82 @@ contains
   !> from the buoyancy frequency, density and winds, stores it for the steps in
   !> between and sends the diagnostics; on the other steps it returns the stored
   !> forcing.
-  subroutine cg_drag_calc(is, js, lat, pfull, zfull, temp, uuu, vvv, &
-                          Time, delt, gwfcng_x, gwfcng_y)
+  subroutine cg_drag_calc(is, js, pfull, phalf, zfull, temp, uuu, vvv, &
+                          Time, gwfcng_x, gwfcng_y)
 
-!---------------------------------------------------------------------
     integer, intent(in)      :: is, js  !! indices of the first point of the physics window in the processor domain
-    real, dimension(:, :), intent(in)      :: lat  !! latitudes [rad]
-    real, dimension(:, :, :), intent(in)      :: pfull, zfull, temp, uuu, vvv
-    !! `pfull`: pressure at full levels [Pa]; `zfull`: height at full levels [m]; `temp`:
-    !! temperature [K]; `uuu`, `vvv`: zonal and meridional wind [m/s]
+    real, dimension(:, :, :), intent(in)      :: pfull, phalf, zfull, temp, uuu, vvv
+    !! `pfull`, `phalf`: pressure at full and half levels [Pa]; `zfull`: height at full levels
+    !! [m]; `temp`: temperature [K]; `uuu`, `vvv`: zonal and meridional wind [m/s]
     type(time_type), intent(in)      :: Time  !! model time at the end of the step
-    real, intent(in)      :: delt  !! physics time step [s]
     real, dimension(:, :, :), intent(out)     :: gwfcng_x, gwfcng_y
     !! tendencies of u and v due to the gravity-wave forcing [m/s2]
 
-!-------------------------------------------------------------------
-!    local variables:
+    ! column profiles, and the wind-independent quantities of the column (column_setup)
+    real, dimension(size(uuu, 3)) :: z, rho, bf, fac, omc
+    real, dimension(size(uuu, 1), size(uuu, 2), size(uuu, 3)) :: ked_x, ked_y, bf_out
 
-    real, dimension(size(uuu, 1), size(uuu, 2), size(uuu, 3))  :: &
-      dtdz, ked_gwfc_x, ked_gwfc_y
+    real    :: dtdz
+    integer :: iz0, imax, jmax, ie, je, i, j, k
+    logical :: used
 
-    real, dimension(size(uuu, 1), size(uuu, 2), 0:size(uuu, 3)) :: &
-      zzchm, zu, zv, zden, zbf, &
-      gwd_xtnd, ked_xtnd, &
-      gwd_ytnd, ked_ytnd
-
-    integer           :: iz0
-    logical           :: used
-    real              :: bflim = 2.5e-5
-    integer           :: ie, je
-    integer           :: imax, jmax, kmax
-    integer           :: i, j, k
-!-------------------------------------------------------------------
-!    local variables:
-!
-!       dtdz          temperature lapse rate [ deg K/m ]
-!       ked_gwfc      effective diffusion coefficient from cg_drag_mod
-!                     [ m^2/s ]
-!       zzchm         heights at model levels [ m ]
-!       zu            zonal velocity [ m/s ]
-!       zden          atmospheric density [ kg/m^3 ]
-!       zbf           buoyancy frequency [ /s ]
-!       gwd_xtnd      zonal wind tendency resulting from cg_drag_mod
-!                     [ m/s^2 ]
-!       ked_xtnd      effective diffusion coefficient from cg_drag_mod
-!                     [ m^2/s ]
-!       source_level  k index of gravity wave source level ((i,j) array)
-!       damp_level    k index of gravity wave mesospheric dumping level ((i,j) array)
-!       iz0           k index of gravity wave source level in a column
-!       used          return code for netcdf diagnostics
-!       bflim         minimum allowable value of squared buoyancy
-!                     frequency [ /s^2 ]
-!       ie, je        ending subdomain indices of data in the current
-!                     physics window being integrated
-!       imax, jmax, kmax
-!                     physics window dimensions
-!       i, j, k       do loop indices
-!
-!---------------------------------------------------------------------
-
-!---------------------------------------------------------------------
-!    define processor extents and loop limits.
-!---------------------------------------------------------------------
     imax = size(uuu, 1)
     jmax = size(uuu, 2)
-    kmax = size(uuu, 3)
     ie = is + imax - 1
     je = js + jmax - 1
 
-!---------------------------------------------------------------------
-!    if the convective gravity wave forcing should be calculated on
-!    this timestep (i.e., the alarm has gone off), proceed with the
-!    calculation.
-!---------------------------------------------------------------------
-
     if (cgdrag_alarm <= 0) then
 
-!-----------------------------------------------------------------------
-!    calculate temperature lapse rate. do one-sided differences over
-!    delta z at upper boundary and centered differences over 2 delta z
-!    in the interior.  dtdz is not needed at the lower boundary, since
-!    the source level is constrained to be above level kmax.
-!----------------------------------------------------------------------
+      bf_out = 0.0
       do j = 1, jmax
+        ! the source level of this latitude (j is offset in case a physics window is used)
+        iz0 = source_level(j + js - 1)
         do i = 1, imax
-! The following index-offsets are needed in case a physics_window is being used.
-          iz0 = source_level(i + is - 1, j + js - 1)
-          dtdz(i, j, 1) = (temp(i, j, 1) - temp(i, j, 2))/ &
-                          (zfull(i, j, 1) - zfull(i, j, 2))
-          do k = 2, iz0
-            dtdz(i, j, k) = (temp(i, j, k - 1) - temp(i, j, k + 1))/ &
-                            (zfull(i, j, k - 1) - zfull(i, j, k + 1))
-          end do
-
-!--------------------------------------------------------------------
-!    calculate air density.
-!--------------------------------------------------------------------
-          do k = 1, iz0 + 1
-            zden(i, j, k) = pfull(i, j, k)/(temp(i, j, k)*RDGAS)
-          end do
 
 !----------------------------------------------------------------------
-!    calculate buoyancy frequency. restrict the squared buoyancy
-!    frequency to be no smaller than bflim.
+!    buoyancy frequency, from the lapse rate (one-sided at the top,
+!    centred below; it is not needed at the lowest level, as the source
+!    level is above it), with the squared buoyancy frequency no smaller
+!    than bflim; density and height up to one level below the source.
 !----------------------------------------------------------------------
           do k = 1, iz0
-            zbf(i, j, k) = (GRAV/temp(i, j, k))*(dtdz(i, j, k) + GRAV/CP_AIR)
-            if (zbf(i, j, k) < bflim) then
-              zbf(i, j, k) = sqrt(bflim)
+            if (k == 1) then
+              dtdz = (temp(i, j, 1) - temp(i, j, 2))/(zfull(i, j, 1) - zfull(i, j, 2))
             else
-              zbf(i, j, k) = sqrt(zbf(i, j, k))
+              dtdz = (temp(i, j, k - 1) - temp(i, j, k + 1))/(zfull(i, j, k - 1) - zfull(i, j, k + 1))
             end if
+            bf(k) = sqrt(max(GRAV*(dtdz + lapse_dry)/temp(i, j, k), bflim))
           end do
-
-!----------------------------------------------------------------------
-!    if zbf is to be saved for netcdf output, the remaining vertical
-!    levels must be initialized.
-!----------------------------------------------------------------------
-          if (id_bf_cgwd > 0) then
-            zbf(i, j, iz0 + 1:) = 0.0
-          end if
-
-!----------------------------------------------------------------------
-!    define an array of heights at model levels and an array containing
-!    the zonal wind component.
-!----------------------------------------------------------------------
           do k = 1, iz0 + 1
-            zzchm(i, j, k) = zfull(i, j, k)
-          end do
-          do k = 1, iz0
-            zu(i, j, k) = uuu(i, j, k)
-            zv(i, j, k) = vvv(i, j, k)
+            rho(k) = pfull(i, j, k)/(temp(i, j, k)*RDGAS)
+            z(k) = zfull(i, j, k)
           end do
 
-!----------------------------------------------------------------------
-!    add an extra level above model top so that the gravity wave forcing
-!    occurring between the topmost model level and the upper boundary
-!    may be calculated. define variable values at the new top level as
-!    follows: z - use delta z of layer just below; u - extend vertical
-!    gradient occurring just below; density - geometric mean; buoyancy
-!    frequency - constant across model top.
-!----------------------------------------------------------------------
-          zzchm(i, j, 0) = zzchm(i, j, 1) + zzchm(i, j, 1) - zzchm(i, j, 2)
-          zu(i, j, 0) = 2.*zu(i, j, 1) - zu(i, j, 2)
-          zv(i, j, 0) = 2.*zv(i, j, 1) - zv(i, j, 2)
-          zden(i, j, 0) = zden(i, j, 1)*zden(i, j, 1)/zden(i, j, 2)
-          zbf(i, j, 0) = zbf(i, j, 1)
+          call column_setup(iz0, rho, bf, z, fac, omc)
+          call gwfc(iz0, pfull(i, j, :), phalf(i, j, :), bf, fac, omc, uuu(i, j, :), &
+                    gwfcng_x(i, j, :), ked_x(i, j, :))
+          call gwfc(iz0, pfull(i, j, :), phalf(i, j, :), bf, fac, omc, vvv(i, j, :), &
+                    gwfcng_y(i, j, :), ked_y(i, j, :))
+          bf_out(i, j, 1:iz0) = bf(1:iz0)
         end do
       end do
 
-!---------------------------------------------------------------------
-!    pass the vertically-extended input arrays to gwfc. gwfc will cal-
-!    culate the gravity-wave forcing and, if desired, an effective eddy
-!    diffusion coefficient at each level above the source level. output
-!    is returned in the vertically-extended arrays gwfcng and ked_gwfc.
-!    upon return move the output fields into model-sized arrays.
-!---------------------------------------------------------------------
-      call gwfc(is, ie, js, je, damp_level, source_level, source_amp, lat, &
-                zden, zu, zbf, zzchm, gwd_xtnd, ked_xtnd)
-
-      gwfcng_x(:, :, 1:kmax) = gwd_xtnd(:, :, 1:kmax)
-      ked_gwfc_x(:, :, 1:kmax) = ked_xtnd(:, :, 1:kmax)
-
-      call gwfc(is, ie, js, je, damp_level, source_level, source_amp, lat, &
-                zden, zv, zbf, zzchm, gwd_ytnd, ked_ytnd)
-      gwfcng_y(:, :, 1:kmax) = gwd_ytnd(:, :, 1:kmax)
-      ked_gwfc_y(:, :, 1:kmax) = ked_ytnd(:, :, 1:kmax)
-
 !--------------------------------------------------------------------
-!    store the gravity wave forcing into a processor-global array.
+!    store the forcing for the steps until the next calculation, and
+!    send the diagnostics.
 !-------------------------------------------------------------------
       gwd_u(is:ie, js:je, :) = gwfcng_x(:, :, :)
       gwd_v(is:ie, js:je, :) = gwfcng_y(:, :, :)
 
-!--------------------------------------------------------------------
-!    if activated, store the effective eddy diffusivity into a
-!    processor-global array, and if desired as a netcdf diagnostic,
-!    send the data to diag_manager_mod.
-!-------------------------------------------------------------------
-
       if (id_kedx_cgwd > 0) then
-        used = send_data(id_kedx_cgwd, ked_gwfc_x, Time, is, js, 1)
+        used = send_data(id_kedx_cgwd, ked_x, Time, is, js, 1)
       end if
-
       if (id_kedy_cgwd > 0) then
-        used = send_data(id_kedy_cgwd, ked_gwfc_y, Time, is, js, 1)
+        used = send_data(id_kedy_cgwd, ked_y, Time, is, js, 1)
       end if
-
-!--------------------------------------------------------------------
-!    save any other netcdf file diagnostics that are desired.
-!--------------------------------------------------------------------
       if (id_bf_cgwd > 0) then
-        used = send_data(id_bf_cgwd, zbf(:, :, 1:), Time, is, js)
+        used = send_data(id_bf_cgwd, bf_out, Time, is, js)
       end if
-
       if (id_gwfx_cgwd > 0) then
         used = send_data(id_gwfx_cgwd, gwfcng_x, Time, is, js, 1)
       end if
@@ -672,37 +412,25 @@ contains
         used = send_data(id_gwfy_cgwd, gwfcng_y, Time, is, js, 1)
       end if
 
-!--------------------------------------------------------------------
-!    if this is not a timestep on which gravity wave forcing is to be
-!    calculated, retrieve the values calculated previously from storage
-!    and return to the calling subroutine.
-!--------------------------------------------------------------------
-    else   ! (cgdrag_alarm <= 0)
+    else
       gwfcng_x(:, :, :) = gwd_u(is:ie, js:je, :)
       gwfcng_y(:, :, :) = gwd_v(is:ie, js:je, :)
-    end if  ! (cgdrag_alarm <= 0)
+    end if
 
 !--------------------------------------------------------------------
-! mj now update the alarm clock, for control over how often cg_drag
-!    will recalculate the NOGWD tendencies
+!    update the alarm clock, which controls how often cg_drag recalculates
+!    the forcing.
+!--------------------------------------------------------------------
     call cg_drag_endts
     call cg_drag_time_vary(Time)
 
   end subroutine cg_drag_calc
 
-!###################################################################
-
   !> Writes the restart file `RESTART/cg_drag.res.nc`.
   subroutine cg_drag_end
 
-!--------------------------------------------------------------------
-!    local variables
-
     type(restart_file_type) :: rst
 
-!--------------------------------------------------------------------
-!    write the restart file.
-!--------------------------------------------------------------------
     if (.not. module_is_initialized) return
     if (mpp_pe() == mpp_root_pe()) call error_mesg('cg_drag_mod', &
                                                    'Writing NetCDF formatted restart file: RESTART/cg_drag.res.nc', NOTE)
@@ -712,381 +440,173 @@ contains
     call write_restart_field(rst, 'cgdrag_alarm', real(cgdrag_alarm))
     call close_restart(rst)
 
-!---------------------------------------------------------------------
-!    mark the module as uninitialized.
-!---------------------------------------------------------------------
     module_is_initialized = .false.
-
-!---------------------------------------------------------------------
 
   end subroutine cg_drag_end
 
-!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-!
-!                     PRIVATE SUBROUTINES
-!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  !> The quantities of a column that do not depend on the wind: the breaking
+  !> threshold and the reflection frequency.
+  subroutine column_setup(iz0, rho, bf, z, fac, omc)
 
-!####################################################################
+    integer, intent(in) :: iz0  !! k index of the source level
+    real, dimension(:), intent(in) :: rho, bf, z
+    !! density [kg/m3] and height [m] at levels 1..iz0+1, buoyancy frequency [1/s] at
+    !! levels 1..iz0
+    real, dimension(:), intent(out) :: fac, omc
+    !! `fac`: breaking threshold [s/m]; `omc`: frequency above which a wave is reflected
+    !! (eq. 21) [1/s], at levels 1..iz0
 
-  !> Computes the gravity-wave forcing of one wind component and the effective eddy
-  !> diffusivity above the source level.
-  subroutine gwfc(is, ie, js, je, damp_level, source_level, source_amp, lat, rho, u, &
-                  bf, z, gwf, ked)
+    real :: alp2
+    integer :: k
 
-!-------------------------------------------------------------------
-!    subroutine gwfc computes the gravity wave-driven-forcing on the
-!    zonal wind given vertical profiles of wind, density, and buoyancy
-!    frequency.
-!    Based on version implemented in SKYHI -- 27 Oct 1998 by M.J.
-!    Alexander and L. Bruhwiler.
-!-------------------------------------------------------------------
+    do k = 1, iz0
+      fac(k) = rho(k)*kwv/(2.0*rho(iz0)*bf(k))
+      ! alp2 = 1/(2 Hb)**2, with the density scale height Hb = dz/ln(rho(k+1)/rho(k)) of the
+      ! layer below level k
+      alp2 = (log(rho(k)/rho(k + 1))/(2.0*(z(k) - z(k + 1))))**2
+      omc(k) = sqrt(bf(k)**2*k2/(k2 + alp2))
+    end do
 
-!-------------------------------------------------------------------
-    integer, intent(in)             :: is, ie, js, je
-    integer, dimension(:, :), intent(in)             :: source_level, damp_level
-    real, dimension(:, :), intent(in)             :: source_amp, lat
-    real, dimension(:, :, 0:), intent(in)             :: rho, u, bf, z
-    real, dimension(:, :, 0:), intent(out)            :: gwf
-    real, dimension(:, :, 0:), intent(out)            :: ked
+  end subroutine column_setup
 
-!-------------------------------------------------------------------
-!  intent(in) variables:
-!
-!      is, ie, js, je   starting/ending subdomain i,j indices of data
-!                       in the physics_window being integrated
-!      source_level     k index of model level serving as gravity wave
-!                       source
-!      damp_level       k index of the lowest model level at which all drag that reaches the model top is partially dumped
-!      source_amp     amplitude of  gravity wave source [Pa]
-!
-!      rho              atmospheric density [ kg/m^3 ]
-!      u                zonal wind component [ m/s ]
-!      bf               buoyancy frequency [ /s ]
-!      z                height of model levels  [ m ]
-!
-!  intent(out) variables:
-!
-!      gwf              gravity wave forcing in u equation  [ m/s^2 ]
-!
-!  intent(out), optional variables:
-!
-!      ked              eddy diffusion coefficient from gravity wave
-!                       forcing [ m^2/s ]
-!
-!------------------------------------------------------------------
+  !> Computes the gravity-wave forcing of one wind component in one column, and the
+  !> effective eddy diffusivity, above the source level.
+  !>
+  !> Based on the version implemented in SKYHI (27 Oct 1998) by M. J. Alexander
+  !> and L. Bruhwiler. The equation numbers are those of Alexander and Dunkerton
+  !> (1999).
+  subroutine gwfc(iz0, p, ph, bf, fac, omc, u, gwf, ked)
 
-!------------------------------------------------------------------
-!  local variables
+    integer, intent(in) :: iz0  !! k index of the source level
+    real, dimension(:), intent(in) :: p, ph
+    !! pressure at full levels 1..kmax and at half levels 1..kmax+1 [Pa]
+    real, dimension(:), intent(in) :: bf, fac, omc
+    !! buoyancy frequency [1/s], breaking threshold and reflection frequency (`column_setup`)
+    !! at levels 1..iz0
+    real, dimension(:), intent(in) :: u  !! wind component at full levels [m/s]
+    real, dimension(:), intent(out) :: gwf  !! gravity-wave forcing of `u` [m/s2]
+    real, dimension(:), intent(out) :: ked  !! effective eddy diffusivity [m2/s]
 
-    real, dimension(0:size(u, 3) - 1) :: &
-      wv_frcng, diff_coeff, c0mu, dz, &
-      fac, omc
-    integer, dimension(nc) ::   msk
-    real, dimension(nc) ::   c0mu0, B0
-    real                    ::   fm, fe, Hb, alp2, Foc, c, test, rbh, &
-                               eps, Bsum, mom_top, mass_top
-    integer                 ::   iz0, iztop
-    integer                 ::   i, j, k, ink, n
-    real                    ::   ampl, cwthis, Bnthis, flagthis, kelvin_kludgethis
-!------------------------------------------------------------------
-!  local variables:
-!
-!      wv_frcng    gravity wave forcing tendency [ m/s^2 ]
-!      diff_coeff  eddy diffusion coefficient [ m2/s ]
-!      c0mu        difference between phase speed of wave n and u
-!                  [ m/s ]
-!      dz          delta z between model levels [ m ]
-!      fac         factor used in determining if wave is breaking
-!                  [ s/m ]
-!      omc         critical frequency that marks total internal
-!                  reflection  [ /s ]
-!      msk         indicator as to whether wave n is still propagating
-!                  upwards (msk=1), or has been removed from the
-!                  spectrum because of breaking or reflection (msk=0)
-!      c0mu0       difference between phase speed of wave n and u at the
-!                  source level [ m/s ]
-!      B0          wave momentum flux amplitude for wave n [ (m/s)^2 ]
-!      fm          used to sum up momentum flux from all waves n
-!                  deposited at a level [ (m/s)^2 ]
-!      fe          used to sum up contributions to diffusion coefficient
-!                  from all waves n at a level [ (m/s)^3 ]
-!      Hb          density scale height [ m ]
-!      alp2        scale height factor: 1/(2*Hb)**2  [ /m^2 ]
-!      Foc         wave breaking threshold [ s/m ]
-!      c           wave phase speed used in defining wave momentum flux
-!                  amplitude [ m/s ]
-!      test        condition defining internal reflection [ /s ]
-!      rbh         atmospheric density at half-level (geometric mean)
-!                  [ kg/m^3 ]
-!      eps         intermittency factor
-!      Bsum        total mag of gravity wave momentum flux at source
-!                  level, divided by the density  [ m^2/s^2 ]
-!      iz0         source level vertical index for the given column
-!      i,j,k       spatial do loop indices
-!      ink         wavenumber loop index
-!      n           phase speed loop index
-!      ampl        gravity wave stress [Pa]
-!
+    ! c0mu0: phase speed relative to the wind at the source level; B0: source spectrum
+    real, dimension(nc) :: c0mu0, B0
+    logical, dimension(nc) :: propagating
+    ! stress(k): momentum flux [Pa] deposited in layer k, between full levels k and k+1
+    ! (layer 0: the flux that reaches the model top); stress_ked: the same, weighted by
+    ! c - u [Pa m/s], for the eddy diffusivity
+    real, dimension(0:iz0) :: stress, stress_ked
+    ! mom, mom_ked: the same, collected on the model levels
+    real, dimension(iz0) :: mom, mom_ked
+    real :: c, c0mu, Bsum, fm, fe, w_above, w_top
+    integer :: k, n
+
 !--------------------------------------------------------------------
+!    the source spectrum B0 (eq. 17) and the sum of |B0| over all phase
+!    speeds, Bsum. a wave with no phase speed relative to the source wind
+!    carries no flux.
+!-------------------------------------------------------------------
+    Bsum = 0.
+    do n = 1, nc
+      c0mu0(n) = c0(n) - u(iz0)
+      if (c0mu0(n) == 0.0) then
+        B0(n) = 0.0
+      else
+        if (centre_on_source_wind) then
+          c = c0mu0(n)
+        else
+          c = c0(n)
+        end if
+        B0(n) = sign(Bw*exp(-log(2.0)*c**2/cw**2), c0mu0(n))
+        Bsum = Bsum + abs(B0(n))
+      end if
+    end do
+    if (Bsum == 0.0) then
+      call error_mesg('cg_drag_mod', ' zero flux input at source level', FATAL)
+    end if
 
-!-------------------------------------------------------------------
-!    initialize the output arrays. these will hold values at each
-!    (i,j,k) point, summed over the wavelengths and phase speeds
-!    defining the gravity wave spectrum.
-!-------------------------------------------------------------------
+!----------------------------------------------------------------------
+!    integrate upwards from the source level. a wave that breaks at level
+!    k deposits its flux in the layer below it. with the intermittency of
+!    eq. 19, eps = Bt/(rho(iz0)*Bsum), the flux sum fm [m2/s2] of the
+!    waves that break is the stress rho(iz0)*eps*fm = Bt*fm/Bsum [Pa].
+!----------------------------------------------------------------------
+    stress = 0.0
+    stress_ked = 0.0
+    propagating = .true.
+    do k = iz0, 1, -1
+      fm = 0.
+      fe = 0.
+      do n = 1, nc
+        if (.not. propagating(n)) cycle
+        c0mu = c0(n) - u(k)
+        if (c0mu == 0.) then
+          ! no phase speed relative to the wind: removed (the breaking test would divide
+          ! by zero); this is extremely rare
+          propagating(n) = .false.
+        else if (abs(c0mu)*kwv >= omc(k)) then
+          ! total internal reflection (eq. 21)
+          propagating(n) = .false.
+        else if ((B0(n)/c0mu**3 >= fac(k)) .or. (c0mu0(n)*c0mu <= 0.0)) then
+          ! breaking (eq. 24), or a critical level. a wave unstable already at the source
+          ! level is removed without depositing (eq. 22).
+          propagating(n) = .false.
+          if (k < iz0) then
+            fm = fm + B0(n)
+            fe = fe + c0mu*B0(n)
+          end if
+        end if
+      end do
+      stress(k) = Bt*fm/Bsum
+      stress_ked(k) = Bt*fe/Bsum
+    end do
+
+!----------------------------------------------------------------------
+!    the waves still propagating above the top level reach the model top.
+!----------------------------------------------------------------------
+    fm = 0.
+    fe = 0.
+    do n = 1, nc
+      if (propagating(n)) then
+        fm = fm + B0(n)
+        fe = fe + (c0(n) - u(1))*B0(n)
+      end if
+    end do
+    stress(0) = Bt*fm/Bsum
+    stress_ked(0) = Bt*fe/Bsum
+
+!----------------------------------------------------------------------
+!    collect the deposits on the model levels. the layer between full
+!    levels k and k+1 is split at the half level k+1: the fraction w_above
+!    of its pressure thickness lies in model level k, the rest in model
+!    level k+1. the flux that reaches the model top is spread over levels
+!    1..damp_level in proportion to their mass, a uniform acceleration.
+!----------------------------------------------------------------------
+    mom = 0.0
+    mom_ked = 0.0
+    do k = 1, iz0 - 1
+      w_above = (ph(k + 1) - p(k))/(p(k + 1) - p(k))
+      mom(k) = mom(k) + w_above*stress(k)
+      mom(k + 1) = mom(k + 1) + (1.0 - w_above)*stress(k)
+      mom_ked(k) = mom_ked(k) + w_above*stress_ked(k)
+      mom_ked(k + 1) = mom_ked(k + 1) + (1.0 - w_above)*stress_ked(k)
+    end do
+    do k = 1, damp_level
+      w_top = (ph(k + 1) - ph(k))/(ph(damp_level + 1) - ph(1))
+      mom(k) = mom(k) + w_top*stress(0)
+      mom_ked(k) = mom_ked(k) + w_top*stress_ked(0)
+    end do
+
+!----------------------------------------------------------------------
+!    the acceleration of each model level is its momentum divided by its
+!    mass (ph(k+1) - ph(k))/GRAV, and the eddy diffusivity (eq. 26) is
+!    that divided by bf**2.
+!----------------------------------------------------------------------
     gwf = 0.0
     ked = 0.0
-
-    do j = 1, size(u, 2)
-
-      do i = 1, size(u, 1)
-!added by cig, january 2017
-        if ((lat(i, j)*deg_per_rad <= dphin) .and. (lat(i, j)*deg_per_rad >= dphis)) then
-          cwthis = cwtropics
-          Bnthis = 0.
-          flagthis = 0
-          kelvin_kludgethis = kelvin_kludge
-        else
-          cwthis = cw
-          Bnthis = Bn
-          flagthis = flag
-          kelvin_kludgethis = 1.0
-        end if
-
-! The following index-offsets are needed in case a physics_window is being used.
-        iz0 = source_level(i + is - 1, j + js - 1)
-        iztop = damp_level(i + is - 1, j + js - 1)
-        ampl = source_amp(i + is - 1, j + js - 1)
-
-!--------------------------------------------------------------------
-!    define wave momentum flux (B0) at source level for each phase
-!    speed n, and the sum over all phase speeds (Bsum), which is needed
-!    to calculate the intermittency.
-!-------------------------------------------------------------------
-        Bsum = 0.
-        do n = 1, nc
-          c0mu0(n) = c0(n) - u(i, j, iz0)
-
-!---------------------------------------------------------------------
-!    when the wave phase speed is same as wind speed, there is no
-!    momentum flux.
-!---------------------------------------------------------------------
-          if (c0mu0(n) == 0.0) then
-            B0(n) = 0.0
-          else
-
-!---------------------------------------------------------------------
-!    define wave momentum flux at source level for phase speed n. Add
-!    the contribution from this phase speed to the previous sum.
-!---------------------------------------------------------------------
-            c = c0(n)*flagthis + c0mu0(n)*(1 - flagthis)
-            if (c0mu0(n) < 0.0) then
-              B0(n) = -1.0*(Bw*exp(-log(2.0)*(c/cwthis)**2) + &
-                            Bnthis*exp(-log(2.0)*(c/cn)**2))
-              B0(n) = B0(n)*kelvin_kludgethis
-            else
-              B0(n) = (Bw*exp(-log(2.0)*(c/cwthis)**2) + &
-                       Bnthis*exp(-log(2.0)*(c/cn)**2))
-
-            end if
-            Bsum = Bsum + abs(B0(n))
-          end if
-        end do
-
-!---------------------------------------------------------------------
-!    define the intermittency factor eps. the factor of 1.5 is currently
-!    unexplained.
-!
-! epg: We are not entirely sure why they had this factor of 1.5, but believe
-!      it was related to an issue with the units of the wave flux inputs
-!      (a stress vs. a flux -- see the appendix of Cohen et al. 2013)
-!      It was a crude correction to get things about right, but not needed
-!      any more.  Also, we now divide by the density, to convert the input
-!      stress to a flux.
-!---------------------------------------------------------------------
-        if (Bsum == 0.0) then
-          call error_mesg('cg_drag_mod', &
-                          ' zero flux input at source level', FATAL)
-        end if
-        !epg: eps = (ampl*1.5/nk)/Bsum
-        eps = (ampl/nk)/Bsum/rho(i, j, iz0)
-!--------------------------------------------------------------------
-!    loop over the nk different wavelengths in the spectrum.
-!--------------------------------------------------------------------
-        do ink = 1, nk   ! wavelength loop
-
-!----------------------------------------------------------------------
-!    define variables needed at levels above the source level.
-!---------------------------------------------------------------------
-          do k = 0, iz0
-            fac(k) = 0.5*(rho(i, j, k)/rho(i, j, iz0))*kwv(ink)/bf(i, j, k)
-          end do
-
-          do k = 0, iz0
-            dz(k) = z(i, j, k) - z(i, j, k + 1)
-            Hb = -(dz(k))/log(rho(i, j, k)/rho(i, j, k + 1))
-            alp2 = 0.25/(Hb*Hb)
-            omc(k) = sqrt((bf(i, j, k)*bf(i, j, k)*k2(ink))/ &
-                          (k2(ink) + alp2))
-          end do
-
-!---------------------------------------------------------------------
-!    initialize a flag which will indicate which waves are still
-!    propagating upwards.
-!---------------------------------------------------------------------
-          msk = 1
-
-!----------------------------------------------------------------------
-!    integrate upwards from the source level.  define variables over
-!    which to sum the deposited flux and effective eddy diffusivity
-!    from all waves breaking at a given level.
-!----------------------------------------------------------------------
-          do k = iz0, 0, -1
-            fm = 0.
-            fe = 0.
-            do n = 1, nc     ! phase speed loop
-
-!----------------------------------------------------------------------
-!    check only those waves which are still propagating, i.e., msk = 1.
-!----------------------------------------------------------------------
-              if (msk(n) == 1) then
-                c0mu(k) = c0(n) - u(i, j, k)
-
-!----------------------------------------------------------------------
-!    if phase speed matches the wind speed, remove c0(n) from the
-!    set of propagating waves.
-!   epg: This seems to be an unphysical decision, as the wave should
-!        break, having reached a critical level.  But it's extremely
-!        unlikely to have this occur, so we don't worry.  They do this
-!        because you will divide by c0mu below, in determining the breaking
-!        criteria.
-!----------------------------------------------------------------------
-                if (c0mu(k) == 0.) then
-                  msk(n) = 0
-                else
-
-!---------------------------------------------------------------------
-!    define the criterion which determines if wave is reflected at this
-!    level (test).
-!---------------------------------------------------------------------
-                  test = abs(c0mu(k))*kwv(ink) - omc(k)
-                  if (test >= 0.0) then
-
-!---------------------------------------------------------------------
-!    wave has undergone total internal reflection. remove it from the
-!    propagating set.
-!---------------------------------------------------------------------
-                    msk(n) = 0
-                  else
-
-!---------------------------------------------------------------------
-!    if wave is  not reflected at this level, determine if it is
-!    breaking at this level (Foc >= 0),  or if wave speed relative to
-!    windspeed has changed sign from its value at the source level
-!    (c0mu0(n)*c0mu <= 0). if it is above the source level and is
-!    breaking, then add its momentum flux to the accumulated sum at
-!    this level, and increase the effective diffusivity accordingly.
-!    set flag to remove phase speed c0(n) from the set of active waves
-!    moving upwards to the next level.
-!---------------------------------------------------------------------
-
-!    epg: if you are at the model top, deposit all momentum here, to
-!         prevent waves from escaping the top of the model.  See
-!         Shaw et al. 2010? for details on why this in important.
-                    if (k == 0) then
-                      msk(n) = 0
-                      if (k < iz0) then
-                        fm = fm + B0(n)
-                        fe = fe + c0mu(k)*B0(n)
-                      end if
-                    else
-
-                      Foc = B0(n)/(c0mu(k))**3 - fac(k)
-                      if ((Foc >= 0.0) .or. &
-                          (c0mu0(n)*c0mu(k) <= 0.0)) then
-                        msk(n) = 0
-                        if (k < iz0) then
-                          fm = fm + B0(n)
-                          fe = fe + c0mu(k)*B0(n)
-                        end if
-                      end if
-                    end if ! test for model top (k=0)
-                  end if   ! (test >= 0.0)
-                end if ! (c0mu == 0.0)
-              end if   ! (msk == 1)
-            end do  ! phase speed loop
-
-!----------------------------------------------------------------------
-!    compute the gravity wave momentum flux forcing and eddy
-!    diffusion coefficient obtained across the entire wave spectrum
-!    at this level.
-!----------------------------------------------------------------------
-            if (k < iz0) then
-              rbh = sqrt(rho(i, j, k)*rho(i, j, k + 1))
-              wv_frcng(k) = (rho(i, j, iz0)/rbh)*fm*eps/dz(k)
-
-              !epg: enforce momentum conservation at model top; in this case, all the momentum
-              !     deposited in the uppermost layer (which exist above the top model level,
-              !     as explained in cg_drag_calc,  must be added to the level below, which is
-              !     the actual top level of the model.
-              !cig: place the extra momentum flux in the top 3 layers instead of all in the top layer
-              if (k == 0) then
-                wv_frcng(k + 1) = 0.5*wv_frcng(k + 1) !+ weighttop*wv_frcng(k) cig commented out
-              else
-                wv_frcng(k + 1) = 0.5*(wv_frcng(k + 1) + wv_frcng(k))
-              end if
-
-              diff_coeff(k) = (rho(i, j, iz0)/rbh)*fe*eps/(dz(k)* &
-                                                           bf(i, j, k)*bf(i, j, k))
-
-              !epg: following what we did above...
-              !cig: place the extra momentum flux in the top 3 layers instead of all in the top layer
-              if (k == 0) then
-                diff_coeff(k + 1) = 0.5*diff_coeff(k + 1) !+ weighttop*diff_coeff(k) cig commented out
-              else
-                diff_coeff(k + 1) = 0.5*(diff_coeff(k + 1) + diff_coeff(k))
-              end if
-
-            else
-              wv_frcng(iz0) = 0.0
-              diff_coeff(iz0) = 0.0
-            end if
-          end do  ! (k loop)
-
-!cig: place the extra momentum flux in the layers above a specific threshold instead of all in the top layer
-!     (k=0 isn't a real model level)
-!    the momentum deposited above the model top (k = 0) is spread over
-!    levels 1..iztop as a uniform acceleration that conserves momentum:
-!    the layer masses are rho*dz, as in the definition of wv_frcng.
-          mom_top = wv_frcng(0)*sqrt(rho(i, j, 0)*rho(i, j, 1))*dz(0)
-          mass_top = 0.
-          do k = 1, iztop
-            mass_top = mass_top + sqrt(rho(i, j, k)*rho(i, j, k + 1))*dz(k)
-          end do
-          do k = 1, iztop
-            wv_frcng(k) = wv_frcng(k) + mom_top/mass_top
-            diff_coeff(k) = diff_coeff(k) + diff_coeff(0)/real(iztop)
-          end do
-
-!---------------------------------------------------------------------
-!    increment the total forcing at each point with that obtained from
-!    the set of waves with the current wavenumber.
-!---------------------------------------------------------------------
-
-          do k = 0, iz0
-            gwf(i, j, k) = gwf(i, j, k) + wv_frcng(k)
-            ked(i, j, k) = ked(i, j, k) + diff_coeff(k)
-          end do
-        end do   ! wavelength loop
-      end do  ! i loop
-
-    end do   ! j loop
-
-!--------------------------------------------------------------------
+    do k = 1, iz0
+      gwf(k) = GRAV*mom(k)/(ph(k + 1) - ph(k))
+      ked(k) = GRAV*mom_ked(k)/((ph(k + 1) - ph(k))*bf(k)**2)
+    end do
 
   end subroutine gwfc
 
-!####################################################################
-
 end module cg_drag_mod
-

@@ -12,3 +12,4 @@ mistyped_key           rrtm  ocean_model_nml:ocean_modle='slab'       mistyped n
 no_restart_dir         rrtm  rm:RESTART                               cannot write to the RESTART directory
 removed_noise_key      hs    spectral_dynamics_nml:add_noise=0.1      were replaced by initial_noise_nml
 bad_precip_albedo_mode rrtm  rrtm_radiation_nml:precip_albedo_mode='foo' precip_albedo_mode must be .*not foo
+removed_cg_drag_key    rrtm  cg_drag_nml:Bt_eq=0.0043                 Bt_0 is now Bt

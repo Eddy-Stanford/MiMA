@@ -241,7 +241,7 @@ contains
 !   Alexander-Dunkerton gravity wave drag
 
     if (do_cg_drag) then
-      call cg_drag_calc(is, js, lat, pfull, zfull, t, u, v, Time, delt, utnd, vtnd)
+      call cg_drag_calc(is, js, pfull, phalf, zfull, t, u, v, Time, utnd, vtnd)
       udt = udt + utnd
       vdt = vdt + vtnd
 
