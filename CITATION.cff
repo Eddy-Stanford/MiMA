@@ -1,7 +1,7 @@
 # This CITATION.cff file was generated with cffinit.
 # Visit https://bit.ly/cffinit to generate yours today!
 
-cff-version: 1.2.4
+cff-version: 2.0.0
 title: MiMA
 message: >-
   If you use this software, please cite it using the
@@ -23,9 +23,9 @@ authors:
   - given-names: Robert C.
     family-names: King
 repository-code: 'https://github.com/Eddy-Stanford/MiMA'
-url: 'http://mjucker.github.io/MiMA/'
+url: 'https://eddy-stanford.github.io/MiMA/'
 keywords:
   - GCM
   - Model of an Idealized Moist Atmosphere
 license: GPL-3.0
-version: 1.2.2
+version: 2.0.0

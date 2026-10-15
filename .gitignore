@@ -36,3 +36,5 @@ simple_jobscript*
 rundir/
 build/
 exec/
+__pycache__/
+site/

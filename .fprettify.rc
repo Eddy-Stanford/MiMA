@@ -1,0 +1,9 @@
+# fprettify configuration for MiMA (https://github.com/fortran-lang/fprettify).
+# Run from the repository root as `fprettify -c .fprettify.rc <files>`. fprettify
+# also finds this file on its own, but version 0.3.7 then ignores `case`.
+# The vendored AER RRTMG code (src/atmos_param/radiation/rrtm/rrtmg_*) is not
+# formatted: do not run fprettify on it.
+line-length = 400
+indent = 2
+whitespace = 2
+case = [1, 1, 1, 1]

@@ -1,17 +1,18 @@
-[back to contents](README.md)
-
 # Getting started with MiMA
 
 This page explains how to compile MiMA and run the test case that ships with the repository.
 
 * [Downloading the source](#downloading-the-source)
 * [Dependencies](#dependencies)
-  * [Installing FRE-NCtools](#installing-fre-nctools)
+    * [FMS](#fms)
+    * [Installing FRE-NCtools](#installing-fre-nctools)
 * [Compiling](#compiling)
 * [Running the test case](#running-the-test-case)
 * [Output](#output)
 * [Restarting a run](#restarting-a-run)
 * [Adding files to the build](#adding-files-to-the-build)
+* [Code style](#code-style)
+* [Building the documentation](#building-the-documentation)
 
 ## Downloading the source
 
@@ -29,12 +30,12 @@ Tagged releases are listed on the [releases page](https://github.com/Eddy-Stanfo
 MiMA needs:
 
 * a Fortran and a C compiler: GNU (`gfortran`/`gcc`/`clang`) or Intel oneAPI (`ifx`/`icx`, or the classic `ifort`)
-* an MPI library (e.g. Open MPI, MPICH, Intel MPI)
+* an MPI library (e.g. Open MPI, MPICH, Intel MPI). FMS 2026.02 and later, including the copy CMake downloads, need its Fortran `mpi_f08` module
 * netCDF, **both** the C library and the Fortran library (`netcdf-c` and `netcdf-fortran`)
-* CMake ≥ 3.16
-* OpenMP support in the Fortran compiler
+* CMake ≥ 3.22
+* the [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.01.01 or later (but not 2026.01). You don't need to install it: CMake downloads and builds it if it can't find it (see [FMS](#fms)).
 
-To combine the per-processor output files you will also need `mppnccombine` from FRE-NCtools, which is installed separately (see [Installing FRE-NCtools](#installing-fre-nctools)).
+Optionally, FRE-NCtools (installed separately, see [Installing FRE-NCtools](#installing-fre-nctools)) provides `plevel.sh` for interpolating output to pressure levels, and `mppnccombine` for combining per-processor files if you choose to write them.
 
 Typical ways to install them:
 
@@ -46,9 +47,38 @@ Typical ways to install them:
 
 CMake finds netCDF using `nc-config`/`nf-config` on your `PATH`. If netCDF is installed somewhere non-standard, point CMake at it by setting `NetCDF_ROOT` (or `NetCDF_C_ROOT` and `NetCDF_Fortran_ROOT` if they are installed separately), either as an environment variable or with `-DNetCDF_ROOT=/path/to/netcdf`.
 
+### FMS
+
+MiMA is built on NOAA-GFDL's Flexible Modeling System (FMS) library, which provides the parallel infrastructure, I/O, diagnostics and time management. CMake looks for an installed FMS 2026.01.01 or later that was built with 8-byte reals: either FMS's default build (the `FMS::fms` target; Spack's default `precision=mixed`) or its `-D64BIT=ON` build (`FMS::fms_r8`; Spack's `precision=64`). FMS 2026.01 is not supported, because it crashes when writing restart files on more than one processor; CMake ignores it with a warning. To use an installed FMS, point CMake at its install prefix:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/fms
+```
+
+(or set `FMS_ROOT=/path/to/fms`). With Spack, for example:
+
+```bash
+spack install fms@2026.01.01
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=$(spack location -i fms@2026.01.01)
+```
+
+If none is found, CMake downloads the FMS 2026.02 source from GitHub during the configure step and builds it with MiMA. This needs network access the first time. Where there is none, e.g. on some HPC compute nodes, download [FMS 2026.02](https://github.com/NOAA-GFDL/FMS/archive/refs/tags/2026.02.tar.gz) elsewhere, unpack it, and pass its location:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_FMS=/path/to/FMS-2026.02
+```
+
+This must be FMS 2026.02 or later: older releases cannot be built as part of MiMA, only installed separately.
+
+A downloaded FMS is built with OpenMP only if `MIMA_OPENMP` is on (see [Compiling](#compiling)), and it is not installed by `cmake --install`.
+
+An installed FMS must also use FMS's default GFDL physical constants (`-DCONSTANTS=GFDL`, the default; Spack: `constants=GFDL`). MiMA checks this when it starts and stops if, for example, the GFS constants were chosen. It also needs `do_simple = .true.` in `&sat_vapor_pres_nml` (set in the shipped `input.nml`), and stops if it is missing.
+
+With the Intel compilers, a downloaded FMS is compiled with FMS's own Intel flags, not MiMA's, so answers will not match builds that used MiMA's old bundled FMS.
+
 ### Installing FRE-NCtools
 
-MiMA writes one output file per MPI process (see [Output](#output)). You join them with `mppnccombine`, which is part of NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) and is not included with MiMA. FRE-NCtools also provides `plevel.sh` for interpolating output to pressure levels.
+NOAA-GFDL's [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools) is not needed to run MiMA, but it provides `plevel.sh` for interpolating output to pressure levels, and `mppnccombine` for joining per-processor output files (only written if you change `io_layout`, see [Output](#output)).
 
 FRE-NCtools isn't available from Homebrew, apt or conda-forge, so we recommend building it from source. It needs the same compilers and netCDF libraries as MiMA, plus `autoconf` and `automake` (`brew install autoconf automake` on macOS, `sudo apt install autoconf automake` on Ubuntu/Debian). To build it and install it into, for example, `~/fre-nctools`:
 
@@ -72,7 +102,7 @@ Check that it worked with `which mppnccombine`. The same steps work on HPC syste
 
 ### Using the container
 
-If you would rather not install the dependencies yourself, a development container with GNU compilers, Open MPI and netCDF is available as the Docker image `robcking/eddy_builder_dev:gnu_openmpi`. The repository's [`.devcontainer`](https://github.com/Eddy-Stanford/MiMA/blob/master/.devcontainer/devcontainer.json) configuration uses this image, so opening the repository in VS Code (with the Dev Containers extension) or GitHub Codespaces gives you a ready-to-build environment. Then follow the compile steps below as normal.
+If you would rather not install the dependencies yourself, a development container with GNU compilers, Open MPI and netCDF is available as the Docker image `robcking/eddy_builder_dev:gnu_openmpi`. The repository's [`.devcontainer`](https://github.com/Eddy-Stanford/MiMA/blob/main/.devcontainer/devcontainer.json) configuration uses this image, so opening the repository in VS Code (with the Dev Containers extension) or GitHub Codespaces gives you a ready-to-build environment. Then follow the compile steps below as normal.
 
 ## Compiling
 
@@ -92,6 +122,7 @@ The CMake options are:
 |---|---|---|
 | `CMAKE_BUILD_TYPE` | `Debug` | Use `Release` for production runs (enables compiler optimisation). `Debug` builds are much slower. |
 | `INSTALL_EXEC` | `OFF` | If `ON`, `cmake --install` creates a ready-to-run test case in `exec/` in the repository (see [below](#running-the-test-case)). If `OFF`, the executable is installed to `<prefix>/bin` in the usual CMake way (set the prefix with `-DCMAKE_INSTALL_PREFIX=...`). |
+| `MIMA_OPENMP` | `OFF` on macOS, `ON` elsewhere | Compile with OpenMP. MiMA itself has no OpenMP code, so this matters only for a downloaded FMS, which then needs OpenMP for both C and Fortran (Apple's `clang` has none). |
 
 ### Choosing the compiler
 
@@ -117,7 +148,7 @@ exec/
 └── RESTART/        # restart files are written here at the end of the run
 ```
 
-These files are copied from the [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/master/input) directory of the repository. **Note:** re-running `cmake --install build` overwrites `input.nml`, `diag_table` and `field_table` in `exec/`. For your own experiments, copy `exec/` (or `input/` plus the executable) to a separate run directory.
+These files are copied from the [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/main/input) directory of the repository. **Note:** re-running `cmake --install build` overwrites `input.nml`, `diag_table` and `field_table` in `exec/`. For your own experiments, copy `exec/` (or `input/` plus the executable) to a separate run directory.
 
 To run the model:
 
@@ -131,29 +162,32 @@ mpirun -n 4 ./mima
 * `-n 4` sets the number of MPI processes. The number of processes must divide the number of latitudes (64 at T42) evenly. Use `mpiexec`, `srun`, etc., as appropriate on your system.
 * MiMA reads `input.nml` automatically, so don't pass it on the command line (i.e. don't do `./mima < input.nml`).
 
-As a rough guide, the test case runs at about 10 s per model day on 4 cores of a laptop, so the full year takes around an hour. To try things out more quickly, reduce `days` in `coupler_nml` (e.g. `days = 5`). The run length should be a whole multiple of the time step `dt_atmos` (500 s in the test case).
+As a rough guide, the test case runs at about 10 s per model day on 4 cores of a laptop, so the full year takes around an hour. To try things out more quickly, reduce `days` in [`coupler_nml`](Parameters.md#coupler_nml) (e.g. `days = 5`). The run length should be a whole multiple of the time step `dt_atmos` (500 s in the test case).
 
 ### The test case
 
-The test case is defined entirely by the files in [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/master/input):
+The test case is defined entirely by the files in [`input/`](https://github.com/Eddy-Stanford/MiMA/tree/main/input):
 
 * `input.nml`: This is the most important file. It sets all the input parameters within the various namelists of MiMA. Any variable not present in `input.nml` takes its (hard-coded) default value. This file completely defines the simulation you are running. See [Parameter settings](Parameters.md) for what the parameters mean.
-* `diag_table`: A list of the diagnostics you would like in your output files. It doesn't change the simulation you are running. It only decides which variables are written, how frequently, and whether the output is averaged or instantaneous.
+* `diag_table`: A list of the diagnostics you would like in your output files. It doesn't change the simulation you are running. It only decides which variables are written, how frequently, and whether the output is averaged or instantaneous. [Diagnostics](Diagnostics.md) explains the format and lists every field the model can output.
 * `field_table`: A list of passive tracers you'd like to advect during the simulation. There are two types: grid or spectral tracers. To get the temporal evolution of a tracer (or its time average), add its name as a diagnostic output in `diag_table`.
 
-The test run is one 360-day year (12 months of 30 days) with the following setup:
-* T42 horizontal resolution (128 × 64 grid) with 40 vertical levels
-* realistic topography and land-sea mask, interpolated from `INPUT/navy_topography.data.nc` and `INPUT/navy_pctwater.data.nc`
-* RRTM radiation scheme, with 390 ppm CO<sub>2</sub>, ozone from `INPUT/ozone_1990.nc`, and a solar constant of 1370 W/m<sup>2</sup>
-* seasonal cycle with a circular Earth-Sun orbit
-* mixed-layer ocean with a meridional Q flux, plus zonally asymmetric Q fluxes (tropical warm pool, Gulf Stream, Kuroshio, …) to generate realistic stationary waves as in [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1)
-* surface albedo of 0.23, increasing to 0.8 in polar regions, with brighter Sahara, Gobi and Australian deserts
-* Betts-Miller convection and large-scale condensation
-* parameterized non-orographic gravity-wave drag (`cg_drag`)
+The test run is one 360-day year (12 months of 30 days) with the following setup (the links go to the code of each part in the [Fortran API reference](FortranAPI.md)):
+
+* T42 horizontal resolution (128 × 64 grid) with 40 vertical levels ([`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/))
+* realistic topography and land-sea mask, interpolated from `INPUT/navy_topography.data.nc` and `INPUT/navy_pctwater.data.nc` ([`spectral_init_cond_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_init_cond_mod/))
+* RRTM radiation scheme, with 390 ppm CO<sub>2</sub>, ozone from `INPUT/ozone_1990.nc`, and a solar constant of 1370 W/m<sup>2</sup> ([`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/))
+* seasonal cycle with a circular Earth-Sun orbit ([`rrtm_astro`](https://eddy-stanford.github.io/MiMA/api/rrtm_astro/))
+* mixed-layer ocean with a meridional Q flux, plus zonally asymmetric Q fluxes (tropical warm pool, Gulf Stream, Kuroshio, …) to generate realistic stationary waves as in [Garfinkel et al. (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1) ([`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/), [`qflux_mod`](https://eddy-stanford.github.io/MiMA/api/qflux_mod/))
+* surface albedo of 0.23, increasing to 0.8 in polar regions, with brighter Sahara, Gobi and Australian deserts ([`simple_surface_mod`](https://eddy-stanford.github.io/MiMA/api/simple_surface_mod/))
+* Betts-Miller convection and large-scale condensation ([`betts_miller_mod`](https://eddy-stanford.github.io/MiMA/api/betts_miller_mod/), [`lscale_cond_mod`](https://eddy-stanford.github.io/MiMA/api/lscale_cond_mod/), called from [`moist_processes_mod`](https://eddy-stanford.github.io/MiMA/api/moist_processes_mod/))
+* parameterized non-orographic gravity-wave drag ([`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/))
 
 ## Output
 
-MiMA writes one output file per MPI process for each file listed in `diag_table`, e.g. `atmos_daily.nc.0000`, `atmos_daily.nc.0001`, …. Each file holds a band of latitudes. Combine them into a single netCDF file with `mppnccombine` (see [Installing FRE-NCtools](#installing-fre-nctools)):
+MiMA writes each file listed in `diag_table` as a single netCDF file, e.g. `atmos_daily.nc`, and likewise the restart files in `RESTART/`.
+
+For very large runs, writing can be split over groups of processors with `io_layout` in [`spec_mpp_nml`](Parameters.md#spec_mpp_nml): `io_layout = 1,4`, for example, writes four files per output file, each holding a band of latitudes (`atmos_daily.nc.0000`, …, `atmos_daily.nc.0003`). The default `1,1` writes single files. Combine split files with `mppnccombine` (see [Installing FRE-NCtools](#installing-fre-nctools)):
 
 ```bash
 for f in atmos_daily atmos_avg atmos_davg atmos_dext; do
@@ -161,7 +195,7 @@ for f in atmos_daily atmos_avg atmos_davg atmos_dext; do
 done
 ```
 
-The `-r` flag removes the per-process files once they've been combined successfully. Run `mppnccombine` without arguments for its other options.
+The `-r` flag removes the pieces once they've been combined successfully. Split restart files can only be read back with the same `io_layout`, or after combining them.
 
 The test case produces:
 
@@ -172,7 +206,7 @@ The test case produces:
 | `atmos_davg.nc` | daily-mean surface temperature and precipitation |
 | `atmos_dext.nc` | daily maximum/minimum surface temperature and maximum precipitation |
 
-The output is on the model's hybrid sigma levels. To interpolate it to pressure levels, use `plevel.sh` from FRE-NCtools on a combined file:
+The output is on the model's hybrid sigma levels. To interpolate it to pressure levels, use `plevel.sh` from FRE-NCtools on an output file:
 
 ```bash
 plevel.sh -a -i atmos_daily.nc -o atmos_daily_plev.nc
@@ -189,9 +223,45 @@ mv RESTART/* INPUT/
 mpirun -n 4 ./mima
 ```
 
-The model detects the restart files in `INPUT/` and continues from the date stored in `INPUT/coupler.res`. Move or combine the output files from the previous segment first, because the new run overwrites them. Long simulations are usually run as a sequence of such segments, e.g. one year at a time.
+The model detects the restart files in `INPUT/` and continues from the date stored in `INPUT/coupler.res`. Each part of the model with a state of its own writes its own restart file, for example [`spectral_dynamics_mod`](https://eddy-stanford.github.io/MiMA/api/spectral_dynamics_mod/) (`spectral_dynamics.res.nc`), [`cg_drag_mod`](https://eddy-stanford.github.io/MiMA/api/cg_drag_mod/) (`cg_drag.res.nc`) and [`rrtm_radiation`](https://eddy-stanford.github.io/MiMA/api/rrtm_radiation/) (`rrtm_radiation.res.nc`); [`coupler_main`](https://eddy-stanford.github.io/MiMA/api/coupler_main/) writes `coupler.res`. Move the output files from the previous segment first, because the new run overwrites them. Long simulations are usually run as a sequence of such segments, e.g. one year at a time.
 
 ## Adding files to the build
 
 * If you work on your own version of MiMA, put each extension in a new file where possible, so as not to disturb the main branch and any other fork that might exist.
 * When adding a source file, add it to the `CMakeLists.txt` in the same directory, so that it is compiled the next time you build.
+* Give new modules, public procedures and namelist variables doc comments ([Writing doc comments](FortranAPI.md#writing-doc-comments)), so that they appear in the [Fortran API reference](FortranAPI.md) and the [namelist reference](Parameters.md).
+
+## Code style
+
+The Fortran sources are formatted with [fprettify](https://github.com/fortran-lang/fprettify) (version 0.3.7), using the options in `.fprettify.rc` at the top of the repository: 2-space indentation, whitespace level 2 (spaces around `+`, `-`, relational and logical operators, none around `*` and `/`), and lower case for keywords, intrinsic procedures, operators and exponent letters. Before committing, format the files you have changed by running, from the repository root,
+
+```bash
+fprettify -c .fprettify.rc <files>
+```
+
+fprettify also picks up `.fprettify.rc` on its own, but version 0.3.7 ignores the letter-case setting unless the file is passed with `-c`. Running it again on formatted code changes nothing.
+
+The vendored AER RRTMG code (`src/atmos_param/radiation/rrtm/rrtmg_*`) is kept as distributed: do not format it.
+
+Document modules, public procedures, their arguments and every namelist variable with FORD doc comments (`!>` before an item, `!!` after it), as described in [Writing doc comments](FortranAPI.md#writing-doc-comments). The namelist reference and the diagnostics reference are generated from the source, so after adding or changing a namelist variable or a diagnostic, run
+
+```bash
+python3 tools/mimadoc generate
+```
+
+and commit the updated `docs/Parameters.md` and `docs/Diagnostics.md`. `python3 tools/mimadoc check` (run by the CI) fails if they are out of date or a namelist variable has no doc comment.
+
+fprettify does not break long lines (the `line-length` in `.fprettify.rc` only stops it from producing lines longer than that). Keep lines to at most 132 characters, the free-form limit of the Fortran standard, by continuing long statements with `&` and putting long comments on their own lines.
+
+## Building the documentation
+
+The documentation site (<https://eddy-stanford.github.io/MiMA/>) is built from `docs/` with [MkDocs](https://www.mkdocs.org) and the [Material](https://squidfunk.github.io/mkdocs-material/) theme. The [Fortran API reference](FortranAPI.md) pages are generated from the doc comments in `src/` during the build, by the MkDocs hook `tools/fortran_api.py`, which parses the sources with [FORD](https://forddocs.readthedocs.io) (settings in `ford.md`). GitHub Actions builds the site for every pull request and publishes it when `main` changes (`.github/workflows/docs.yml`). To build it locally you need Python 3:
+
+```bash
+python3 -m venv ~/docs-env
+source ~/docs-env/bin/activate
+pip install -r requirements-docs.txt
+mkdocs serve          # browse http://127.0.0.1:8000/MiMA/
+```
+
+`mkdocs serve` rebuilds the site when you change a page in `docs/` or a doc comment in `src/`. `mkdocs build --strict` writes the site to `site/` (not committed) and fails on broken links, as in the CI.
