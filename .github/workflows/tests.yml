@@ -30,7 +30,9 @@ env:
 
 jobs:
   ctest:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moves to Ubuntu 26 (a new gfortran and Open MPI 5), and the
+    # cache key below does not see the compiler, so a move would restore stale FMS objects.
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
@@ -44,6 +46,7 @@ jobs:
           mpirun --version | head -1
           cmake --version | head -1
           nproc
+          lscpu | grep -E '^(Core|Thread|Socket)'
 
       # The FMS source and objects live in build/_deps. The key changes with the FMS
       # pin and the build settings; a stale restore still saves the download.
@@ -61,8 +64,14 @@ jobs:
       - name: Build
         run: cmake --build build -j "$(nproc)"
 
+      # The runners have 2 cores with 2 threads each, and Open MPI counts only the cores as
+      # slots, so `mpirun -n 4` is refused. Count the threads as slots instead, to match
+      # MIMA_TEST_CORES=logical (the first variable is Open MPI 4, the second Open MPI 5).
       - name: Run the tests
         timeout-minutes: ${{ fromJSON(env.TEST_BUDGET_MINUTES) }}
+        env:
+          OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: 1
+          PRTE_MCA_hwloc_default_use_hwthread_cpus: 1
         run: |
           ulimit -s unlimited
           ctest --test-dir build --output-on-failure
