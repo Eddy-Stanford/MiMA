@@ -30,9 +30,13 @@ env:
 
 jobs:
   ctest:
-    # Pinned: ubuntu-latest moves to Ubuntu 26 (a new gfortran and Open MPI 5), and the
-    # cache key below does not see the compiler, so a move would restore stale FMS objects.
-    runs-on: ubuntu-24.04
+    # The fixed image and the newest one (ubuntu-latest moves to Ubuntu 26, with a new
+    # gfortran and Open MPI 5, from 2026-10-19).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
@@ -48,15 +52,20 @@ jobs:
           nproc
           lscpu | grep -E '^(Core|Thread|Socket)'
 
-      # The FMS source and objects live in build/_deps. The key changes with the FMS
-      # pin and the build settings; a stale restore still saves the download.
+      # The image and compiler for the cache key: ubuntu-latest changes image in place.
+      - name: Identify the toolchain
+        id: toolchain
+        run: echo "key=$(. /etc/os-release; echo "$ID$VERSION_ID")-gfortran$(gfortran -dumpfullversion)" >> "$GITHUB_OUTPUT"
+
+      # The FMS source and objects live in build/_deps. The key changes with the image, the
+      # compiler, the FMS pin and the build settings; a stale restore still saves the download.
       - name: Restore the build directory (FMS objects)
         uses: actions/cache@v4
         with:
           path: build
-          key: build-${{ runner.os }}-${{ hashFiles('cmake/MiMAFMS.cmake', 'CMakeLists.txt') }}
+          key: build-${{ steps.toolchain.outputs.key }}-${{ hashFiles('cmake/MiMAFMS.cmake', 'CMakeLists.txt') }}
           restore-keys: |
-            build-${{ runner.os }}-
+            build-${{ steps.toolchain.outputs.key }}-
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMIMA_TESTING=ON -DMIMA_TEST_CORES=logical
@@ -80,7 +89,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: failed-test-output
+          name: failed-test-output-${{ matrix.os }}
           path: |
             build/tests/run
             build/tests/digests
