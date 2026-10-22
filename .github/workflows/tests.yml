@@ -1,0 +1,98 @@
+# Builds MiMA and runs the CTest suite in tests/ (smoke runs, restart = continuous,
+# defaults = input.nml, start-up guards) on pushes to v2 and main and on pull requests.
+#
+# The suite itself must stay short: the ctest step has a hard budget (TEST_BUDGET_MINUTES)
+# and fails if the tests take longer, so a slow suite is noticed rather than tolerated.
+# Measured on 2026-10-11 in an ubuntu:24.04 container limited to 4 CPUs (the standard
+# runner size) on an arm64 laptop: apt 27 s, cold build (FMS + MiMA) 122 s, MiMA-only
+# rebuild 32 s, ctest 71 s for 12 tests. Expect the hosted runners to be slower.
+#
+# FMS is downloaded and built by CMake (cmake/MiMAFMS.cmake, most of the cold build
+# time); the build directory is cached so that later runs reuse the FMS objects and
+# only recompile MiMA.
+name: Tests
+
+on:
+  push:
+    branches: [v2, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEST_BUDGET_MINUTES: 3
+
+jobs:
+  ctest:
+    # The fixed image and the newest one (ubuntu-latest moves to Ubuntu 26, with a new
+    # gfortran and Open MPI 5, from 2026-10-19).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the compilers and libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gfortran libopenmpi-dev openmpi-bin libnetcdf-dev libnetcdff-dev netcdf-bin
+          gfortran --version | head -1
+          mpirun --version | head -1
+          cmake --version | head -1
+          nproc
+          lscpu | grep -E '^(Core|Thread|Socket)'
+
+      # The image and compiler for the cache key: ubuntu-latest changes image in place.
+      - name: Identify the toolchain
+        id: toolchain
+        run: echo "key=$(. /etc/os-release; echo "$ID$VERSION_ID")-gfortran$(gfortran -dumpfullversion)" >> "$GITHUB_OUTPUT"
+
+      # The FMS source and objects live in build/_deps. The key changes with the image, the
+      # compiler, the FMS pin and the build settings; a stale restore still saves the download.
+      - name: Restore the build directory (FMS objects)
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: build-${{ steps.toolchain.outputs.key }}-${{ hashFiles('cmake/MiMAFMS.cmake', 'CMakeLists.txt') }}
+          restore-keys: |
+            build-${{ steps.toolchain.outputs.key }}-
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMIMA_TESTING=ON -DMIMA_TEST_CORES=logical
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      # The runners have 2 cores with 2 threads each, and Open MPI counts only the cores as
+      # slots, so `mpirun -n 4` is refused. Count the threads as slots instead, to match
+      # MIMA_TEST_CORES=logical (the first variable is Open MPI 4, the second Open MPI 5).
+      - name: Run the tests
+        timeout-minutes: ${{ fromJSON(env.TEST_BUDGET_MINUTES) }}
+        env:
+          OMPI_MCA_hwloc_base_use_hwthreads_as_cpus: 1
+          PRTE_MCA_hwloc_default_use_hwthread_cpus: 1
+        run: |
+          ulimit -s unlimited
+          ctest --test-dir build --output-on-failure
+
+      - name: Keep the failed run output for inspection
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-test-output-${{ matrix.os }}
+          path: |
+            build/tests/run
+            build/tests/digests
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 7

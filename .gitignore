@@ -1,38 +1,27 @@
-# for help, see help.github.com/articles/ignoring-files
-#            or github.com/github/gitignore
-#
-# To ignore globally, git config --global core.excludesfile ~/.gitignore_global
-#   then, add anything to always ignore into the file ~/.gitignore_global
-#
-# To ignore a file already being tracked:
-#   add file to .gitignore
-#   un-track file:
-#     git rm file (to remove the file altogether), or
-#     git rm --cached file (to leave file in the repo and the working dir, but not track anymore)
-#
-# Note: git ignores empty folders
-#
-# Examples:
-# to ignore all text files: *.txt
-# to ignore all directories with name dir: dir
-# to ignore only one specifig directory: /path/to/directory
-# to ignore all files with dir: dir/
-# to negate anything, add !: !index.txt to not ignore index.txt but all other .txt files
-exec.*
-git_message
-*.o
-*.mod
-*.tmp
-*.bkp
-*.e*
-*.o*
-*~
-it_jobscript*
-simple_jobscript*
-
-.DS_Store
-.vscode
-*.dSYM
-rundir/
+# Build and install directories
 build/
 exec/
+rundir/
+*.dSYM
+
+# Compiler output
+*.o
+*.mod
+
+# Batch job logs (PBS/SGE name.o12345, name.e12345)
+*.o[0-9]*
+*.e[0-9]*
+
+# Editor and backup files
+*.tmp
+*.bkp
+*~
+.DS_Store
+.vscode/*
+!.vscode/*.example.json
+
+# Python and the documentation site
+__pycache__/
+docs-env/
+.venv/
+site/

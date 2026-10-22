@@ -1,98 +1,122 @@
-cmake_minimum_required(VERSION 3.16)
-#policy CMP0076 - target_sources source files are relative to file where target_sources is run
-cmake_policy (SET CMP0076 NEW)
-project(MiMA Fortran C)
+cmake_minimum_required(VERSION 3.22)
 
+# The compilers are chosen when a build directory is first configured, from
+# the FC and CC environment variables (e.g. FC=ifx CC=icx cmake -S . -B build)
+# or from -DCMAKE_Fortran_COMPILER=... -DCMAKE_C_COMPILER=... To change them,
+# configure a new build directory.
+project(MiMA VERSION 2.0.0 LANGUAGES Fortran C)
+
+# Release unless another build type is given. Debug builds are unoptimised.
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build type: Release (default), Debug, RelWithDebInfo or MinSizeRel" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Release Debug RelWithDebInfo MinSizeRel)
 endif()
 
-# Generate the main mima.x executable with dirs, libs, and opts
+# The model executable, mima; the subdirectories add its sources
 add_executable ( mima )
-target_include_directories( mima PUBLIC src/shared/include src/shared/mpp/include )
-add_library( mima_c ) # The C parts of MiMA, so we can apply different options for them.
-target_compile_definitions( mima PRIVATE use_libMPI use_netCDF gFortran ) # gFortran appears to be unused
 
-option(INSTALL_EXEC "Install executables to exec/ directory?" OFF)
+option(INSTALL_EXEC "cmake --install creates a ready-to-run test case in exec/ (see MIMA_RUN_CONFIG)" OFF)
+
+# OpenMP threads some of MiMA's loops. Off by default, since an unset
+# OMP_NUM_THREADS would oversubscribe the cores used by MPI. A downloaded FMS
+# is built with OpenMP only if this is on and the C compiler supports it
+# (AppleClang does not).
+option(MIMA_OPENMP "Build with OpenMP" OFF)
 
 #Add cmake directory to the environment module variable
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 find_package (MPI REQUIRED)
 find_package(NetCDF REQUIRED COMPONENTS C Fortran)
-find_package (OpenMP REQUIRED COMPONENTS Fortran)
 
 # Link MPI, OpenMP, and netCDF libraries
 target_link_libraries( mima PRIVATE MPI::MPI_Fortran )
-target_link_libraries( mima PRIVATE OpenMP::OpenMP_Fortran )
+if(MIMA_OPENMP)
+    find_package (OpenMP REQUIRED COMPONENTS Fortran)
+    target_link_libraries( mima PRIVATE OpenMP::OpenMP_Fortran )
+endif()
 target_link_libraries(mima PRIVATE NetCDF::NetCDF_Fortran NetCDF::NetCDF_C)
 
-if(NOT CMAKE_Fortran_COMPILER)
-    set(CMAKE_Fortran_COMPILER "gfortran")
+# With INSTALL_EXEC, install into exec/ in the source tree unless a prefix was
+# given. This sets a normal variable, so the cached prefix keeps its value and
+# applies again when INSTALL_EXEC is switched off. It must be set before FMS is
+# configured, which reads it.
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    set(MIMA_DEFAULT_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}" CACHE INTERNAL
+        "CMAKE_INSTALL_PREFIX as CMake initialised it")
 endif()
-if(MPI_Fortran_COMPILER)
-    set(CMAKE_Fortran_COMPILER ${MPI_Fortran_COMPILER})
-    message(STATUS "Using MPI Fortran compiler: ${MPI_Fortran_COMPILER}")   
-endif()
-
-
-if(APPLE)
-    message(STATUS "Configuring for MacOS")
-    if(NOT CMAKE_C_COMPILER)
-        set(CMAKE_C_COMPILER "clang")
-    endif()
-    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Build architectures for MacOS")
+if(INSTALL_EXEC AND "${CMAKE_INSTALL_PREFIX}" STREQUAL "${MIMA_DEFAULT_INSTALL_PREFIX}")
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/exec")
+elseif(INSTALL_EXEC)
+    message(STATUS "INSTALL_EXEC: using the given CMAKE_INSTALL_PREFIX ${CMAKE_INSTALL_PREFIX}")
 endif()
 
-if(NOT CMAKE_C_COMPILER)
-    set(CMAKE_C_COMPILER "gcc")
-endif()
+# FMS, found or downloaded (see cmake/MiMAFMS.cmake). This comes before
+# MiMA's compiler flags are set, so that they are not applied to FMS.
+include(MiMAFMS)
+target_link_libraries( mima PRIVATE ${MIMA_FMS_TARGET} )
 
-
+# Compiler flags for MiMA's own code. The FMS library is built separately
+# with its own flags (also with 8-byte reals).
 if(CMAKE_Fortran_COMPILER_ID  MATCHES "Intel|IntelLLVM")
     message(STATUS "Configuring for Intel Fortran")
-    set( CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -i4 -r8 -fpp -fPIC")
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -xHost ${CMAKE_Fortran_FLAGS_RELEASE} ")
+    target_compile_options( mima PRIVATE -i4 -r8 -fpp -fPIC )
+    # Release: CMake's -O3, tuned for the build machine (-DCMAKE_Fortran_FLAGS_RELEASE=...
+    # replaces the -O3, e.g. with "-O2 -fp-model precise"; -xHost is always appended)
+    string(APPEND CMAKE_Fortran_FLAGS_RELEASE " -xHost")
 elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
     message(STATUS "Configuring for GNU Fortran")
-    set( CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -cpp -fallow-argument-mismatch -fbacktrace -fdefault-real-8 -fdefault-double-8 -fcray-pointer -fallow-invalid-boz -fno-range-check -ffree-line-length-none")
-    set(CMAKE_Fortran_FLAGS_RELEASE "-O2 -march=native ${CMAKE_Fortran_FLAGS_RELEASE}")
+    target_compile_options( mima PRIVATE -cpp -fallow-argument-mismatch -fbacktrace -fdefault-real-8 -fdefault-double-8 -fno-range-check -ffree-line-length-none )
+    if(NOT MIMA_OPENMP)
+        # -fopenmp implies -frecursive (local arrays on the stack); keep that without OpenMP
+        target_compile_options( mima PRIVATE -frecursive )
+    endif()
+    # Release: CMake's -O3, tuned for the build machine (-DCMAKE_Fortran_FLAGS_RELEASE=...
+    # replaces the -O3, e.g. with "-O2 -ffp-contract=off"; -march=native is always appended)
+    string(APPEND CMAKE_Fortran_FLAGS_RELEASE " -march=native")
 endif()
 
 # Add various subdirectories with long lists of source files
 add_subdirectory( src/coupler )
+add_subdirectory( src/surface )
 add_subdirectory( src/atmos_coupled )
 add_subdirectory( src/atmos_param )
-
-set_source_files_properties (
-# The following files do nothing but assign very large arrays.
-# For some reason when compiling with ifort and optimisation
-# the compilation will take a very long time (10s of minutes).
-# Since the code doesn't actually *do* anything there's no
-# need to waste time having the compiler apply probably
-# meaningless optimisation.  So we disable optimisation for these
-# files.
-src/atmos_param/rrtm_radiation/rrtmg_sw/gcm_model/src/rrtmg_sw_k_g.f90
-src/atmos_param/rrtm_radiation/rrtmg_lw/gcm_model/src/rrtmg_lw_k_g.f90
-PROPERTIES
-COMPILE_FLAGS -O0
-)
 add_subdirectory( src/atmos_shared )
 add_subdirectory( src/atmos_spectral )
-add_subdirectory( src/ice_param )
-add_subdirectory( src/shared )
+add_subdirectory( src/mima_shared )
 
-target_link_libraries(mima PRIVATE mima_c)
+# These RRTMG files only assign very large data arrays. With optimisation,
+# ifort takes tens of minutes to compile them, for no gain, so they are
+# compiled without. (Source properties are per directory: they are set here,
+# where the mima target is defined.)
+set_source_files_properties(
+    src/atmos_param/radiation/rrtm/rrtmg_sw/gcm_model/src/rrtmg_sw_k_g.f90
+    src/atmos_param/radiation/rrtm/rrtmg_lw/gcm_model/src/rrtmg_lw_k_g.f90
+    PROPERTIES COMPILE_OPTIONS -O0)
 
 if(INSTALL_EXEC)
-    message(STATUS "Building exec dir instead of installing conventionally")
-    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/exec" CACHE PATH "..." FORCE)
-    install(TARGETS mima RUNTIME DESTINATION .) 
-    install(FILES input/diag_table DESTINATION . )
-    install(FILES input/field_table DESTINATION .)
+    set(MIMA_RUN_CONFIG "input" CACHE STRING
+        "Directory (relative to the source tree) whose input.nml, diag_table and field_table INSTALL_EXEC copies to exec/, e.g. examples/held_suarez")
+    get_filename_component(_mima_run_config "${MIMA_RUN_CONFIG}" ABSOLUTE BASE_DIR "${CMAKE_SOURCE_DIR}")
+    foreach(_f input.nml diag_table field_table)
+        if(NOT EXISTS "${_mima_run_config}/${_f}")
+            message(FATAL_ERROR "MIMA_RUN_CONFIG: ${_mima_run_config}/${_f} does not exist")
+        endif()
+    endforeach()
+    message(STATUS "cmake --install creates a run directory in ${CMAKE_INSTALL_PREFIX} from ${MIMA_RUN_CONFIG}/")
+    install(TARGETS mima RUNTIME DESTINATION .)
+    install(FILES "${_mima_run_config}/input.nml" "${_mima_run_config}/diag_table"
+                  "${_mima_run_config}/field_table" DESTINATION .)
     install(DIRECTORY DESTINATION RESTART)
-    install(FILES input/input.nml DESTINATION . )  
-    install(DIRECTORY input/INPUT/ DESTINATION INPUT) 
+    install(DIRECTORY input/INPUT/ DESTINATION INPUT)
 else()
     install(TARGETS mima RUNTIME DESTINATION bin)
+endif()
+
+# Short model tests run with CTest, see tests/README.md
+option(MIMA_TESTING "Add the CTest tests in tests/" OFF)
+if(MIMA_TESTING)
+  enable_testing()
+  add_subdirectory(tests)
 endif()

@@ -1,11 +1,15 @@
 "MiMA"
 0001 1 1 0 0 0
+# Output for the default RRTM test case (input/input.nml).
+# All fields and their units are listed in docs/Diagnostics.md. Check this file
+# with:  python3 /path/to/MiMA/tools/mimadoc validate diag_table --nml input.nml
+#
 #output files
 "atmos_daily",    24, "hours", 1, "days", "time",
 "atmos_davg",     24, "hours", 1, "days", "time",
 "atmos_dext",     24, "hours", 1, "days", "time",
 "atmos_avg",      -1, "hours", 1, "days", "time",
-#diagnostic field entries. 
+#diagnostic field entries.
 # quantities needed for plevel interpolation,
  "dynamics",        "bk",         "bk",             "atmos_daily",    "all", .false., "none", 2,
  "dynamics",        "pk",         "pk",             "atmos_daily",    "all", .false., "none", 2,
@@ -18,9 +22,9 @@
  "dynamics",        "temp",       "temp",           "atmos_avg",      "all", .true.,  "none", 2,
  "dynamics",        "sphum",      "sphum",          "atmos_avg",      "all", .true.,  "none", 2,
 # surface variables
- "simple_surface",  "t_surf",     "t_surf",         "atmos_davg",     "all", .true., "none", 2,
- "simple_surface",  "t_surf",     "t_surf_max",     "atmos_dext",     "all", "max",  "none", 2,
- "simple_surface",  "t_surf",     "t_surf_min",     "atmos_dext",     "all", "min",  "none", 2,
+ "flux",            "t_surf",     "t_surf",         "atmos_davg",     "all", .true., "none", 2,
+ "flux",            "t_surf",     "t_surf_max",     "atmos_dext",     "all", "max",  "none", 2,
+ "flux",            "t_surf",     "t_surf_min",     "atmos_dext",     "all", "min",  "none", 2,
 # moisture variables
   "moist",          "precip",     "precip",         "atmos_davg",     "all", .true., "none", 2,
   "moist",          "precip",     "precip_max",     "atmos_dext",     "all", "max",  "none", 2,
@@ -52,5 +56,4 @@
 #
 #   packing  = 1  double precision
 #            = 2  float
-#            = 4  packed 16-bit integers
-#            = 8  packed 1-byte (not tested?)
+#            (FMS stops on any other value)

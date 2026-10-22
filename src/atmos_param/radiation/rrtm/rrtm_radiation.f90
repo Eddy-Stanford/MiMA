@@ -1,0 +1,1242 @@
+!> Interface between MiMA and the RRTMG longwave and shortwave radiation codes.
+!>
+!> Prepares the RRTMG inputs (clear sky, no aerosols, black-body surface), calls RRTMG and
+!> returns the radiative heating and the surface fluxes. Radiation is computed every `dt_rad`
+!> seconds at every `lonstep`-th longitude and interpolated linearly in longitude back to the
+!> model grid; in between, the heating and surface fluxes are held fixed
+!> (`store_intermediate_rad`). Ozone is read from `INPUT/<ozone_file>.nc` or set to `o3_val`;
+!> CO2 and the optional secondary gases are constant. The zenith angle and the solar constant
+!> come from `rrtm_astro` (`astro_nml`). Options: zonal-mean absorbers or radiation, a slower
+!> or faster seasonal cycle, and a precipitation-dependent surface albedo. The fields kept
+!> between radiation steps are saved in the restart file `RESTART/rrtm_radiation.res.nc`.
+!>
+!> Namelist: `rrtm_radiation_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#rrtm_radiation_nml)).
+!>
+!> References:
+!>
+!> * Jucker, M., and E. P. Gerber, 2017: Untangling the annual cycle of the tropical
+!>   tropopause layer with an idealized moist model. J. Climate, 30, 7339-7358,
+!>   https://doi.org/10.1175/JCLI-D-17-0127.1.
+!> * Mlawer, E. J., S. J. Taubman, P. D. Brown, M. J. Iacono, and S. A. Clough, 1997:
+!>   Radiative transfer for inhomogeneous atmospheres: RRTM, a validated correlated-k model
+!>   for the longwave. J. Geophys. Res., 102, 16663-16682, https://doi.org/10.1029/97JD00237.
+!> * Iacono, M. J., J. S. Delamere, E. J. Mlawer, M. W. Shephard, S. A. Clough, and
+!>   W. D. Collins, 2008: Radiative forcing by long-lived greenhouse gases: Calculations with
+!>   the AER radiative transfer models. J. Geophys. Res., 113, D13103,
+!>   https://doi.org/10.1029/2008JD009944.
+!>
+!> Original authors: Martin Jucker.
+module rrtm_radiation
+!
+!    Modeling an idealized Moist Atmosphere (MiMA)
+!    Copyright (C) 2015  Martin Jucker
+!    See https://mjucker.github.io/MiMA for documentation
+!    Main reference is Jucker and Gerber, JClim 2017, doi: http://dx.doi.org/10.1175/JCLI-D-17-0127.1
+!
+!    This program is free software: you can redistribute it and/or modify
+!    it under the terms of the GNU General Public License as published by
+!    the Free Software Foundation, either version 3 of the License, or
+!    any later version.
+!
+!    This program is distributed in the hope that it will be useful,
+!    but WITHOUT ANY WARRANTY; without even the implied warranty of
+!    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+!    GNU General Public License for more details.
+!
+!    You should have received a copy of the GNU General Public License
+!    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+!
+!
+!   external modules
+  use parkind, only: im => kind_im, rb => kind_rb
+  use mima_interpolator_mod, only: interpolate_type
+  use mpp_domains_mod, only: domain2d
+  use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
+                              close_restart, read_restart_field, write_restart_field, &
+                              restart_field_exists
+!
+!  rrtm_radiation variables
+!
+  implicit none
+  private
+
+  public :: rrtm_radiation_init, interp_temp, run_rrtmg, &
+            rrtm_precip_accum, rrtm_radiation_end
+
+  interface read_saved
+    module procedure read_saved_2d, read_saved_3d
+  end interface
+
+  interface zonal_mean
+    module procedure zonal_mean_2d, zonal_mean_3d
+  end interface
+
+  logical                                    :: rrtm_init = .false.    ! has radiation been initialized?
+  type(interpolate_type), save                :: o3_interp            ! use external file for ozone
+  integer(kind=im)                           :: ncols_rrt, nlay_rrt   ! RRTM field sizes
+  ! ncols_rrt = number of longitudes/lonstep * number of latitudes (on this processor)
+  ! nlay_rrt  = number of levels
+  ! gas volume mixing ratios, dimensions (ncols_rrt,nlay=nlevels)
+  ! vmr = mass mixing ratio [mmr,kg/kg] scaled with molecular weight [g/mol]
+  ! any modification of the units must be accounted for in rrtmg_[sl]w_rad.nomcica.f90
+  real(kind=rb), allocatable, dimension(:, :)   :: h2o                  ! specific humidity [kg/kg]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: o3                   ! ozone [mmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: co2                  ! CO2 [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: zeros                ! place holder for any species set
+  !  to zero
+  real(kind=rb), allocatable, dimension(:, :)   :: reff                 ! cloud particle effective radius
+  ! (10 microns; not used without clouds)
+  ! the following species are zero unless include_secondary_gases=.true.
+  real(kind=rb), allocatable, dimension(:, :)   :: ch4                  ! CH4 [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: n2o                  ! N2O [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: o2                   ! O2  [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: cfc11                ! CFC11 [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: cfc12                ! CFC12 [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: cfc22                ! CFC22 [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: ccl4                 ! CCL4 [vmr]
+  ! dimension (ncols_rrt x nlay_rrt)
+  real(kind=rb), allocatable, dimension(:, :)   :: emis                 ! surface LW emissivity per band
+  ! dimension (ncols_rrt x nbndlw)
+  ! =1 for black body
+  ! clouds stuff
+  !  cloud & aerosol optical depths, cloud and aerosol specific parameters. Set to zero
+  !  LW: taucld (nbndlw x ncols_rrt x nlay_rrt), tauaer (ncols_rrt x nlay_rrt x nbndlw)
+  !  SW: sw_zro (nbndsw x ncols_rrt x nlay_rrt), zro_sw (ncols_rrt x nlay_rrt x nbndsw)
+  real(kind=rb), allocatable, dimension(:, :, :) :: taucld, tauaer, sw_zro, zro_sw
+  ! heating rates and fluxes, zenith angle when in-between radiation time steps
+  real(kind=rb), allocatable, dimension(:, :)   :: sw_flux, lw_flux, zencos! surface fluxes, cos(zenith angle)
+  ! dimension (lon x lat)
+  real(kind=rb), allocatable, dimension(:, :, :) :: tdt_rad               ! heating rate [K/s]
+  ! dimension (lon x lat x pfull)
+  real(kind=rb), allocatable, dimension(:, :, :) :: tdt_sw_rad, tdt_lw_rad ! SW, LW radiation heating rates,
+  ! diagnostics only [K/s]
+  ! dimension (lon x lat x pfull)
+  real(kind=rb), allocatable, dimension(:, :, :) :: t_half                ! temperature at half levels [K]
+  ! dimension (lon x lat x phalf)
+  real(kind=rb), allocatable, dimension(:, :)   :: rrtm_precip           ! total time of precipitation
+  ! between radiation steps to
+  ! determine precip_albedo
+  ! dimension (lon x lat)
+  real(kind=rb), allocatable, dimension(:, :)   :: olr, isr               ! Outgoing LW and net SW radiation at TOA
+  ! diagnostics only [W/m2]
+  ! dimension (lon x lat)
+  real(kind=rb), allocatable, dimension(:, :)   :: swdn_toa, lwup_sfc     ! SW flux down at TOA and LW flux up at
+  ! the surface, diagnostics only [W/m2]
+  ! dimension (lon x lat)
+  integer(kind=im)                           :: num_precip            ! number of times precipitation
+  ! has been summed in rrtm_precip
+  integer(kind=8)                            :: t_last                ! model time of the last radiation
+  ! calculation [s since the calendar base], for the alarm
+  integer(kind=8)                            :: day_last              ! model day of the last call of run_rrtmg
+  ! (with t_last, gives the dt_last of the restart file)
+  type(domain2d)                             :: domain                ! grid domain, for the restart file
+  ! RESTART/rrtm_radiation.res.nc, which
+  ! holds t_last, dt_last and the fields kept
+  ! between radiation steps
+!---------------------------------------------------------------------------------------------------------------
+! some constants
+  real(kind=rb)      :: daypersec = 1./86400, deg2rad
+! no clouds in the radiative scheme
+  integer(kind=im) :: icld = 0, idrv = 0, &
+                      inflglw = 0, iceflglw = 0, liqflglw = 0, &
+                      inflgsw = 0, iceflgsw = 0, liqflgsw = 0, &
+                      iaer = 0
+!---------------------------------------------------------------------------------------------------------------
+!                                namelist values
+!---------------------------------------------------------------------------------------------------------------
+! input files: file names are always given without '.nc', which is always assumed
+!  the field to be read within the file needs to have the same name as the file
+  logical            :: do_read_ozone = .true.           !! read ozone from `ozone_file` (the only way to have
+                                                         !! non-constant ozone)
+  character(len=256) :: ozone_file = 'ozone_1990'              !! ozone file in `INPUT/`, without `.nc`
+  real(kind=rb)      :: scale_ozone = 1.0               !! factor applied to the ozone from the file
+  real(kind=rb)      :: o3_val = 0.0                    !! constant ozone used if `do_read_ozone = .false.`
+! secondary gases (CH4,N2O,O2,CFC11,CFC12,CFC22,CCL4)
+  logical            :: include_secondary_gases = .false. !! use the following values for CH<sub>4</sub>, N<sub>2</sub>O,
+  !! O<sub>2</sub>, CFC-11, CFC-12, CFC-22 and CCl<sub>4</sub> (otherwise they are zero)
+  real(kind=rb)      :: ch4_val = 0.                   !! CH<sub>4</sub> volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: n2o_val = 0.                   !! N<sub>2</sub>O volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: o2_val = 0.                   !! O<sub>2</sub> volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: cfc11_val = 0.                   !! CFC-11 volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: cfc12_val = 0.                   !! CFC-12 volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: cfc22_val = 0.                   !! CFC-22 volume mixing ratio if `include_secondary_gases`
+  real(kind=rb)      :: ccl4_val = 0.                   !! CCl<sub>4</sub> volume mixing ratio if `include_secondary_gases`
+! some safety boundaries
+  real(kind=rb)      :: h2o_lower_limit = 2.e-7         !! [kg/kg] smallest specific humidity passed to RRTM
+  real(kind=rb)      :: temp_lower_limit = 100.         !! [K] lower temperature limit applied before calling RRTM
+  real(kind=rb)      :: temp_upper_limit = 370.         !! [K] upper temperature limit applied before calling RRTM
+! primary gases: CO2 and H2O
+  real(kind=rb)      :: co2ppmv = 390.                    !! [ppmv] CO<sub>2</sub> concentration
+  logical            :: do_zm_tracers = .false.           !! pass only the zonal mean of the absorbers to RRTM
+
+! radiation time stepping and spatial sampling
+  integer(kind=im)   :: dt_rad = 4500                        !! [s] radiation time step; radiation is computed every step
+                                                             !! if `dt_rad` < `dt_atmos`
+  logical            :: store_intermediate_rad = .true.  !! keep the radiative heating constant between radiation steps
+                                                         !! (`.false.`: heat only on radiation steps)
+  logical            :: do_rad_time_avg = .true.         !! average the solar zenith angle over `dt_rad_avg`
+  integer(kind=im)   :: dt_rad_avg = 4500             !! [s] averaging interval for the zenith angle; 0: no averaging;
+                                                      !! < 0: `dt_rad`. 86400 removes the diurnal cycle.
+  !  The diurnal cycle has been observed to create strong atmospheric tides with topography.
+  integer(kind=im)   :: lonstep = 4                       !! compute radiation only at every `lonstep`-th longitude and
+                                                          !! interpolate; must divide the number of longitudes
+  logical            :: balance_sw_columns = .true.       !! share the sunlit columns of the shortwave calculation evenly
+  !! among the processes. RRTMG skips the columns where the sun is down, so the processes whose latitude bands are
+  !! more in daylight have more work and the others wait for them. With `.true.` processes with more sunlit columns
+  !! than the mean send the extra columns to processes with fewer, which compute them and send the fluxes back.
+  !! The results are the same as with `.false.`, bit for bit.
+! some fancy radiation tweaks
+  real(kind=rb)      :: slowdown_rad = 1.0              !! factor on the speed of the seasonal cycle (> 1 faster, < 1 slower)
+  logical            :: do_zm_rad = .false.               !! compute radiation for the zonal mean only
+  logical            :: do_precip_albedo = .false.        !! increase the surface albedo where it rains (a crude cloud
+                                                          !! effect)
+  real(kind=rb)      :: precip_albedo = 0.35              !! if so, the albedo of a fully precipitating grid box
+  real(kind=rb)      :: precip_lat = 0.0                !! [deg] if so, apply only poleward of this latitude
+  character(len=14)  :: precip_albedo_mode = 'full'     !! if so, use total (`'full'`), large-scale (`'lscale'`) or
+                                                        !! convective (`'conv'`) precipitation
+!---------------------------------------------------------------------------------------------------------------
+!
+!-------------------- diagnostics fields -------------------------------
+
+  integer :: id_tdt_rad, id_tdt_sw, id_tdt_lw, id_coszen, id_flux_sw, id_flux_lw, id_albedo, id_ozone, id_thalf
+  integer :: id_olr, id_isr, id_swdn_toa, id_lwup_sfc
+  character(len=9), parameter :: mod_name = 'radiation'
+  real :: missing_value = -999.
+
+!---------------------------------------------------------------------------------------------------------------
+!---------------------------------------------------------------------------------------------------------------
+
+  namelist /rrtm_radiation_nml/ include_secondary_gases, do_read_ozone, ozone_file, scale_ozone, o3_val, &
+       &ch4_val, n2o_val, o2_val, cfc11_val, cfc12_val, cfc22_val, ccl4_val, &
+       &h2o_lower_limit, temp_lower_limit, temp_upper_limit, co2ppmv, &
+       &slowdown_rad, &
+       &store_intermediate_rad, do_rad_time_avg, dt_rad, dt_rad_avg, &
+       &lonstep, balance_sw_columns, do_zm_tracers, do_zm_rad, &
+       &do_precip_albedo, precip_albedo_mode, precip_albedo, precip_lat
+
+contains
+
+!*****************************************************************************************
+  !> Initializes the module: reads `rrtm_radiation_nml`, registers the diagnostics, allocates
+  !> the arrays, opens the ozone file, reads `INPUT/rrtm_radiation.res.nc` if it exists and
+  !> initializes `rrtm_astro`.
+  subroutine rrtm_radiation_init(axes, Time, ncols, nlay, lonb, latb, domain_in)
+!
+! Modules
+    use rrtm_astro, only: astro_init, solday
+    use parrrtm, only: nbndlw
+    use parrrsw, only: nbndsw
+    use diag_manager_mod, only: register_diag_field
+    use mima_interpolator_mod, only: interpolator_init, ZERO
+    use fms_mod, only: input_nml_file, check_nml_error, &
+                       mpp_pe, mpp_root_pe, stdlog, &
+                       error_mesg, NOTE, FATAL
+    use time_manager_mod, only: time_type
+! Local variables
+    implicit none
+
+    integer, intent(in), dimension(4) :: axes  !! diagnostic axes (lon, lat, pfull, phalf)
+    type(time_type), intent(in)       :: Time  !! current time
+    integer(kind=im), intent(in)       :: ncols, nlay
+    !! `ncols`: number of columns on this processor (longitudes times latitudes); `nlay`: number of levels
+    real(kind=rb), dimension(:), intent(in) :: lonb, latb  !! longitudes and latitudes of the cell corners [rad]
+    type(domain2d), intent(in)         :: domain_in   !! domain decomposition of the model grid
+
+    integer :: ierr, io
+
+! read namelist and copy to logfile
+    read (input_nml_file, nml=rrtm_radiation_nml, iostat=io)
+    ierr = check_nml_error(io, 'rrtm_radiation_nml')
+
+    if (mpp_pe() == mpp_root_pe()) then
+      write (stdlog(), nml=rrtm_radiation_nml)
+    end if
+    select case (trim(precip_albedo_mode))
+    case ('full', 'lscale', 'conv')
+    case default
+      call error_mesg('rrtm_radiation_init', 'precip_albedo_mode must be ''full'', ''lscale'' or ''conv'', not '// &
+                      trim(precip_albedo_mode), FATAL)
+    end select
+!----
+!------------ initialize diagnostic fields ---------------
+
+    id_tdt_rad = &
+      register_diag_field(mod_name, 'tdt_rad', axes(1:3), Time, &
+                          'Temperature tendency due to radiation', &
+                          'K/s', missing_value=missing_value)
+    id_tdt_sw = &
+      register_diag_field(mod_name, 'tdt_sw', axes(1:3), Time, &
+                          'Temperature tendency due to SW radiation', &
+                          'K/s', missing_value=missing_value)
+    id_tdt_lw = &
+      register_diag_field(mod_name, 'tdt_lw', axes(1:3), Time, &
+                          'Temperature tendency due to LW radiation', &
+                          'K/s', missing_value=missing_value)
+    id_coszen = &
+      register_diag_field(mod_name, 'coszen', axes(1:2), Time, &
+                          'cosine of zenith angle', &
+                          '1', missing_value=missing_value)
+    id_flux_sw = &
+      register_diag_field(mod_name, 'swnet_sfc', axes(1:2), Time, &
+                          'Net SW flux at surface (positive down)', &
+                          'W/m2', missing_value=missing_value)
+    id_flux_lw = &
+      register_diag_field(mod_name, 'lwdn_sfc', axes(1:2), Time, &
+                          'LW flux down at surface', &
+                          'W/m2', missing_value=missing_value)
+    id_olr = &
+      register_diag_field(mod_name, 'olr', axes(1:2), Time, &
+                          'Outgoing longwave radiation at TOA', &
+                          'W/m2', missing_value=missing_value)
+    id_isr = &
+      register_diag_field(mod_name, 'swnet_toa', axes(1:2), Time, &
+                          'Net SW flux at TOA (positive down)', &
+                          'W/m2', missing_value=missing_value)
+    id_swdn_toa = &
+      register_diag_field(mod_name, 'swdn_toa', axes(1:2), Time, &
+                          'SW flux down at TOA', &
+                          'W/m2', missing_value=missing_value)
+    id_lwup_sfc = &
+      register_diag_field(mod_name, 'lwup_sfc', axes(1:2), Time, &
+                          'LW flux up at surface', &
+                          'W/m2', missing_value=missing_value)
+    id_albedo = &
+      register_diag_field(mod_name, 'albedo_rad', axes(1:2), Time, &
+                          'Surface albedo seen by the radiation', &
+                          '1', missing_value=missing_value)
+    id_ozone = &
+      register_diag_field(mod_name, 'ozone', axes(1:3), Time, &
+                          'Ozone mass mixing ratio', &
+                          'kg/kg', missing_value=missing_value)
+    id_thalf = &
+      register_diag_field(mod_name, 'thalf', (/axes(1), axes(2), axes(4)/), Time, &
+                          'Temperature on half levels', &
+                          'K', missing_value=missing_value)
+
+!------------ set some constants and parameters -------
+
+    deg2rad = acos(0.)/90.
+
+    ! make sure we are computing radiation at the first time step
+    t_last = -int(dt_rad, 8)
+    day_last = 0
+
+    ! run_rrtmg takes every lonstep-th column of the whole processor domain, which holds
+    ! the full longitude circle, and interpolates between them cyclically
+    if (lonstep < 1 .or. mod(size(lonb) - 1, lonstep) /= 0) call error_mesg(mod_name, &
+         'lonstep must divide the number of longitudes on each processor', FATAL)
+    ncols_rrt = ncols/lonstep
+    nlay_rrt = nlay
+
+    if (dt_rad_avg == 0) then
+      do_rad_time_avg = .false.
+    else if (dt_rad_avg < 0) then
+      dt_rad_avg = dt_rad
+    end if
+
+!------------ allocate arrays to be used later  -------
+    allocate (t_half(size(lonb, 1) - 1, size(latb) - 1, nlay + 1))
+
+    allocate (h2o(ncols_rrt, nlay_rrt), o3(ncols_rrt, nlay_rrt), &
+              co2(ncols_rrt, nlay_rrt))
+    allocate (reff(ncols_rrt, nlay_rrt), &
+              zeros(ncols_rrt, nlay_rrt))
+    allocate (ch4(ncols_rrt, nlay_rrt), n2o(ncols_rrt, nlay_rrt), o2(ncols_rrt, nlay_rrt), &
+              cfc11(ncols_rrt, nlay_rrt), cfc12(ncols_rrt, nlay_rrt), cfc22(ncols_rrt, nlay_rrt), &
+              ccl4(ncols_rrt, nlay_rrt))
+    allocate (emis(ncols_rrt, nbndlw))
+    allocate (taucld(nbndlw, ncols_rrt, nlay_rrt), &
+              tauaer(ncols_rrt, nlay_rrt, nbndlw))
+    allocate (sw_zro(nbndsw, ncols_rrt, nlay_rrt), &
+              zro_sw(ncols_rrt, nlay_rrt, nbndsw))
+    if (id_coszen > 0) allocate (zencos(size(lonb, 1) - 1, size(latb, 1) - 1))
+
+    ! gases
+    h2o = 0.     !this will be set by the water vapor tracer
+    o3 = o3_val !this will be set by an input file if do_read_ozone=.true.
+    co2 = co2ppmv*1.e-6 ! convert ppmv
+    zeros = 0. ! gases and clouds
+    reff = 10. ! clouds
+    if (include_secondary_gases) then
+      ch4 = ch4_val
+      n2o = n2o_val
+      o2 = o2_val
+      cfc11 = cfc11_val
+      cfc12 = cfc12_val
+      cfc22 = cfc22_val
+      ccl4 = ccl4_val
+    else
+      ch4 = 0.
+      n2o = 0.
+      o2 = 0.
+      cfc11 = 0.
+      cfc12 = 0.
+      cfc22 = 0.
+      ccl4 = 0.
+    end if
+
+    emis = 1. !black body: 1.0
+
+    ! absorption
+    taucld = 0.
+    tauaer = 0.
+    ! clouds
+    sw_zro = 0.
+    zro_sw = 0.
+
+    if (do_read_ozone) then
+      call interpolator_init(o3_interp, trim(ozone_file)//'.nc', lonb, latb, data_out_of_bounds=(/ZERO/))
+    end if
+
+    if (store_intermediate_rad .or. id_flux_sw > 0) &
+      allocate (sw_flux(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (store_intermediate_rad .or. id_flux_lw > 0) &
+      allocate (lw_flux(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (do_precip_albedo) allocate (rrtm_precip(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (store_intermediate_rad .or. id_tdt_rad > 0) &
+      allocate (tdt_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
+    if (id_tdt_sw > 0) allocate (tdt_sw_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
+    if (id_tdt_lw > 0) allocate (tdt_lw_rad(size(lonb, 1) - 1, size(latb, 1) - 1, nlay))
+    if (id_isr > 0) allocate (isr(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (id_olr > 0) allocate (olr(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (id_swdn_toa > 0) allocate (swdn_toa(size(lonb, 1) - 1, size(latb, 1) - 1))
+    if (id_lwup_sfc > 0) allocate (lwup_sfc(size(lonb, 1) - 1, size(latb, 1) - 1))
+
+    if (do_precip_albedo) then
+      rrtm_precip = 0.
+      num_precip = 0
+    end if
+
+    domain = domain_in
+    call read_restart_rrtm
+
+    call astro_init
+
+    if (solday > 0) then
+      call error_mesg(mod_name, &
+                      ' running perpetual simulation', NOTE)
+    end if
+
+    rrtm_init = .true.
+
+  end subroutine rrtm_radiation_init
+!*****************************************************************************************
+  !> Computes the temperature at half levels, needed by RRTM, and stores it in the module.
+  !>
+  !> The temperature is interpolated linearly in height between full levels, extrapolated
+  !> linearly to the top half level, and set to `t_surf_rad` at the surface.
+  subroutine interp_temp(z_full, z_half, t_surf_rad, t)
+    implicit none
+
+    real(kind=rb), dimension(:, :, :), intent(in)  :: z_full, z_half, t
+    !! `z_full`, `z_half`: height at full and half levels [m]; `t`: temperature [K]
+    real(kind=rb), dimension(:, :), intent(in)  :: t_surf_rad  !! surface temperature [K]
+
+    integer :: i, j, k, kend
+    real :: dzk, dzk1, dzk2
+
+! z_half(k=1) at the top of the model (p = 0) is 0, so k=1 is dealt with separately
+    kend = size(z_full, 3)
+    do k = 2, kend
+      do j = 1, size(t, 2)
+        do i = 1, size(t, 1)
+          dzk2 = 1./(z_full(i, j, k - 1) - z_full(i, j, k))
+          dzk = (z_half(i, j, k) - z_full(i, j, k))*dzk2
+          dzk1 = (z_full(i, j, k - 1) - z_half(i, j, k))*dzk2
+          t_half(i, j, k) = t(i, j, k)*dzk1 + t(i, j, k - 1)*dzk
+        end do
+      end do
+    end do
+! top of the atmosphere: need to extrapolate. z_half(1)=0, so need to use values on full grid
+    do j = 1, size(t, 2)
+      do i = 1, size(t, 1)
+        !standard linear extrapolation
+        !top: use full points, and distance is 1.5 from k=2
+        t_half(i, j, 1) = 0.5*(3*t(i, j, 1) - t(i, j, 2))
+        !bottom: t_half = t_surf
+        t_half(i, j, kend + 1) = t_surf_rad(i, j)
+      end do
+    end do
+
+  end subroutine interp_temp
+!*****************************************************************************************
+!*****************************************************************************************
+  !> Adds the RRTMG radiative heating to `tdt` and returns the surface fluxes.
+  !>
+  !> On a radiation step (every `dt_rad` seconds) it computes the zenith angle, prepares the
+  !> inputs, calls the RRTMG shortwave and longwave schemes and interpolates the results back
+  !> to the model grid; on the other steps it returns the stored heating and fluxes (or zero
+  !> if `store_intermediate_rad = .false.`). It sends the diagnostics on every step.
+  subroutine run_rrtmg(is, js, Time, Time_diag, lat, lon, p_full, p_half, albedo, q, t, t_surf_rad, tdt, coszen, flux_sw, flux_lw)
+!
+! Modules
+    use fms_mod, only: error_mesg, FATAL
+    use mpp_mod, only: mpp_npes
+    use rrtmg_lw_rad, only: rrtmg_lw
+    use rrtm_astro, only: compute_zenith, use_dyofyr, solday, equinox_day
+    use time_manager_mod, only: time_type, get_time, set_time
+    use mima_interpolator_mod, only: interpolator
+!---------------------------------------------------------------------------------------------------------------
+! In/Out variables
+    implicit none
+
+    integer, intent(in)                               :: is, js          !! indices of the first point of the
+                                                                         !! physics window in the processor domain
+    type(time_type), intent(in)                        :: Time            !! current time
+    type(time_type), intent(in)                        :: Time_diag       !! time the diagnostics are sent at
+    !! (`Time_next`, as for the other physics)
+    real(kind=rb), dimension(:, :, :), intent(in)         :: p_full, p_half   !! pressure at full and half levels [Pa]
+    real(kind=rb), dimension(:, :, :), intent(in)         :: q               !! specific humidity [kg/kg]
+    real(kind=rb), dimension(:, :, :), intent(in)         :: t               !! temperature [K]
+    real(kind=rb), dimension(:, :), intent(in)           :: lat, lon         !! latitude, longitude [rad]
+    real(kind=rb), dimension(:, :), intent(in)           :: albedo          !! surface albedo
+    real(kind=rb), dimension(:, :), intent(in)           :: t_surf_rad      !! surface temperature [K]
+    real(kind=rb), dimension(:, :, :), intent(inout)      :: tdt             !! temperature tendency, to which the
+                                                                             !! radiative heating is added [K/s]
+    real(kind=rb), dimension(:, :), intent(out)          :: coszen          !! cosine of the zenith angle (set on
+                                                                             !! radiation steps only)
+    real(kind=rb), dimension(:, :), intent(out), optional :: flux_sw, flux_lw !! net downward shortwave and downward
+    !! longwave flux at the surface [W/m2]; pass both or none
+!---------------------------------------------------------------------------------------------------------------
+! Local variables
+    integer :: i, ij, i1, ij1, dyofyr, seconds, days
+    integer(kind=8) :: t_now
+    integer :: dloc, calday
+    real(kind=rb) :: tsec
+    integer :: si, sj, sk
+    real(kind=rb), allocatable, dimension(:, :, :) :: o3f, tdt_rrtm  ! ozone, radiative heating
+    ! the column arrays are allocatable, not automatic, so that they are not on the stack
+    ! (each is about 23 MB at T255 L40 on one processor), and allocated on radiation steps only
+    real(kind=rb), allocatable, dimension(:, :) :: pfull, tfull, hr, hrc, swhr  ! (ncols_rrt, nlay_rrt)
+    real(kind=rb), allocatable, dimension(:, :) :: uflx, dflx, uflxc, dflxc, swuflx, swdflx, &
+                                                   phalf, thalf  ! (ncols_rrt, nlay_rrt + 1)
+    real(kind=rb), allocatable, dimension(:, :, :) :: swijk, lwijk  ! (lon/lonstep, lat, pfull)
+    real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2)) :: swflxijk, lwflxijk, olrijk, isrijk
+    real(kind=rb), dimension(size(q, 1)/lonstep, size(q, 2)) :: swdntoaijk, lwupsfcijk
+    real(kind=rb), dimension(ncols_rrt)   :: tsrf, cosz_rr, albedo_rr
+    real(kind=rb) :: dlon, di
+    type(time_type) :: Time_loc
+    real(kind=rb), dimension(size(q, 1), size(q, 2)) :: albedo_loc
+    real(kind=rb), dimension(size(q, 2), size(q, 3)) :: q_zm, tdt_zm  ! zonal means
+    real(kind=rb), dimension(size(q, 2)) :: precip_zm, swflx_zm, lwflx_zm
+!---------------------------------------------------------------------------------------------------------------
+
+    if (.not. rrtm_init) &
+      call error_mesg('run_rrtm', 'module not initialized', FATAL)
+
+!check if we really want to recompute radiation (alarm,input file(s))
+! alarm
+    call get_time(Time, seconds, days)
+    t_now = int(days, 8)*86400_8 + seconds
+    day_last = days
+    if (t_now - t_last >= dt_rad) then
+      t_last = t_now
+    else
+      if (store_intermediate_rad) then
+        tdt = tdt + tdt_rad
+        if (present(flux_sw)) flux_sw = sw_flux
+        if (present(flux_lw)) flux_lw = lw_flux
+      else
+        if (present(flux_sw)) flux_sw = 0.
+        if (present(flux_lw)) flux_lw = 0.
+        ! no radiation is applied between the radiation steps, so the diagnostics are zero too
+        if (allocated(tdt_rad)) tdt_rad = 0.
+        if (allocated(sw_flux)) sw_flux = 0.
+        if (allocated(lw_flux)) lw_flux = 0.
+        if (allocated(tdt_sw_rad)) tdt_sw_rad = 0.
+        if (allocated(tdt_lw_rad)) tdt_lw_rad = 0.
+        if (allocated(olr)) olr = 0.
+        if (allocated(isr)) isr = 0.
+        if (allocated(swdn_toa)) swdn_toa = 0.
+        if (allocated(lwup_sfc)) lwup_sfc = 0.
+      end if
+      call write_diag_rrtm(Time_diag, is, js)
+      return !not time yet
+    end if
+!make sure we run perpetual when solday > 0)
+    if (solday > 0) then
+      Time_loc = set_time(seconds, solday)
+    elseif (slowdown_rad /= 1.0) then
+      ! in real arithmetic, as days*86400 overflows a default integer after 68 years
+      tsec = (real(days, rb)*86400._rb + real(seconds, rb))*slowdown_rad
+      dloc = int(tsec/86400._rb)
+      if (tsec - real(dloc, rb)*86400._rb < 0._rb) dloc = dloc - 1
+      Time_loc = set_time(int(tsec - real(dloc, rb)*86400._rb), dloc)
+    else
+      Time_loc = Time
+    end if
+!
+! compute zenith angle
+!  this is also an output, so need to compute even if we read radiation from file
+    if (do_rad_time_avg) then
+      call compute_zenith(Time_loc, equinox_day, dt_rad_avg, lat, lon, coszen, dyofyr, calday)
+    else
+      call compute_zenith(Time_loc, equinox_day, 0, lat, lon, coszen, dyofyr, calday)
+    end if
+!---------------------------------------------------------------------------------------------
+! we know now that we want to run radiation
+
+    si = size(tdt, 1)
+    sj = size(tdt, 2)
+    sk = size(tdt, 3)
+    if (si*sj /= ncols_rrt*lonstep) &
+      call error_mesg('run_rrtm', 'the physics window must be the whole processor domain', FATAL)
+
+    allocate (pfull(ncols_rrt, nlay_rrt), tfull(ncols_rrt, nlay_rrt), hr(ncols_rrt, nlay_rrt), &
+              hrc(ncols_rrt, nlay_rrt), swhr(ncols_rrt, nlay_rrt))
+    allocate (uflx(ncols_rrt, nlay_rrt + 1), dflx(ncols_rrt, nlay_rrt + 1), uflxc(ncols_rrt, nlay_rrt + 1), &
+              dflxc(ncols_rrt, nlay_rrt + 1), swuflx(ncols_rrt, nlay_rrt + 1), swdflx(ncols_rrt, nlay_rrt + 1), &
+              phalf(ncols_rrt, nlay_rrt + 1), thalf(ncols_rrt, nlay_rrt + 1))
+    allocate (swijk(size(q, 1)/lonstep, size(q, 2), size(q, 3)), lwijk(size(q, 1)/lonstep, size(q, 2), size(q, 3)))
+
+    ! RRTMG computes the Earth-Sun distance from the calendar day of the year (1 on
+    ! 1 January); 0 makes it use solrad instead
+    if (use_dyofyr) then
+      dyofyr = calday
+    else
+      dyofyr = 0
+    end if
+
+    !get ozone: on the whole grid for the ozone diagnostic, else only in the columns RRTM uses
+    ! (the interpolation is column by column, so these columns get the same values)
+    if (do_read_ozone) then
+      if (id_ozone > 0) then
+        allocate (o3f(si, sj, sk))
+        call interpolator(o3_interp, Time_loc, p_half, o3f, trim(ozone_file))
+      else
+        allocate (o3f(si/lonstep, sj, sk))
+        call interpolator(o3_interp, Time_loc, p_half(1:si:lonstep, :, :), o3f, trim(ozone_file), istep=lonstep)
+      end if
+      o3f = o3f*scale_ozone
+      !due to interpolation, some values might be negative
+      o3f = max(0.0, o3f)
+      if (id_ozone > 0) then
+        o3 = reshape(o3f(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
+      else
+        o3 = reshape(o3f(:, :, sk:1:-1), (/si*sj/lonstep, sk/))
+      end if
+    else if (id_ozone > 0) then
+      allocate (o3f(si, sj, sk))
+      o3f = o3_val   ! only used for the ozone diagnostic; RRTM uses o3 = o3_val
+    end if
+
+    !interactive albedo: zonal mean of precipitation
+    if (do_precip_albedo .and. num_precip > 0) then
+      where (abs(lat) < precip_lat*deg2rad) rrtm_precip = 0.
+      precip_zm = sum(rrtm_precip, 1)
+      do i = 1, size(albedo, 1)
+        albedo_loc(i, :) = albedo(i, :) + (precip_albedo - albedo(i, :))&
+                          &*precip_zm/size(rrtm_precip, 1)/num_precip
+      end do
+      rrtm_precip = 0.
+      num_precip = 0
+    else
+      albedo_loc = albedo
+    end if
+!---------------------------------------------------------------------------------------------------------------
+    !Compute zonal means if that's what we want to feed to RRTM
+    if (do_zm_tracers) q_zm = sum(q, 1)/size(q, 1)
+!---------------------------------------------------------------------------------------------------------------
+!---------------------------------------------------------------------------------------------------------------
+    !RRTM's first pressure level is at the surface - need to inverse order
+    !also, RRTM's pressures are in hPa
+    !reshape arrays
+    pfull = reshape(p_full(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))*0.01
+    phalf = reshape(p_half(1:si:lonstep, :, sk + 1:1:-1), (/si*sj/lonstep, sk + 1/))*0.01
+    !for RRTM, we need the top level to be greater than 0
+    if (minval(phalf(:, sk + 1)) <= 0.) &
+         &phalf(:, sk + 1) = pfull(:, sk)*0.5
+    tfull = reshape(t(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
+    thalf = reshape(t_half(1:si:lonstep, :, sk + 1:1:-1), (/si*sj/lonstep, sk + 1/))
+    if (do_zm_tracers) then
+      h2o = reshape(spread(q_zm(:, sk:1:-1), 1, si/lonstep), (/si*sj/lonstep, sk/))
+    else
+      h2o = reshape(q(1:si:lonstep, :, sk:1:-1), (/si*sj/lonstep, sk/))
+    end if
+
+    cosz_rr = reshape(coszen(1:si:lonstep, :), (/si*sj/lonstep/))
+    albedo_rr = reshape(albedo_loc(1:si:lonstep, :), (/si*sj/lonstep/))
+    tsrf = reshape(t_surf_rad(1:si:lonstep, :), (/si*sj/lonstep/))
+
+!---------------------------------------------------------------------------------------------------------------
+! now actually run RRTM
+!
+    swhr = 0.
+    swdflx = 0.
+    swuflx = 0.
+    ! make sure we don't go beyond 'dangerous' values for radiation. Same as Merlis spectral_am2rad
+    h2o = max(h2o, h2o_lower_limit)
+    tfull = max(tfull, temp_lower_limit)
+    tfull = min(tfull, temp_upper_limit)
+    thalf = max(thalf, temp_lower_limit)
+    thalf = min(thalf, temp_upper_limit)
+
+    if (balance_sw_columns .and. mpp_npes() > 1) then
+      call sw_balanced(pfull, phalf, tfull, thalf, tsrf, albedo_rr, cosz_rr, dyofyr, swuflx, swdflx, swhr)
+    else
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_rr, cosz_rr, dyofyr, &
+                      swuflx, swdflx, swhr)
+    end if
+
+    swijk = reshape(swhr(:, sk:1:-1), (/si/lonstep, sj, sk/))*daypersec
+    isrijk = reshape(swdflx(:, sk + 1) - swuflx(:, sk + 1), (/si/lonstep, sj/))
+    swdntoaijk = reshape(swdflx(:, sk + 1), (/si/lonstep, sj/))
+
+    hr = 0.
+    dflx = 0.
+    uflx = 0.
+    call rrtmg_lw &
+      (ncols_rrt, nlay_rrt, icld, idrv, &
+       pfull, phalf, tfull, thalf, tsrf, &
+       h2o, o3, co2, &
+       ! secondary gases
+       ch4, n2o, o2, cfc11, cfc12, cfc22, ccl4, &
+       ! emissivity and cloud composition
+       emis, inflglw, iceflglw, liqflglw, &
+       ! cloud parameters
+       zeros, taucld, zeros, zeros, reff, reff, &
+       tauaer, &
+       ! output
+       uflx, dflx, hr, uflxc, dflxc, hrc, iaerlw=iaer)
+
+    lwijk = reshape(hr(:, sk:1:-1), (/si/lonstep, sj, sk/))*daypersec
+    olrijk = reshape(uflx(:, sk + 1), (/si/lonstep, sj/))
+    lwupsfcijk = reshape(uflx(:, 1), (/si/lonstep, sj/))
+
+!---------------------------------------------------------------------------------------------------------------
+    ! get radiation
+! interpolate back onto GCM grid (latitude is kept the same due to parallelisation)
+    allocate (tdt_rrtm(si, sj, sk))
+    if (do_zm_rad) tdt_zm = sum(swijk + lwijk, 1)/max(1, size(swijk, 1))
+    dlon = 1./lonstep
+    do i = 1, size(swijk, 1)
+      i1 = i + 1
+      ! close toroidally
+      if (i1 > size(swijk, 1)) i1 = 1
+      do ij = 1, lonstep
+        di = (ij - 1)*dlon
+        ij1 = (i - 1)*lonstep + ij
+        if (do_zm_rad) then
+          tdt_rrtm(ij1, :, :) = tdt_zm
+        else
+          tdt_rrtm(ij1, :, :) = &
+            +di*(swijk(i1, :, :) + lwijk(i1, :, :)) &
+            + (1.-di)*(swijk(i, :, :) + lwijk(i, :, :))
+        end if
+        if (id_tdt_sw > 0) tdt_sw_rad(ij1, :, :) = di*swijk(i1, :, :) + (1.-di)*swijk(i, :, :)
+        if (id_tdt_lw > 0) tdt_lw_rad(ij1, :, :) = di*lwijk(i1, :, :) + (1.-di)*lwijk(i, :, :)
+        if (id_olr > 0) olr(ij1, :) = di*olrijk(i1, :) + (1.-di)*olrijk(i, :)
+        if (id_isr > 0) isr(ij1, :) = di*isrijk(i1, :) + (1.-di)*isrijk(i, :)
+        if (id_swdn_toa > 0) swdn_toa(ij1, :) = di*swdntoaijk(i1, :) + (1.-di)*swdntoaijk(i, :)
+        if (id_lwup_sfc > 0) lwup_sfc(ij1, :) = di*lwupsfcijk(i1, :) + (1.-di)*lwupsfcijk(i, :)
+      end do
+    end do
+    if (do_zm_rad) then
+      ! the diagnostics are zonal means too
+      if (id_tdt_sw > 0) call zonal_mean(swijk, tdt_sw_rad)
+      if (id_tdt_lw > 0) call zonal_mean(lwijk, tdt_lw_rad)
+      if (id_olr > 0) call zonal_mean(olrijk, olr)
+      if (id_isr > 0) call zonal_mean(isrijk, isr)
+      if (id_swdn_toa > 0) call zonal_mean(swdntoaijk, swdn_toa)
+      if (id_lwup_sfc > 0) call zonal_mean(lwupsfcijk, lwup_sfc)
+    end if
+    tdt = tdt + tdt_rrtm
+    ! store radiation between radiation time steps
+    if (store_intermediate_rad .or. id_tdt_rad > 0) tdt_rad = tdt_rrtm
+
+    ! get the surface fluxes
+    if (present(flux_sw) .and. present(flux_lw)) then
+      !only surface fluxes are needed
+      swflxijk = reshape(swdflx(:, 1) - swuflx(:, 1), (/si/lonstep, sj/)) ! net down SW flux
+      lwflxijk = reshape(dflx(:, 1), (/si/lonstep, sj/)) ! down LW flux
+      if (do_zm_rad) then
+        swflx_zm = sum(swflxijk, 1)/max(1, size(swflxijk, 1))
+        lwflx_zm = sum(lwflxijk, 1)/max(1, size(lwflxijk, 1))
+      end if
+      dlon = 1./lonstep
+      do i = 1, size(swijk, 1)
+        i1 = i + 1
+        ! close toroidally
+        if (i1 > size(swijk, 1)) i1 = 1
+        do ij = 1, lonstep
+          di = (ij - 1)*dlon
+          ij1 = (i - 1)*lonstep + ij
+          if (do_zm_rad) then
+            flux_sw(ij1, :) = swflx_zm
+            flux_lw(ij1, :) = lwflx_zm
+          else
+            flux_sw(ij1, :) = di*swflxijk(i1, :) + (1.-di)*swflxijk(i, :)
+            flux_lw(ij1, :) = di*lwflxijk(i1, :) + (1.-di)*lwflxijk(i, :)
+          end if
+        end do
+      end do
+      ! store between radiation steps
+      if (store_intermediate_rad) then
+        sw_flux = flux_sw
+        lw_flux = flux_lw
+      else
+        if (id_flux_sw > 0) sw_flux = flux_sw
+        if (id_flux_lw > 0) lw_flux = flux_lw
+      end if
+    end if
+    if (id_coszen > 0) zencos = coszen
+
+    if (id_ozone > 0) then
+      call write_diag_rrtm(Time_diag, is, js, o3f, t_half, albedo_loc)
+    else
+      call write_diag_rrtm(Time_diag, is, js, thalf=t_half, albedo_loc=albedo_loc)
+    end if
+  end subroutine run_rrtmg
+
+!*****************************************************************************************
+  !> Calls the RRTMG shortwave scheme on `n` columns and returns the total-sky fluxes and
+  !> heating rate. RRTMG computes each column on its own, so the result of a column does not
+  !> depend on the others in the call.
+  subroutine sw_columns(n, pfull, phalf, tfull, thalf, tsrf, h2o_c, o3_c, co2_c, albedo_c, cosz, dyofyr, &
+                        swuflx, swdflx, swhr)
+    use rrtmg_sw_rad, only: rrtmg_sw
+    use parrrsw, only: naerec
+    use rrtm_astro, only: solr_cnst, solrad
+    implicit none
+    integer, intent(in) :: n, dyofyr
+    real(kind=rb), dimension(:, :), intent(in) :: pfull, phalf, tfull, thalf, h2o_c, o3_c, co2_c
+    real(kind=rb), dimension(:), intent(in) :: tsrf, albedo_c, cosz
+    real(kind=rb), dimension(:, :), intent(out) :: swuflx, swdflx, swhr
+    real(kind=rb), allocatable, dimension(:, :) :: swuflxc, swdflxc  ! (n, nlay_rrt + 1), not on the stack
+    real(kind=rb), allocatable, dimension(:, :) :: swhrc  ! (n, nlay_rrt)
+
+    allocate (swuflxc(n, nlay_rrt + 1), swdflxc(n, nlay_rrt + 1), swhrc(n, nlay_rrt))
+    call rrtmg_sw &
+      (n, nlay_rrt, icld, iaer, &
+       pfull, phalf, tfull, thalf, tsrf, &
+       h2o_c, o3_c, co2_c, ch4(1:n, :), n2o(1:n, :), o2(1:n, :), &
+       albedo_c, albedo_c, albedo_c, albedo_c, &
+       cosz, solrad, dyofyr, solr_cnst, &
+       inflgsw, iceflgsw, liqflgsw, &
+       ! cloud parameters
+       zeros(1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), sw_zro(:, 1:n, :), &
+       zeros(1:n, :), zeros(1:n, :), reff(1:n, :), reff(1:n, :), &
+       ! aerosol parameters
+       zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, :), zro_sw(1:n, :, 1:naerec), &
+       ! output
+       swuflx, swdflx, swhr, swuflxc, swdflxc, swhrc)
+  end subroutine sw_columns
+
+!*****************************************************************************************
+  !> Calls the RRTMG shortwave scheme with the sunlit columns shared evenly among the
+  !> processes (`balance_sw_columns`).
+  !>
+  !> RRTMG skips the columns with `cosz < zepzen`. Each process counts its sunlit columns
+  !> and all processes compute the same plan from the counts: in rank order, processes
+  !> with more than the mean send their last sunlit columns to processes with fewer. A
+  !> receiver computes the columns it gets and its own, then sends the fluxes of the
+  !> columns it got back; a sender computes the columns it keeps and receives the rest.
+  subroutine sw_balanced(pfull, phalf, tfull, thalf, tsrf, albedo_c, cosz, dyofyr, swuflx, swdflx, swhr)
+    use mpp_mod, only: mpp_npes, mpp_pe, mpp_get_current_pelist, mpp_sum, mpp_send, mpp_recv, &
+                       mpp_sync_self
+    implicit none
+    real(kind=rb), dimension(:, :), intent(in) :: pfull, phalf, tfull, thalf
+    real(kind=rb), dimension(:), intent(in) :: tsrf, albedo_c, cosz
+    integer, intent(in) :: dyofyr
+    real(kind=rb), dimension(:, :), intent(out) :: swuflx, swdflx, swhr
+
+    real(kind=rb), parameter :: zepzen = 1.e-10_rb  ! RRTMG's threshold for a sunlit column
+    integer, allocatable :: pelist(:), counts(:), nsun(:), ncol(:), excess(:), nmove(:, :), idx(:)
+    real(kind=rb), allocatable :: bufin(:, :), bufout(:, :), r_pfull(:, :), r_phalf(:, :), r_tfull(:, :), &
+                                  r_thalf(:, :), r_h2o(:, :), r_o3(:, :), r_co2(:, :), r_tsrf(:), r_albedo(:), &
+                                  r_cosz(:), r_swuflx(:, :), r_swdflx(:, :), r_swhr(:, :)
+    real(kind=rb), dimension(size(cosz)) :: cosz_kept
+    integer :: npes, me, nl, nin, nout, nsend, nrecv, tot, p, q, m, k, c, off
+
+    npes = mpp_npes()
+    allocate (pelist(npes), counts(2*npes), excess(npes), nmove(npes, npes))
+    call mpp_get_current_pelist(pelist)
+    me = findloc(pelist, mpp_pe(), 1)
+    nl = nlay_rrt
+    nin = 7*nl + 5   ! pfull, tfull, h2o, o3, co2, phalf, thalf, tsrf, albedo, cosz
+    nout = 3*nl + 2  ! swuflx, swdflx, swhr
+
+    ! the same plan on every process: nmove(p, q) columns go from p to q
+    counts = 0
+    counts(me) = count(.not. (cosz < zepzen))
+    counts(npes + me) = ncols_rrt
+    call mpp_sum(counts, 2*npes)
+    nsun = counts(1:npes)
+    ncol = counts(npes + 1:)
+    tot = sum(nsun)
+    do p = 1, npes
+      excess(p) = nsun(p) - tot/npes
+      if (p <= mod(tot, npes)) excess(p) = excess(p) - 1
+      ! a process takes at most as many columns as it has
+      excess(p) = max(excess(p), -ncol(p))
+    end do
+    nmove = 0
+    p = 1
+    q = 1
+    do
+      do while (p <= npes)
+        if (excess(p) > 0) exit
+        p = p + 1
+      end do
+      do while (q <= npes)
+        if (excess(q) < 0) exit
+        q = q + 1
+      end do
+      if (p > npes .or. q > npes) exit
+      m = min(excess(p), -excess(q))
+      nmove(p, q) = m
+      excess(p) = excess(p) - m
+      excess(q) = excess(q) + m
+    end do
+    nsend = sum(nmove(me, :))
+    nrecv = sum(nmove(:, me))
+
+    if (nsend > 0) then
+      ! send the last nsend sunlit columns and keep the others
+      idx = pack([(c, c=1, size(cosz))], .not. (cosz < zepzen))
+      idx = idx(size(idx) - nsend + 1:)
+      allocate (bufin(nin, nsend), bufout(nout, nsend))
+      do k = 1, nsend
+        c = idx(k)
+        bufin(:, k) = [pfull(c, :), tfull(c, :), h2o(c, :), o3(c, :), co2(c, :), phalf(c, :), thalf(c, :), &
+                       tsrf(c), albedo_c(c), cosz(c)]
+      end do
+      off = 0
+      do q = 1, npes
+        if (nmove(me, q) == 0) cycle
+        call mpp_send(bufin(1, off + 1), plen=nin*nmove(me, q), to_pe=pelist(q))
+        off = off + nmove(me, q)
+      end do
+      ! MPI moves a large message only while both sides are in MPI, so wait for it here
+      call mpp_sync_self()
+      cosz_kept = cosz
+      cosz_kept(idx) = 0.
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_c, cosz_kept, dyofyr, &
+                      swuflx, swdflx, swhr)
+      off = 0
+      do q = 1, npes
+        if (nmove(me, q) == 0) cycle
+        call mpp_recv(bufout(1, off + 1), glen=nout*nmove(me, q), from_pe=pelist(q))
+        off = off + nmove(me, q)
+      end do
+      do k = 1, nsend
+        c = idx(k)
+        swuflx(c, :) = bufout(1:nl + 1, k)
+        swdflx(c, :) = bufout(nl + 2:2*nl + 2, k)
+        swhr(c, :) = bufout(2*nl + 3:3*nl + 2, k)
+      end do
+    else if (nrecv > 0) then
+      allocate (bufin(nin, nrecv), bufout(nout, nrecv))
+      off = 0
+      do p = 1, npes
+        if (nmove(p, me) == 0) cycle
+        call mpp_recv(bufin(1, off + 1), glen=nin*nmove(p, me), from_pe=pelist(p))
+        off = off + nmove(p, me)
+      end do
+      r_pfull = transpose(bufin(1:nl, :))
+      r_tfull = transpose(bufin(nl + 1:2*nl, :))
+      r_h2o = transpose(bufin(2*nl + 1:3*nl, :))
+      r_o3 = transpose(bufin(3*nl + 1:4*nl, :))
+      r_co2 = transpose(bufin(4*nl + 1:5*nl, :))
+      r_phalf = transpose(bufin(5*nl + 1:6*nl + 1, :))
+      r_thalf = transpose(bufin(6*nl + 2:7*nl + 2, :))
+      r_tsrf = bufin(7*nl + 3, :)
+      r_albedo = bufin(7*nl + 4, :)
+      r_cosz = bufin(7*nl + 5, :)
+      allocate (r_swuflx(nrecv, nl + 1), r_swdflx(nrecv, nl + 1), r_swhr(nrecv, nl))
+      call sw_columns(nrecv, r_pfull, r_phalf, r_tfull, r_thalf, r_tsrf, r_h2o, r_o3, r_co2, r_albedo, r_cosz, &
+                      dyofyr, r_swuflx, r_swdflx, r_swhr)
+      do k = 1, nrecv
+        bufout(:, k) = [r_swuflx(k, :), r_swdflx(k, :), r_swhr(k, :)]
+      end do
+      ! send the fluxes back after the own columns, when the senders wait for them
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_c, cosz, dyofyr, &
+                      swuflx, swdflx, swhr)
+      off = 0
+      do p = 1, npes
+        if (nmove(p, me) == 0) cycle
+        call mpp_send(bufout(1, off + 1), plen=nout*nmove(p, me), to_pe=pelist(p))
+        off = off + nmove(p, me)
+      end do
+      call mpp_sync_self()
+    else
+      call sw_columns(ncols_rrt, pfull, phalf, tfull, thalf, tsrf, h2o, o3, co2, albedo_c, cosz, dyofyr, &
+                      swuflx, swdflx, swhr)
+    end if
+  end subroutine sw_balanced
+
+!*****************************************************************************************
+  !> Sets every longitude of `dst` to the zonal mean of `src` (for `do_zm_rad`).
+  subroutine zonal_mean_2d(src, dst)
+    implicit none
+    real(kind=rb), dimension(:, :), intent(in)  :: src
+    real(kind=rb), dimension(:, :), intent(out) :: dst
+    real(kind=rb), dimension(size(src, 2)) :: zm
+    integer :: i
+
+    zm = sum(src, 1)/size(src, 1)
+    do i = 1, size(dst, 1)
+      dst(i, :) = zm
+    end do
+  end subroutine zonal_mean_2d
+
+  !> Sets every longitude of `dst` to the zonal mean of `src` (for `do_zm_rad`).
+  subroutine zonal_mean_3d(src, dst)
+    implicit none
+    real(kind=rb), dimension(:, :, :), intent(in)  :: src
+    real(kind=rb), dimension(:, :, :), intent(out) :: dst
+    real(kind=rb), dimension(size(src, 2), size(src, 3)) :: zm
+    integer :: i
+
+    zm = sum(src, 1)/size(src, 1)
+    do i = 1, size(dst, 1)
+      dst(i, :, :) = zm
+    end do
+  end subroutine zonal_mean_3d
+
+!*****************************************************************************************
+  !> Sends the diagnostics.
+  !>
+  !> The heating rates and fluxes are sent on every step (between radiation steps, the
+  !> stored ones, or zero with `store_intermediate_rad = .false.`); the ozone, the half-level
+  !> temperature and the albedo (the optional arguments) only on radiation steps.
+  subroutine write_diag_rrtm(Time, is, js, ozone, thalf, albedo_loc)
+! Modules
+    use diag_manager_mod, only: send_data
+    use time_manager_mod, only: time_type
+! Input variables
+    implicit none
+    type(time_type), intent(in)          :: Time
+    integer, intent(in)          :: is, js
+    real(kind=rb), dimension(:, :, :), intent(in), optional :: ozone, thalf
+    real(kind=rb), dimension(:, :), intent(in), optional :: albedo_loc
+! Local variables
+    logical :: used
+
+!------- temperature tendency due to radiation ------------
+    if (id_tdt_rad > 0) then
+      used = send_data(id_tdt_rad, tdt_rad, Time, is, js, 1)
+    end if
+!------- temperature tendency due to SW radiation ---------
+    if (id_tdt_sw > 0) then
+      used = send_data(id_tdt_sw, tdt_sw_rad, Time, is, js, 1)
+    end if
+!------- temperature tendency due to LW radiation ---------
+    if (id_tdt_lw > 0) then
+      used = send_data(id_tdt_lw, tdt_lw_rad, Time, is, js, 1)
+    end if
+!------- cosine of zenith angle                ------------
+    if (id_coszen > 0) then
+      used = send_data(id_coszen, zencos, Time, is, js)
+    end if
+!------- Net SW surface flux                   ------------
+    if (id_flux_sw > 0) then
+      used = send_data(id_flux_sw, sw_flux, Time, is, js)
+    end if
+!------- Net LW surface flux                   ------------
+    if (id_flux_lw > 0) then
+      used = send_data(id_flux_lw, lw_flux, Time, is, js)
+    end if
+!------- Net SW radiation at TOA               ------------
+    if (id_isr > 0) then
+      used = send_data(id_isr, isr, Time, is, js)
+    end if
+!------- Incoming SW radiation at TOA          ------------
+    if (id_swdn_toa > 0) then
+      used = send_data(id_swdn_toa, swdn_toa, Time, is, js)
+    end if
+!------- Upward LW flux at the surface         ------------
+    if (id_lwup_sfc > 0) then
+      used = send_data(id_lwup_sfc, lwup_sfc, Time, is, js)
+    end if
+!------- Outgoing LW radiation                   ------------
+    if (id_olr > 0) then
+      used = send_data(id_olr, olr, Time, is, js)
+    end if
+!------- Surface albedo seen by the radiation  ------------
+    if (present(albedo_loc) .and. id_albedo > 0) then
+      used = send_data(id_albedo, albedo_loc, Time, is, js)
+    end if
+!------- Ozone                                 ------------
+    if (present(ozone) .and. id_ozone > 0) then
+      used = send_data(id_ozone, ozone, Time, is, js, 1)
+    end if
+!------- Half grid point temperature                                ------------
+    if (present(thalf) .and. id_thalf > 0) then
+      used = send_data(id_thalf, thalf, Time, is, js, 1)
+    end if
+  end subroutine write_diag_rrtm
+!*****************************************************************************************
+
+  !> Counts where it precipitates (according to `precip_albedo_mode`), for the
+  !> precipitation-dependent albedo (`do_precip_albedo`).
+  subroutine rrtm_precip_accum(precip, rain, snow)
+    implicit none
+    real(kind=rb), dimension(:, :), intent(in) :: precip, rain, snow
+    !! `precip`: total precipitation; `rain`, `snow`: large-scale rain and snow [kg/m2/s]
+
+    if (do_precip_albedo) then
+      if (trim(precip_albedo_mode) == 'full') then
+        where (precip > 0.) rrtm_precip = rrtm_precip + 1.
+      elseif (trim(precip_albedo_mode) == 'lscale') then
+        where (rain + snow > 0.) rrtm_precip = rrtm_precip + 1. !precip -> total precip, rain+snow -> lscale
+      elseif (trim(precip_albedo_mode) == 'conv') then
+        where (precip - rain - snow > 0.) rrtm_precip = rrtm_precip + 1.
+      end if
+      num_precip = num_precip + 1
+    end if
+  end subroutine rrtm_precip_accum
+!*****************************************************************************************
+
+  !> Closes the ozone file, writes the restart file `RESTART/rrtm_radiation.res.nc` and
+  !> deallocates the arrays.
+  subroutine rrtm_radiation_end
+    use mima_interpolator_mod, only: interpolator_end
+    implicit none
+
+    if (do_read_ozone) call interpolator_end(o3_interp)
+
+    call write_restart_rrtm
+
+    if (allocated(t_half)) deallocate (t_half)
+    if (allocated(h2o)) deallocate (h2o, o3, co2, reff, zeros, emis, &
+                                    ch4, n2o, o2, cfc11, cfc12, cfc22, ccl4, &
+                                    taucld, tauaer, sw_zro, zro_sw)
+    if (allocated(zencos)) deallocate (zencos)
+    if (allocated(sw_flux)) deallocate (sw_flux)
+    if (allocated(lw_flux)) deallocate (lw_flux)
+    if (allocated(rrtm_precip)) deallocate (rrtm_precip)
+    if (allocated(tdt_rad)) deallocate (tdt_rad)
+    if (allocated(tdt_sw_rad)) deallocate (tdt_sw_rad)
+    if (allocated(tdt_lw_rad)) deallocate (tdt_lw_rad)
+    if (allocated(isr)) deallocate (isr)
+    if (allocated(olr)) deallocate (olr)
+    if (allocated(swdn_toa)) deallocate (swdn_toa)
+    if (allocated(lwup_sfc)) deallocate (lwup_sfc)
+    rrtm_init = .false.
+
+  end subroutine rrtm_radiation_end
+
+!*****************************************************************************************
+  !> Reads the state kept between radiation steps, if `INPUT/rrtm_radiation.res.nc` exists.
+  !>
+  !> If a field in use is missing (e.g. a diagnostic was added), radiation is recomputed at
+  !> the first step, as without a restart file.
+  subroutine read_restart_rrtm
+    use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE
+    implicit none
+    type(restart_file_type) :: rst
+    real(kind=rb) :: x
+    logical :: found
+
+    if (.not. open_restart_read(rst, 'INPUT/rrtm_radiation.res.nc', domain)) return
+    if (mpp_pe() == mpp_root_pe()) call error_mesg(mod_name, &
+                                                   'Reading NetCDF formatted restart file: INPUT/rrtm_radiation.res.nc', NOTE)
+    found = .true.
+    if (allocated(tdt_rad)) call read_saved(rst, 'tdt_rad', tdt_rad, found)
+    if (allocated(sw_flux)) call read_saved(rst, 'sw_flux', sw_flux, found)
+    if (allocated(lw_flux)) call read_saved(rst, 'lw_flux', lw_flux, found)
+    if (allocated(zencos)) call read_saved(rst, 'zencos', zencos, found)
+    if (allocated(tdt_sw_rad)) call read_saved(rst, 'tdt_sw_rad', tdt_sw_rad, found)
+    if (allocated(tdt_lw_rad)) call read_saved(rst, 'tdt_lw_rad', tdt_lw_rad, found)
+    if (allocated(olr)) call read_saved(rst, 'olr', olr, found)
+    if (allocated(isr)) call read_saved(rst, 'isr', isr, found)
+    if (allocated(swdn_toa)) call read_saved(rst, 'swdn_toa', swdn_toa, found)
+    if (allocated(lwup_sfc)) call read_saved(rst, 'lwup_sfc', lwup_sfc, found)
+    ! older restarts lack t_last
+    found = found .and. restart_field_exists(rst, 't_last') .and. restart_field_exists(rst, 'dt_last')
+    if (found) then
+      call read_restart_field(rst, 't_last', x)
+      t_last = nint(x, 8)
+      call read_restart_field(rst, 'dt_last', x)
+      day_last = (t_last - nint(x, 8))/86400_8
+    elseif (mpp_pe() == mpp_root_pe()) then
+      call error_mesg(mod_name, 'INPUT/rrtm_radiation.res.nc lacks fields now in use;'// &
+                      ' radiation is recomputed at the first time step', NOTE)
+    end if
+    if (do_precip_albedo) then
+      if (restart_field_exists(rst, 'rrtm_precip') .and. restart_field_exists(rst, 'num_precip')) then
+        call read_restart_field(rst, 'rrtm_precip', rrtm_precip)
+        call read_restart_field(rst, 'num_precip', x)
+        num_precip = nint(x)
+      end if
+    end if
+    call close_restart(rst)
+
+  end subroutine read_restart_rrtm
+
+  !> Reads field `name` from the restart file, or sets `found` to `.false.` if it is not there.
+  subroutine read_saved_2d(rst, name, data, found)
+    implicit none
+    type(restart_file_type), intent(inout)    :: rst
+    character(len=*), intent(in)              :: name
+    real(kind=rb), dimension(:, :), intent(out) :: data
+    logical, intent(inout)                    :: found
+
+    if (restart_field_exists(rst, name)) then
+      call read_restart_field(rst, name, data)
+    else
+      found = .false.
+    end if
+  end subroutine read_saved_2d
+
+  !> Reads field `name` from the restart file, or sets `found` to `.false.` if it is not there.
+  subroutine read_saved_3d(rst, name, data, found)
+    implicit none
+    type(restart_file_type), intent(inout)      :: rst
+    character(len=*), intent(in)                :: name
+    real(kind=rb), dimension(:, :, :), intent(out) :: data
+    logical, intent(inout)                      :: found
+
+    if (restart_field_exists(rst, name)) then
+      call read_restart_field(rst, name, data)
+    else
+      found = .false.
+    end if
+  end subroutine read_saved_3d
+!*****************************************************************************************
+
+  !> Writes the state kept between radiation steps (only the fields in use) to
+  !> `RESTART/rrtm_radiation.res.nc`.
+  subroutine write_restart_rrtm
+    use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE
+    implicit none
+    type(restart_file_type) :: rst
+
+    if (mpp_pe() == mpp_root_pe()) call error_mesg(mod_name, &
+                                                   'Writing NetCDF formatted restart file: RESTART/rrtm_radiation.res.nc', NOTE)
+    call open_restart_write(rst, 'RESTART/rrtm_radiation.res.nc', domain)
+    ! dt_last: the time of the last radiation step in seconds from the start of the day of
+    ! the last time step (the alarm variable of earlier versions); t_last: the model time of
+    ! the last radiation step [s]
+    call write_restart_field(rst, 'dt_last', real(t_last - day_last*86400_8))
+    call write_restart_field(rst, 't_last', real(t_last))
+    if (allocated(tdt_rad)) call write_restart_field(rst, 'tdt_rad', tdt_rad)
+    if (allocated(sw_flux)) call write_restart_field(rst, 'sw_flux', sw_flux)
+    if (allocated(lw_flux)) call write_restart_field(rst, 'lw_flux', lw_flux)
+    if (allocated(zencos)) call write_restart_field(rst, 'zencos', zencos)
+    if (allocated(tdt_sw_rad)) call write_restart_field(rst, 'tdt_sw_rad', tdt_sw_rad)
+    if (allocated(tdt_lw_rad)) call write_restart_field(rst, 'tdt_lw_rad', tdt_lw_rad)
+    if (allocated(olr)) call write_restart_field(rst, 'olr', olr)
+    if (allocated(isr)) call write_restart_field(rst, 'isr', isr)
+    if (allocated(swdn_toa)) call write_restart_field(rst, 'swdn_toa', swdn_toa)
+    if (allocated(lwup_sfc)) call write_restart_field(rst, 'lwup_sfc', lwup_sfc)
+    if (do_precip_albedo) then
+      call write_restart_field(rst, 'rrtm_precip', rrtm_precip)
+      call write_restart_field(rst, 'num_precip', real(num_precip))
+    end if
+    call close_restart(rst)
+
+  end subroutine write_restart_rrtm
+!*****************************************************************************************
+end module rrtm_radiation

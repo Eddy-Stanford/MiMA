@@ -1,0 +1,38 @@
+"MiMA test gray"
+0001 1 1 0 0 0
+# One file, averaged over the whole run (-1: written at the end), in double
+# precision (packing 1) so that the digest sees every bit.
+"atmos_avg", -1, "hours", 1, "days", "time",
+# dynamics
+ "dynamics",  "bk",        "bk",        "atmos_avg", "all", .false., "none", 1,
+ "dynamics",  "pk",        "pk",        "atmos_avg", "all", .false., "none", 1,
+ "dynamics",  "ps",        "ps",        "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",  "ucomp",     "ucomp",     "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",  "vcomp",     "vcomp",     "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",  "temp",      "temp",      "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",  "sphum",     "sphum",     "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",  "omega",     "omega",     "atmos_avg", "all", .true.,  "none", 1,
+# surface: merged fluxes, slab ocean, simple land
+ "flux",      "t_surf",    "t_surf",    "atmos_avg", "all", .true.,  "none", 1,
+ "flux",      "shflx",     "shflx",     "atmos_avg", "all", .true.,  "none", 1,
+ "flux",      "evap",      "evap",      "atmos_avg", "all", .true.,  "none", 1,
+ "flux",      "lwflx",     "lwflx",     "atmos_avg", "all", .true.,  "none", 1,
+ "flux",      "albedo",    "albedo",    "atmos_avg", "all", .true.,  "none", 1,
+ "ocean",     "qflux",     "qflux",     "atmos_avg", "all", .true.,  "none", 1,
+ "ocean",     "heat_capacity_ocean", "heat_capacity_ocean", "atmos_avg", "all", .true., "none", 1,
+ "land",      "land_mask", "land_mask", "atmos_avg", "all", .false., "none", 1,
+ "land",      "f_net_final", "f_net_final", "atmos_avg", "all", .true., "none", 1,
+# moist physics, turbulence, gravity-wave drag
+ "moist",     "precip",    "precip",    "atmos_avg", "all", .true.,  "none", 1,
+ "moist",     "tdt_conv",  "tdt_conv",  "atmos_avg", "all", .true.,  "none", 1,
+ "moist",     "qdt_conv",  "qdt_conv",  "atmos_avg", "all", .true.,  "none", 1,
+ "moist",     "tdt_ls",    "tdt_ls",    "atmos_avg", "all", .true.,  "none", 1,
+ "vert_turb", "diff_t",    "diff_t",    "atmos_avg", "all", .true.,  "none", 1,
+ "cg_drag",   "gwfu_cgwd", "gwfu_cgwd", "atmos_avg", "all", .true.,  "none", 1,
+# radiation
+ "radiation", "tdt_rad",   "tdt_rad",   "atmos_avg", "all", .true.,  "none", 1,
+ "radiation", "olr",       "olr",       "atmos_avg", "all", .true.,  "none", 1,
+ "radiation", "swnet_sfc", "swnet_sfc", "atmos_avg", "all", .true.,  "none", 1,
+ "radiation", "lwdn_sfc",  "lwdn_sfc",  "atmos_avg", "all", .true.,  "none", 1,
+ "radiation", "swdn_toa",  "swdn_toa",  "atmos_avg", "all", .true.,  "none", 1,
+ "radiation", "lwup_sfc",  "lwup_sfc",  "atmos_avg", "all", .true.,  "none", 1,

@@ -1,0 +1,15 @@
+# Guard tests: bad input must stop the model with a clear message. One line per
+# test: <name> <case> <edit> <regex>. The edit is <group>:<key>=<value> (set a
+# namelist key, adding the group if needed), touch:<path> (create an empty file
+# in the run directory) or rm:<path> (delete it); no spaces in it. The regex
+# (CMake syntax, no ';') must appear in the output: it becomes the test's
+# PASS_REGULAR_EXPRESSION. Each guard runs one step of the case on 1 rank.
+v1_namelist            rrtm  simple_surface_nml:surface_choice=1      contains the v1 namelist simple_surface_nml
+v1_restart_only        rrtm  touch:INPUT/simple_surface.res.nc        simple_surface.res.nc is a v1 surface restart
+unknown_ocean_model    rrtm  ocean_model_nml:ocean_model='foo'        unknown ocean_model
+prescribed_no_sst_file rrtm  ocean_model_nml:ocean_model='prescribed' need sst_file
+mistyped_key           rrtm  ocean_model_nml:ocean_modle='slab'       mistyped namelist variable in namelist ocean_model_nml
+no_restart_dir         rrtm  rm:RESTART                               cannot write to the RESTART directory
+removed_noise_key      hs    spectral_dynamics_nml:add_noise=0.1      were replaced by initial_noise_nml
+bad_precip_albedo_mode rrtm  rrtm_radiation_nml:precip_albedo_mode='foo' precip_albedo_mode must be .*not foo
+removed_cg_drag_key    rrtm  cg_drag_nml:Bt_eq=0.0043                 Bt_0 is now Bt

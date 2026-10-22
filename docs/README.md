@@ -10,32 +10,46 @@ The source code is on [GitHub](https://github.com/Eddy-Stanford/MiMA).
 ## Contents
 
 * [Getting started](GettingStarted.md): dependencies, compiling, running the test case
-* [Model configurations](Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
+* [Model configurations](Configurations.md): radiation schemes, Held-Suarez forcing, surface options, specified initial conditions, initial-condition noise
 * [Parameter settings](Parameters.md): default and recommended namelist values
+* [Diagnostics](Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
+* [Fortran API reference](FortranAPI.md): the modules and procedures of the source code, and how to document them
 * [Version history](Versions.md): main additions and changes
+* [Migrating from v1 to v2.0](Migration_v2.md): what changed in v2.0 and how to convert a v1 setup
 * [References](#references): required and relevant references
 * [License](https://github.com/Eddy-Stanford/MiMA#license)
 
 ## References
 
 MiMA
+
 * [Jucker and Gerber, J Clim (2017)](https://doi.org/10.1175/JCLI-D-17-0127.1)
 * [Garfinkel et al., J Clim (2020)](https://doi.org/10.1175/JCLI-D-19-0181.1)
 * code:
-  * latest version: [![DOI](https://zenodo.org/badge/36012278.svg)](https://zenodo.org/badge/latestdoi/36012278)
-  * v1.1: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.3637607.svg)](https://doi.org/10.5281/zenodo.3637607)
-  * v1.0: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.321708.svg)](https://doi.org/10.5281/zenodo.321708)
+    * latest version: [![DOI](https://zenodo.org/badge/36012278.svg)](https://zenodo.org/badge/latestdoi/36012278)
+    * v1.1: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.3637607.svg)](https://doi.org/10.5281/zenodo.3637607)
+    * v1.0: [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.321708.svg)](https://doi.org/10.5281/zenodo.321708)
 
 Gray radiation model
+
 * [Frierson, Held, Zurita-Gotor, JAS (2006)](https://doi.org/10.1175/JAS3753.1)
 * [Frierson, JAS (2007)](https://doi.org/10.1175/JAS3935.1)
 * [Frierson, Held, Zurita-Gotor, JAS (2007)](https://doi.org/10.1175/JAS3913.1)
 
 RRTM
+
 * [Mlawer et al., JGR (1997)](https://doi.org/10.1029/97JD00237)
 * [Iacono et al., JGR (2000)](https://doi.org/10.1029/2000JD900091)
 * [Iacono et al., JGR (2008)](https://doi.org/10.1029/2008JD009944)
 * [Clough et al., JQSRT (2005)](https://doi.org/10.1016/j.jqsrt.2004.05.058)
 
+GFDL technical notes on parts of the model (PDF)
+
+* [The spectral dynamical core](references/gfdl_spectral_core.pdf)
+* [The vertical diffusion module](references/gfdl_vert_diff.pdf) (`vert_diff_mod`)
+* [The diffusivity module](references/gfdl_diffusivity.pdf) (`diffusivity_mod`)
+* [The Monin-Obukhov module](references/gfdl_monin_obukhov.pdf) (`monin_obukhov_mod`, now `mima_monin_obukhov_mod`)
+
 Isca framework (which contains MiMA)
+
 * [Vallis et al., GMD (2018)](https://doi.org/10.5194/gmd-11-843-2018)

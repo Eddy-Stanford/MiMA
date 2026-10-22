@@ -1,4 +1,12 @@
 {
-    "name":"GNU Eddy-Builder",
-    "image":"robcking/eddy_builder_dev:gnu_openmpi"
+    "name": "GNU Eddy-Builder",
+    // robcking/eddy_builder_dev:gnu_openmpi, pinned to the multi-arch (amd64, arm64) image of
+    // 2026-01-23: Ubuntu 22.04, gfortran 11.4, Open MPI 4.1.2 (with mpi_f08), netCDF 4.8.1,
+    // netCDF-Fortran 4.5.4, CMake 3.22.1 (the minimum MiMA and FMS accept).
+    "image": "robcking/eddy_builder_dev:gnu_openmpi@sha256:1532e6d7e6e1718cb368a51b64a4eef8ad998e8af091ea03a7da486514d7cda6",
+    "customizations": {
+        "vscode": {
+            "extensions": ["fortran-lang.linter-gfortran"]
+        }
+    }
 }

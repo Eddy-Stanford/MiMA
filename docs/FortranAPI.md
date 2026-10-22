@@ -1,0 +1,52 @@
+# Fortran API reference
+
+These pages document MiMA's Fortran modules: their purpose, public procedures and
+arguments, derived types and public variables, with links to the source on GitHub. They
+are generated from the doc comments in `src/` when the site is built (the sources are
+parsed with [FORD](https://forddocs.readthedocs.io), see `ford.md` and
+`tools/fortran_api.py`), so they always match the code. The [modules](#modules) are listed
+below and in the navigation. The vendored AER RRTMG radiation code
+(`src/atmos_param/radiation/rrtm/rrtmg_*`) is not included.
+
+The [namelist reference](Parameters.md) and the [diagnostics reference](Diagnostics.md)
+are generated from the same source by `tools/mimadoc`.
+
+## Writing doc comments
+
+Doc comments are ordinary Fortran comments that start with `!>` (placed before the item
+they document) or `!!` (placed after it, usually at the end of the line). Plain `!`
+comments are not documentation.
+
+```fortran
+!> Newtonian relaxation of temperature towards a prescribed profile.
+!>
+!> Longer description: method, switches, references.
+!>
+!> Namelist: `relax_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#relax_nml)).
+module relax_mod
+
+  real :: tau = 40.  !! [days] relaxation time scale
+  namelist /relax_nml/ tau
+
+contains
+
+  !> Adds the relaxation tendency to `tdt`.
+  subroutine relax_tend(t, t_eq, tdt)
+    real, intent(in) :: t(:, :, :), t_eq(:, :, :)  !! `t`: temperature; `t_eq`: equilibrium temperature [K]
+    real, intent(inout) :: tdt(:, :, :)             !! temperature tendency [K/s]
+```
+
+* **Modules** start with a `!>` block: a one-line summary, then a description.
+* **Public procedures and types** have a `!>` block with a one-line summary, then details
+  if needed. Each dummy argument has a `!!` comment with its meaning and units in `[ ]`.
+* **Namelist variables** have a `!!` comment on the line where they are declared,
+  continued on following `!!` lines if needed. This text is the description in the
+  [namelist reference](Parameters.md), so write it for users: meaning, units, allowed
+  values. `python3 tools/mimadoc check` fails if a namelist variable has none.
+* Names declared in one statement share its doc comment, so name each of them in it:
+  `` !! `u`, `v`: zonal and meridional wind [m/s] ``.
+* A module with a namelist links to its entry in the namelist reference, as above (the
+  anchor is the group name).
+* The first paragraph is the summary shown in lists, so keep it to one sentence.
+* The text is Markdown: use backticks for code, and no HTML.

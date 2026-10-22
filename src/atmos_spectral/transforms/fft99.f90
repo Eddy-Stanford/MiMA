@@ -1,0 +1,843 @@
+
+!> Multiple real/half-complex periodic fast Fourier transforms (Temperton's FFT99 package).
+!>
+!> Performs a number of simultaneous real/half-complex periodic Fourier transforms or the
+!> inverse transforms: given a set of real data vectors it returns a set of half-complex
+!> Fourier coefficient vectors, or vice versa. The transform length `n` must be an even
+!> number greater than 4 with no prime factors other than 2, 3 and 5. `set99` must be
+!> called once for a given `n` before the transforms `fft991`. A typical sequence, for `m`
+!> vectors of length `n`, is
+!>
+!> ```fortran
+!> integer :: ifax(13)
+!> real :: trigs(3*n/2+1), a(m*(n+2)), work(m*(n+1))
+!> call set99(trigs, ifax, n)
+!> call fft991(a, work, trigs, ifax, inc, jump, n, m, isign)
+!> ```
+!>
+!> The transform is converted to a half-length complex transform by the procedure of
+!> Cooley, Lewis and Welch (1970). The package was written by Clive Temperton at ECMWF
+!> in November 1978 (an all-Fortran version of his routines for the Cray X-MP/Y-MP), and
+!> modified, documented and tested for NCAR by Russ Rew in September 1980.
+!>
+!> References:
+!>
+!> * Cooley, J. W., P. A. W. Lewis, and P. D. Welch, 1970: J. Sound Vib., 12, 315-337.
+!>
+!> Original authors: Clive Temperton, Russ Rew.
+module fft99_mod
+
+  use constants_mod, only: pi
+  use mpp_mod, only: mpp_error, FATAL
+
+  implicit none
+  private
+
+  public :: fft991, set99
+
+contains
+
+!##########################################################################
+
+  !> Preprocessing step of `fft991` for `isign` = +1 (spectral to gridpoint).
+  subroutine fft99a(a, work, trigs, inc, jump, n, lot)
+    integer, intent(in)    :: inc, jump, n, lot
+    real, intent(in)    :: trigs(:)
+    real, intent(inout) :: a(*), work(*)
+
+!     dimension a(n),work(n),trigs(n)
+!
+!     subroutine fft99a - preprocessing step for fft991, isign=+1
+!     (spectral to gridpoint transform)
+
+    integer :: nh, nx, ink, k, L
+    integer :: ia, ib, ja, jb, iabase, ibbase, jabase, jbbase
+    real    :: c, s
+
+    nh = n/2
+    nx = n + 1
+    ink = inc + inc
+
+!   a(0) and a(n/2)
+    ia = 1
+    ib = n*inc + 1
+    ja = 1
+    jb = 2
+!dir$ ivdep
+    do L = 1, lot
+      work(ja) = a(ia) + a(ib)
+      work(jb) = a(ia) - a(ib)
+      ia = ia + jump
+      ib = ib + jump
+      ja = ja + nx
+      jb = jb + nx
+    end do
+
+!   remaining wavenumbers
+    iabase = 2*inc + 1
+    ibbase = (n - 2)*inc + 1
+    jabase = 3
+    jbbase = n - 1
+
+    do k = 3, nh, 2
+      ia = iabase
+      ib = ibbase
+      ja = jabase
+      jb = jbbase
+      c = trigs(n + k)
+      s = trigs(n + k + 1)
+!dir$ ivdep
+      do L = 1, lot
+        work(ja) = (a(ia) + a(ib)) - &
+                   (s*(a(ia) - a(ib)) + c*(a(ia + inc) + a(ib + inc)))
+        work(jb) = (a(ia) + a(ib)) + &
+                   (s*(a(ia) - a(ib)) + c*(a(ia + inc) + a(ib + inc)))
+        work(ja + 1) = (c*(a(ia) - a(ib)) - s*(a(ia + inc) + a(ib + inc))) + &
+                       (a(ia + inc) - a(ib + inc))
+        work(jb + 1) = (c*(a(ia) - a(ib)) - s*(a(ia + inc) + a(ib + inc))) - &
+                       (a(ia + inc) - a(ib + inc))
+        ia = ia + jump
+        ib = ib + jump
+        ja = ja + nx
+        jb = jb + nx
+      end do
+      iabase = iabase + ink
+      ibbase = ibbase - ink
+      jabase = jabase + 2
+      jbbase = jbbase - 2
+    end do
+
+!   wavenumber n/4 (if it exists)
+    if (iabase == ibbase) then
+      ia = iabase
+      ja = jabase
+!dir$ ivdep
+      do L = 1, lot
+        work(ja) = 2.0*a(ia)
+        work(ja + 1) = -2.0*a(ia + inc)
+        ia = ia + jump
+        ja = ja + nx
+      end do
+    end if
+
+  end subroutine fft99a
+
+!##########################################################################
+
+  !> Postprocessing step of `fft991` for `isign` = -1 (gridpoint to spectral).
+  subroutine fft99b(work, a, trigs, inc, jump, n, lot)
+    integer, intent(in)    :: inc, jump, n, lot
+    real, intent(in)    :: trigs(:)
+    real, intent(inout) :: a(*), work(*)
+
+!     dimension work(n),a(n),trigs(n)
+!
+!     subroutine fft99b - postprocessing step for fft991, isign=-1
+!     (gridpoint to spectral transform)
+
+    integer :: nh, nx, ink, k, L
+    integer :: ia, ib, ja, jb, iabase, ibbase, jabase, jbbase
+    real    :: scale, c, s
+
+    nh = n/2
+    nx = n + 1
+    ink = inc + inc
+
+!   a(0) and a(n/2)
+    scale = 1.0/real(n)
+    ia = 1
+    ib = 2
+    ja = 1
+    jb = n*inc + 1
+!dir$ ivdep
+    do L = 1, lot
+      a(ja) = scale*(work(ia) + work(ib))
+      a(jb) = scale*(work(ia) - work(ib))
+      a(ja + inc) = 0.0
+      a(jb + inc) = 0.0
+      ia = ia + nx
+      ib = ib + nx
+      ja = ja + jump
+      jb = jb + jump
+    end do
+
+!   remaining wavenumbers
+    scale = 0.5*scale
+    iabase = 3
+    ibbase = n - 1
+    jabase = 2*inc + 1
+    jbbase = (n - 2)*inc + 1
+
+    do k = 3, nh, 2
+      ia = iabase
+      ib = ibbase
+      ja = jabase
+      jb = jbbase
+      c = trigs(n + k)
+      s = trigs(n + k + 1)
+!dir$ ivdep
+      do L = 1, lot
+        a(ja) = scale*((work(ia) + work(ib)) &
+                       + (c*(work(ia + 1) + work(ib + 1)) + s*(work(ia) - work(ib))))
+        a(jb) = scale*((work(ia) + work(ib)) &
+                       - (c*(work(ia + 1) + work(ib + 1)) + s*(work(ia) - work(ib))))
+        a(ja + inc) = scale*((c*(work(ia) - work(ib)) - s*(work(ia + 1) + work(ib + 1))) &
+                             + (work(ib + 1) - work(ia + 1)))
+        a(jb + inc) = scale*((c*(work(ia) - work(ib)) - s*(work(ia + 1) + work(ib + 1))) &
+                             - (work(ib + 1) - work(ia + 1)))
+        ia = ia + nx
+        ib = ib + nx
+        ja = ja + jump
+        jb = jb + jump
+      end do
+      iabase = iabase + 2
+      ibbase = ibbase - 2
+      jabase = jabase + ink
+      jbbase = jbbase - ink
+    end do
+
+!   wavenumber n/4 (if it exists)
+    if (iabase == ibbase) then
+      ia = iabase
+      ja = jabase
+      scale = 2.0*scale
+!dir$ ivdep
+      do L = 1, lot
+        a(ja) = scale*work(ia)
+        a(ja + inc) = -scale*work(ia + 1)
+        ia = ia + nx
+        ja = ja + jump
+      end do
+    end if
+
+  end subroutine fft99b
+
+!##########################################################################
+
+  !> Performs multiple real/half-complex periodic FFTs, with the gridpoint values in
+  !> ordinary spatial order.
+  !>
+  !> Each coefficient vector holds `a(0), b(0), a(1), b(1), ..., a(n/2), b(n/2)` (n+2
+  !> values; b(0) = b(n/2) = 0, which need not be supplied for `isign` = +1). Each data
+  !> vector holds the n+2 values `x(0), x(1), ..., x(n-1), 0, 0` (the ordering of
+  !> `mrfft2`). The transforms are
+  !>
+  !> ```text
+  !> isign = +1:  x(j) = sum(k=0,...,n-1) c(k) exp(2 i j k pi/n),
+  !>              where c(k) = a(k) + i b(k) and c(n-k) = a(k) - i b(k)
+  !> isign = -1:  c(k) = (1/n) sum(j=0,...,n-1) x(j) exp(-2 i j k pi/n)
+  !> ```
+  !>
+  !> so a call with `isign` = +1 followed by one with `isign` = -1 returns the original
+  !> data. For example, 19 data vectors of length 64 stored one after the other in 70
+  !> locations each (66 values and 4 empty) have `inc` = 1, `jump` = 70; stored
+  !> interleaved (`a(1:19)` holding x(0) of each vector, `a(20:38)` x(1), ...), they have
+  !> `inc` = 19, `jump` = 1. Each coefficient vector overwrites the corresponding data
+  !> vector.
+  subroutine fft991(a, work, trigs, ifax, inc, jump, n, lot, isign)
+    integer, intent(in)    :: inc, jump, n, lot, isign
+    !! `inc`: increment between successive elements of each vector (1 for consecutive
+    !! data); `jump`: increment between the first elements of successive vectors; `n`:
+    !! length of each transform; `lot`: number of transforms done at once; `isign`: +1 from
+    !! Fourier coefficients to gridpoint values, -1 from gridpoint values to coefficients
+    integer, intent(inout) :: ifax(:)  !! factors of n/2, set up by `set99`
+    real, intent(in)    :: trigs(:)  !! trigonometric function values, set up by `set99`
+    real, intent(inout) :: a(*), work(*)
+    !! `a`: the data or coefficient vectors, length lot*(n+2), overwritten by the results;
+    !! `work`: work array of length lot*(n+1)
+
+    integer :: nfax, nx, nh, ink, ibase, jbase
+    integer :: i, j, k, L, m, ia, la, ib
+    logical :: from_a   ! the next pass of the complex transform reads a and writes work
+
+    nfax = ifax(1)
+    nx = n + 1
+    nh = n/2
+    ink = inc + inc
+
+    if (isign == +1) then
+      ! preprocessing (isign=+1)
+      call fft99a(a, work, trigs, inc, jump, n, lot)
+      from_a = .false.
+    else if (mod(nfax, 2) == 1) then
+      from_a = .true.
+    else
+      ! an even number of passes: transfer the data to the work area first
+      ibase = 1
+      jbase = 1
+      do L = 1, lot
+        i = ibase
+        j = jbase
+!dir$ ivdep
+        do m = 1, n
+          work(j) = a(i)
+          i = i + inc
+          j = j + 1
+        end do
+        ibase = ibase + jump
+        jbase = jbase + nx
+      end do
+      from_a = .false.
+    end if
+
+    ! complex transform, one pass per factor, alternating between a and work
+    ia = 1
+    la = 1
+    do k = 1, nfax
+      if (from_a) then
+        call vpassm(a(ia), a(ia + inc), work(1), work(2), trigs, &
+                    ink, 2, jump, nx, lot, nh, ifax(k + 1), la)
+      else
+        call vpassm(work(1), work(2), a(ia), a(ia + inc), trigs, &
+                    2, ink, nx, jump, lot, nh, ifax(k + 1), la)
+      end if
+      from_a = .not. from_a
+      la = la*ifax(k + 1)
+    end do
+
+    if (isign == -1) then
+      ! postprocessing (isign=-1)
+      call fft99b(work, a, trigs, inc, jump, n, lot)
+    else
+      ! if necessary, transfer data from work area
+      if (mod(nfax, 2) /= 1) then
+        ibase = 1
+        jbase = 1
+        do L = 1, lot
+          i = ibase
+          j = jbase
+!dir$ ivdep
+          do m = 1, n
+            a(j) = work(i)
+            i = i + 1
+            j = j + inc
+          end do
+          ibase = ibase + nx
+          jbase = jbase + jump
+        end do
+      end if
+
+      ! fill in zeros at end
+      ib = n*inc + 1
+!dir$ ivdep
+      do L = 1, lot
+        a(ib) = 0.0
+        a(ib + inc) = 0.0
+        ib = ib + jump
+      end do
+    end if
+
+  end subroutine fft991
+
+!##########################################################################
+
+  !> Sets up the factors and trigonometric values used by `fft991` for
+  !> transforms of length `n`.
+  !>
+  !> It need only be called once before a sequence of transforms of the same length. Stops
+  !> if `n` is odd, not greater than 4, or has a prime factor greater than 5.
+  subroutine set99(trigs, ifax, n)
+    integer, intent(in)  :: n
+    !! length of the transforms: an even number greater than 4 with no prime factor greater
+    !! than 5
+    integer, intent(out) :: ifax(:)
+    !! factorization of n/2: `ifax(1)` is the number of factors, stored in `ifax(2)`,
+    !! `ifax(3)`, ...; 13 elements suffice for n less than a million
+    real, intent(out) :: trigs(:)
+    !! trigonometric function values used by the transforms; size 3*n/2 if n/2 is even,
+    !! 3*n/2+1 if n/2 is odd
+
+!     dimension ifax(13),trigs(1)
+!
+! mode 3 is used for real/half-complex transforms.  it is possible
+! to do complex/complex transforms with other values of mode, but
+! documentation of the details were not available when this routine
+! was written.
+!
+    integer, parameter :: mode = 3
+    integer :: i
+
+    call fax(ifax, n, mode)
+    i = ifax(1)
+    if (ifax(i + 1) > 5 .or. n <= 4) ifax(1) = -99
+    if (ifax(1) <= 0) then
+      call mpp_error(FATAL, 'fft99_mod: in routine set99 -- invalid n')
+    end if
+    call fftrig(trigs, n, mode)
+
+  end subroutine set99
+
+!##########################################################################
+
+  !> Factorizes `n` (or `n/2`, depending on `mode`) into factors in ascending order.
+  subroutine fax(ifax, n, mode)
+    integer, intent(out) :: ifax(:)
+    integer, intent(in)  :: n, mode
+
+    integer :: nn, k, L, inc, nfax, ii, istop, i, item
+
+    nn = n
+    if (iabs(mode) /= 1 .and. iabs(mode) /= 8) then
+      nn = n/2
+      if ((nn + nn) /= n) then
+        ifax(1) = -99
+        return
+      end if
+    end if
+    k = 1
+!     factors of 4
+    do while (mod(nn, 4) == 0)
+      k = k + 1
+      ifax(k) = 4
+      nn = nn/4
+    end do
+!     an extra factor of 2
+    if (mod(nn, 2) == 0) then
+      k = k + 1
+      ifax(k) = 2
+      nn = nn/2
+    end if
+!     factors of 3
+    do while (mod(nn, 3) == 0)
+      k = k + 1
+      ifax(k) = 3
+      nn = nn/3
+    end do
+!     the remaining factors: L = 5, 7, 11, 13, ... (inc alternately takes on values 2 and 4)
+    L = 5
+    inc = 2
+    do while (nn /= 1)
+      if (mod(nn, L) == 0) then
+        k = k + 1
+        ifax(k) = L
+        nn = nn/L
+      else
+        L = L + inc
+        inc = 6 - inc
+      end if
+    end do
+    ifax(1) = k - 1
+!     ifax(1) contains number of factors
+    nfax = ifax(1)
+!     sort factors into ascending order
+    do ii = 2, nfax
+      istop = nfax + 2 - ii
+      do i = 2, istop
+        if (ifax(i + 1) >= ifax(i)) cycle
+        item = ifax(i)
+        ifax(i) = ifax(i + 1)
+        ifax(i + 1) = item
+      end do
+    end do
+
+  end subroutine fax
+
+!##########################################################################
+
+  !> Computes the table of trigonometric function values for the transforms.
+  subroutine fftrig(trigs, n, mode)
+    real, intent(out) :: trigs(:)
+    integer, intent(in)  :: n, mode
+
+    real    :: del, angle
+    integer :: imode, nn, nh, i, L, la
+
+    imode = iabs(mode)
+    nn = n
+    if (imode > 1 .and. imode < 6) nn = n/2
+    del = (pi + pi)/real(nn)
+    L = nn + nn
+    do i = 1, L, 2
+      angle = 0.5*real(i - 1)*del
+      trigs(i) = cos(angle)
+      trigs(i + 1) = sin(angle)
+    end do
+    if (imode == 1) return
+    if (imode == 8) return
+
+    del = 0.5*del
+    nh = (nn + 1)/2
+    L = nh + nh
+    la = nn + nn
+    do i = 1, L, 2
+      angle = 0.5*real(i - 1)*del
+      trigs(la + i) = cos(angle)
+      trigs(la + i + 1) = sin(angle)
+    end do
+    if (imode <= 3) return
+
+    del = 0.5*del
+    la = la + nn
+    if (mode /= 5) then
+      do i = 2, nn
+        angle = real(i - 1)*del
+        trigs(la + i) = 2.0*sin(angle)
+      end do
+      return
+    end if
+
+    del = 0.5*del
+    do i = 2, n
+      angle = real(i - 1)*del
+      trigs(la + i) = sin(angle)
+    end do
+
+  end subroutine fftrig
+
+!##########################################################################
+
+  !> Performs one pass through the data of the multiple complex FFT.
+  subroutine vpassm(a, b, c, d, trigs, inc1, inc2, inc3, inc4, lot, n, ifac, la)
+    integer, intent(in)  :: inc1, inc2, inc3, inc4, lot, n, ifac, la
+    real, intent(in)  :: a(n), b(n), trigs(n)
+    real, intent(out) :: c(n), d(n)
+!
+!     subroutine "vpassm" - multiple version of "vpassa"
+!     performs one pass through data
+!     as part of multiple complex fft routine
+!     a is first real input vector
+!     b is first imaginary input vector
+!     c is first real output vector
+!     d is first imaginary output vector
+!     trigs is precalculated table of sines " cosines
+!     inc1 is addressing increment for a and b
+!     inc2 is addressing increment for c and d
+!     inc3 is addressing increment between a"s & b"s
+!     inc4 is addressing increment between c"s & d"s
+!     lot is the number of vectors
+!     n is length of vectors
+!     ifac is current factor of n
+!     la is product of previous factors
+!
+
+    real, parameter :: sin36 = 0.587785252292473
+    real, parameter :: cos36 = 0.809016994374947
+    real, parameter :: sin72 = 0.951056516295154
+    real, parameter :: cos72 = 0.309016994374947
+    real, parameter :: sin60 = 0.866025403784437
+
+    integer :: i, j, k, L, m, iink, jink, jump, ibase, jbase, igo, ijk, la1
+    integer :: ia, ja, ib, jb, kb, ic, jc, kc, id, jd, kd, ie, je, ke
+    real    :: c1, s1, c2, s2, c3, s3, c4, s4
+
+    m = n/ifac
+    iink = m*inc1
+    jink = la*inc2
+    jump = (ifac - 1)*jink
+    ibase = 0
+    jbase = 0
+    igo = ifac - 1
+    if (igo > 4) return
+
+    select case (igo)
+
+!   coding for factor 2
+
+    case (1)
+      ia = 1
+      ja = 1
+      ib = ia + iink
+      jb = ja + jink
+      do L = 1, la
+        i = ibase
+        j = jbase
+!dir$ ivdep
+        do ijk = 1, lot
+          c(ja + j) = a(ia + i) + a(ib + i)
+          d(ja + j) = b(ia + i) + b(ib + i)
+          c(jb + j) = a(ia + i) - a(ib + i)
+          d(jb + j) = b(ia + i) - b(ib + i)
+          i = i + inc3
+          j = j + inc4
+        end do
+        ibase = ibase + inc1
+        jbase = jbase + inc2
+      end do
+      if (la == m) return
+      la1 = la + 1
+      jbase = jbase + jump
+      do k = la1, m, la
+        kb = k + k - 2
+        c1 = trigs(kb + 1)
+        s1 = trigs(kb + 2)
+        do L = 1, la
+          i = ibase
+          j = jbase
+!dir$ ivdep
+          do ijk = 1, lot
+            c(ja + j) = a(ia + i) + a(ib + i)
+            d(ja + j) = b(ia + i) + b(ib + i)
+            c(jb + j) = c1*(a(ia + i) - a(ib + i)) - s1*(b(ia + i) - b(ib + i))
+            d(jb + j) = s1*(a(ia + i) - a(ib + i)) + c1*(b(ia + i) - b(ib + i))
+            i = i + inc3
+            j = j + inc4
+          end do
+          ibase = ibase + inc1
+          jbase = jbase + inc2
+        end do
+        jbase = jbase + jump
+      end do
+
+!   coding for factor 3
+
+    case (2)
+      ia = 1
+      ja = 1
+      ib = ia + iink
+      jb = ja + jink
+      ic = ib + iink
+      jc = jb + jink
+      do L = 1, la
+        i = ibase
+        j = jbase
+!dir$ ivdep
+        do ijk = 1, lot
+          c(ja + j) = a(ia + i) + (a(ib + i) + a(ic + i))
+          d(ja + j) = b(ia + i) + (b(ib + i) + b(ic + i))
+          c(jb + j) = (a(ia + i) - 0.5*(a(ib + i) + a(ic + i))) - (sin60*(b(ib + i) - b(ic + i)))
+          c(jc + j) = (a(ia + i) - 0.5*(a(ib + i) + a(ic + i))) + (sin60*(b(ib + i) - b(ic + i)))
+          d(jb + j) = (b(ia + i) - 0.5*(b(ib + i) + b(ic + i))) + (sin60*(a(ib + i) - a(ic + i)))
+          d(jc + j) = (b(ia + i) - 0.5*(b(ib + i) + b(ic + i))) - (sin60*(a(ib + i) - a(ic + i)))
+          i = i + inc3
+          j = j + inc4
+        end do
+        ibase = ibase + inc1
+        jbase = jbase + inc2
+      end do
+      if (la == m) return
+      la1 = la + 1
+      jbase = jbase + jump
+      do k = la1, m, la
+        kb = k + k - 2
+        kc = kb + kb
+        c1 = trigs(kb + 1)
+        s1 = trigs(kb + 2)
+        c2 = trigs(kc + 1)
+        s2 = trigs(kc + 2)
+        do L = 1, la
+          i = ibase
+          j = jbase
+!dir$ ivdep
+          do ijk = 1, lot
+            c(ja + j) = a(ia + i) + (a(ib + i) + a(ic + i))
+            d(ja + j) = b(ia + i) + (b(ib + i) + b(ic + i))
+            c(jb + j) = &
+              c1*((a(ia + i) - 0.5*(a(ib + i) + a(ic + i))) - (sin60*(b(ib + i) - b(ic + i)))) &
+              - s1*((b(ia + i) - 0.5*(b(ib + i) + b(ic + i))) + (sin60*(a(ib + i) - a(ic + i))))
+            d(jb + j) = &
+              s1*((a(ia + i) - 0.5*(a(ib + i) + a(ic + i))) - (sin60*(b(ib + i) - b(ic + i)))) &
+              + c1*((b(ia + i) - 0.5*(b(ib + i) + b(ic + i))) + (sin60*(a(ib + i) - a(ic + i))))
+            c(jc + j) = &
+              c2*((a(ia + i) - 0.5*(a(ib + i) + a(ic + i))) + (sin60*(b(ib + i) - b(ic + i)))) &
+              - s2*((b(ia + i) - 0.5*(b(ib + i) + b(ic + i))) - (sin60*(a(ib + i) - a(ic + i))))
+            d(jc + j) = &
+              s2*((a(ia + i) - 0.5*(a(ib + i) + a(ic + i))) + (sin60*(b(ib + i) - b(ic + i)))) &
+              + c2*((b(ia + i) - 0.5*(b(ib + i) + b(ic + i))) - (sin60*(a(ib + i) - a(ic + i))))
+            i = i + inc3
+            j = j + inc4
+          end do
+          ibase = ibase + inc1
+          jbase = jbase + inc2
+        end do
+        jbase = jbase + jump
+      end do
+
+!   coding for factor 4
+
+    case (3)
+      ia = 1
+      ja = 1
+      ib = ia + iink
+      jb = ja + jink
+      ic = ib + iink
+      jc = jb + jink
+      id = ic + iink
+      jd = jc + jink
+      do L = 1, la
+        i = ibase
+        j = jbase
+!dir$ ivdep
+        do ijk = 1, lot
+          c(ja + j) = (a(ia + i) + a(ic + i)) + (a(ib + i) + a(id + i))
+          c(jc + j) = (a(ia + i) + a(ic + i)) - (a(ib + i) + a(id + i))
+          d(ja + j) = (b(ia + i) + b(ic + i)) + (b(ib + i) + b(id + i))
+          d(jc + j) = (b(ia + i) + b(ic + i)) - (b(ib + i) + b(id + i))
+          c(jb + j) = (a(ia + i) - a(ic + i)) - (b(ib + i) - b(id + i))
+          c(jd + j) = (a(ia + i) - a(ic + i)) + (b(ib + i) - b(id + i))
+          d(jb + j) = (b(ia + i) - b(ic + i)) + (a(ib + i) - a(id + i))
+          d(jd + j) = (b(ia + i) - b(ic + i)) - (a(ib + i) - a(id + i))
+          i = i + inc3
+          j = j + inc4
+        end do
+        ibase = ibase + inc1
+        jbase = jbase + inc2
+      end do
+      if (la == m) return
+      la1 = la + 1
+      jbase = jbase + jump
+      do k = la1, m, la
+        kb = k + k - 2
+        kc = kb + kb
+        kd = kc + kb
+        c1 = trigs(kb + 1)
+        s1 = trigs(kb + 2)
+        c2 = trigs(kc + 1)
+        s2 = trigs(kc + 2)
+        c3 = trigs(kd + 1)
+        s3 = trigs(kd + 2)
+        do L = 1, la
+          i = ibase
+          j = jbase
+!dir$ ivdep
+          do ijk = 1, lot
+            c(ja + j) = (a(ia + i) + a(ic + i)) + (a(ib + i) + a(id + i))
+            d(ja + j) = (b(ia + i) + b(ic + i)) + (b(ib + i) + b(id + i))
+            c(jc + j) = &
+              c2*((a(ia + i) + a(ic + i)) - (a(ib + i) + a(id + i))) &
+              - s2*((b(ia + i) + b(ic + i)) - (b(ib + i) + b(id + i)))
+            d(jc + j) = &
+              s2*((a(ia + i) + a(ic + i)) - (a(ib + i) + a(id + i))) &
+              + c2*((b(ia + i) + b(ic + i)) - (b(ib + i) + b(id + i)))
+            c(jb + j) = &
+              c1*((a(ia + i) - a(ic + i)) - (b(ib + i) - b(id + i))) &
+              - s1*((b(ia + i) - b(ic + i)) + (a(ib + i) - a(id + i)))
+            d(jb + j) = &
+              s1*((a(ia + i) - a(ic + i)) - (b(ib + i) - b(id + i))) &
+              + c1*((b(ia + i) - b(ic + i)) + (a(ib + i) - a(id + i)))
+            c(jd + j) = &
+              c3*((a(ia + i) - a(ic + i)) + (b(ib + i) - b(id + i))) &
+              - s3*((b(ia + i) - b(ic + i)) - (a(ib + i) - a(id + i)))
+            d(jd + j) = &
+              s3*((a(ia + i) - a(ic + i)) + (b(ib + i) - b(id + i))) &
+              + c3*((b(ia + i) - b(ic + i)) - (a(ib + i) - a(id + i)))
+            i = i + inc3
+            j = j + inc4
+          end do
+          ibase = ibase + inc1
+          jbase = jbase + inc2
+        end do
+        jbase = jbase + jump
+      end do
+
+!   coding for factor 5
+
+    case (4)
+      ia = 1
+      ja = 1
+      ib = ia + iink
+      jb = ja + jink
+      ic = ib + iink
+      jc = jb + jink
+      id = ic + iink
+      jd = jc + jink
+      ie = id + iink
+      je = jd + jink
+      do L = 1, la
+        i = ibase
+        j = jbase
+!dir$ ivdep
+        do ijk = 1, lot
+          c(ja + j) = a(ia + i) + (a(ib + i) + a(ie + i)) + (a(ic + i) + a(id + i))
+          d(ja + j) = b(ia + i) + (b(ib + i) + b(ie + i)) + (b(ic + i) + b(id + i))
+          c(jb + j) = (a(ia + i) + cos72*(a(ib + i) + a(ie + i)) - cos36*(a(ic + i) + a(id + i))) &
+                      - (sin72*(b(ib + i) - b(ie + i)) + sin36*(b(ic + i) - b(id + i)))
+          c(je + j) = (a(ia + i) + cos72*(a(ib + i) + a(ie + i)) - cos36*(a(ic + i) + a(id + i))) &
+                      + (sin72*(b(ib + i) - b(ie + i)) + sin36*(b(ic + i) - b(id + i)))
+          d(jb + j) = (b(ia + i) + cos72*(b(ib + i) + b(ie + i)) - cos36*(b(ic + i) + b(id + i))) &
+                      + (sin72*(a(ib + i) - a(ie + i)) + sin36*(a(ic + i) - a(id + i)))
+          d(je + j) = (b(ia + i) + cos72*(b(ib + i) + b(ie + i)) - cos36*(b(ic + i) + b(id + i))) &
+                      - (sin72*(a(ib + i) - a(ie + i)) + sin36*(a(ic + i) - a(id + i)))
+          c(jc + j) = (a(ia + i) - cos36*(a(ib + i) + a(ie + i)) + cos72*(a(ic + i) + a(id + i))) &
+                      - (sin36*(b(ib + i) - b(ie + i)) - sin72*(b(ic + i) - b(id + i)))
+          c(jd + j) = (a(ia + i) - cos36*(a(ib + i) + a(ie + i)) + cos72*(a(ic + i) + a(id + i))) &
+                      + (sin36*(b(ib + i) - b(ie + i)) - sin72*(b(ic + i) - b(id + i)))
+          d(jc + j) = (b(ia + i) - cos36*(b(ib + i) + b(ie + i)) + cos72*(b(ic + i) + b(id + i))) &
+                      + (sin36*(a(ib + i) - a(ie + i)) - sin72*(a(ic + i) - a(id + i)))
+          d(jd + j) = (b(ia + i) - cos36*(b(ib + i) + b(ie + i)) + cos72*(b(ic + i) + b(id + i))) &
+                      - (sin36*(a(ib + i) - a(ie + i)) - sin72*(a(ic + i) - a(id + i)))
+          i = i + inc3
+          j = j + inc4
+        end do
+        ibase = ibase + inc1
+        jbase = jbase + inc2
+      end do
+      if (la == m) return
+      la1 = la + 1
+      jbase = jbase + jump
+      do k = la1, m, la
+        kb = k + k - 2
+        kc = kb + kb
+        kd = kc + kb
+        ke = kd + kb
+        c1 = trigs(kb + 1)
+        s1 = trigs(kb + 2)
+        c2 = trigs(kc + 1)
+        s2 = trigs(kc + 2)
+        c3 = trigs(kd + 1)
+        s3 = trigs(kd + 2)
+        c4 = trigs(ke + 1)
+        s4 = trigs(ke + 2)
+        do L = 1, la
+          i = ibase
+          j = jbase
+!dir$ ivdep
+          do ijk = 1, lot
+            c(ja + j) = a(ia + i) + (a(ib + i) + a(ie + i)) + (a(ic + i) + a(id + i))
+            d(ja + j) = b(ia + i) + (b(ib + i) + b(ie + i)) + (b(ic + i) + b(id + i))
+            c(jb + j) = &
+              c1*((a(ia + i) + cos72*(a(ib + i) + a(ie + i)) - cos36*(a(ic + i) + a(id + i))) &
+                  - (sin72*(b(ib + i) - b(ie + i)) + sin36*(b(ic + i) - b(id + i)))) &
+              - s1*((b(ia + i) + cos72*(b(ib + i) + b(ie + i)) - cos36*(b(ic + i) + b(id + i))) &
+                    + (sin72*(a(ib + i) - a(ie + i)) + sin36*(a(ic + i) - a(id + i))))
+            d(jb + j) = &
+              s1*((a(ia + i) + cos72*(a(ib + i) + a(ie + i)) - cos36*(a(ic + i) + a(id + i))) &
+                  - (sin72*(b(ib + i) - b(ie + i)) + sin36*(b(ic + i) - b(id + i)))) &
+              + c1*((b(ia + i) + cos72*(b(ib + i) + b(ie + i)) - cos36*(b(ic + i) + b(id + i))) &
+                    + (sin72*(a(ib + i) - a(ie + i)) + sin36*(a(ic + i) - a(id + i))))
+            c(je + j) = &
+              c4*((a(ia + i) + cos72*(a(ib + i) + a(ie + i)) - cos36*(a(ic + i) + a(id + i))) &
+                  + (sin72*(b(ib + i) - b(ie + i)) + sin36*(b(ic + i) - b(id + i)))) &
+              - s4*((b(ia + i) + cos72*(b(ib + i) + b(ie + i)) - cos36*(b(ic + i) + b(id + i))) &
+                    - (sin72*(a(ib + i) - a(ie + i)) + sin36*(a(ic + i) - a(id + i))))
+            d(je + j) = &
+              s4*((a(ia + i) + cos72*(a(ib + i) + a(ie + i)) - cos36*(a(ic + i) + a(id + i))) &
+                  + (sin72*(b(ib + i) - b(ie + i)) + sin36*(b(ic + i) - b(id + i)))) &
+              + c4*((b(ia + i) + cos72*(b(ib + i) + b(ie + i)) - cos36*(b(ic + i) + b(id + i))) &
+                    - (sin72*(a(ib + i) - a(ie + i)) + sin36*(a(ic + i) - a(id + i))))
+            c(jc + j) = &
+              c2*((a(ia + i) - cos36*(a(ib + i) + a(ie + i)) + cos72*(a(ic + i) + a(id + i))) &
+                  - (sin36*(b(ib + i) - b(ie + i)) - sin72*(b(ic + i) - b(id + i)))) &
+              - s2*((b(ia + i) - cos36*(b(ib + i) + b(ie + i)) + cos72*(b(ic + i) + b(id + i))) &
+                    + (sin36*(a(ib + i) - a(ie + i)) - sin72*(a(ic + i) - a(id + i))))
+            d(jc + j) = &
+              s2*((a(ia + i) - cos36*(a(ib + i) + a(ie + i)) + cos72*(a(ic + i) + a(id + i))) &
+                  - (sin36*(b(ib + i) - b(ie + i)) - sin72*(b(ic + i) - b(id + i)))) &
+              + c2*((b(ia + i) - cos36*(b(ib + i) + b(ie + i)) + cos72*(b(ic + i) + b(id + i))) &
+                    + (sin36*(a(ib + i) - a(ie + i)) - sin72*(a(ic + i) - a(id + i))))
+            c(jd + j) = &
+              c3*((a(ia + i) - cos36*(a(ib + i) + a(ie + i)) + cos72*(a(ic + i) + a(id + i))) &
+                  + (sin36*(b(ib + i) - b(ie + i)) - sin72*(b(ic + i) - b(id + i)))) &
+              - s3*((b(ia + i) - cos36*(b(ib + i) + b(ie + i)) + cos72*(b(ic + i) + b(id + i))) &
+                    - (sin36*(a(ib + i) - a(ie + i)) - sin72*(a(ic + i) - a(id + i))))
+            d(jd + j) = &
+              s3*((a(ia + i) - cos36*(a(ib + i) + a(ie + i)) + cos72*(a(ic + i) + a(id + i))) &
+                  + (sin36*(b(ib + i) - b(ie + i)) - sin72*(b(ic + i) - b(id + i)))) &
+              + c3*((b(ia + i) - cos36*(b(ib + i) + b(ie + i)) + cos72*(b(ic + i) + b(id + i))) &
+                    - (sin36*(a(ib + i) - a(ie + i)) - sin72*(a(ic + i) - a(id + i))))
+            i = i + inc3
+            j = j + inc4
+          end do
+          ibase = ibase + inc1
+          jbase = jbase + inc2
+        end do
+        jbase = jbase + jump
+      end do
+
+    end select
+
+  end subroutine vpassm
+
+!##########################################################################
+
+end module fft99_mod
+

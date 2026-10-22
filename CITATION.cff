@@ -1,7 +1,7 @@
 # This CITATION.cff file was generated with cffinit.
 # Visit https://bit.ly/cffinit to generate yours today!
 
-cff-version: 1.2.4
+cff-version: 1.2.0
 title: MiMA
 message: >-
   If you use this software, please cite it using the
@@ -23,9 +23,26 @@ authors:
   - given-names: Robert C.
     family-names: King
 repository-code: 'https://github.com/Eddy-Stanford/MiMA'
-url: 'http://mjucker.github.io/MiMA/'
+url: 'https://eddy-stanford.github.io/MiMA/'
 keywords:
   - GCM
   - Model of an Idealized Moist Atmosphere
-license: GPL-3.0
-version: 1.2.2
+license: GPL-3.0-only
+version: 2.0.0
+doi: 10.5281/zenodo.597136
+preferred-citation:
+  type: article
+  authors:
+    - given-names: Martin
+      family-names: Jucker
+    - given-names: Edwin P.
+      family-names: Gerber
+  title: >-
+    Untangling the annual cycle of the tropical tropopause layer
+    with an idealized moist model
+  journal: Journal of Climate
+  year: 2017
+  volume: 30
+  start: 7339
+  end: 7358
+  doi: 10.1175/JCLI-D-17-0127.1

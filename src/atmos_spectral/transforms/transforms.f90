@@ -1,0 +1,888 @@
+!> Spectral transforms between the Gaussian grid and spherical harmonics, and related
+!> utilities.
+!>
+!> Fields are transformed from the grid to spherical harmonics and back by
+!> `trans_grid_to_spherical` and `trans_spherical_to_grid` (a Fourier transform in longitude
+!> followed by a Legendre transform in latitude, with a transpose between the latitude
+!> decomposition of the grid and the zonal-wavenumber decomposition of the spectral
+!> coefficients). `divide_by_cos` divides grid fields by cos(lat) without the need to
+!> retrieve the Gaussian latitudes. The module also computes winds from vorticity and
+!> divergence and back, the spectral horizontal advection and the area-weighted global
+!> mean, and makes the public procedures of `spherical_fourier_mod`, `spherical_mod`,
+!> `grid_fourier_mod` and `spec_mpp_mod` that the rest of the model uses available.
+!>
+!> The grid is decomposed in latitude only and the spectral coefficients in m only
+!> (`spec_mpp_mod`), so each processor holds whole latitude rows and all n of its m.
+!>
+!> Namelist: `transforms_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#transforms_nml)).
+module transforms_mod
+
+  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, FATAL, stdlog, &
+                     input_nml_file, check_nml_error
+
+  use mpp_mod, only: mpp_error, mpp_sync_self, mpp_transmit
+
+  use mpp_domains_mod, only: mpp_get_compute_domain, mpp_get_compute_domains, mpp_get_domain_components, mpp_get_layout, &
+                             mpp_get_pelist, domain1D, mpp_global_field
+
+  use spec_mpp_mod, only: spec_mpp_init, spec_mpp_end, get_grid_domain, get_spec_domain, &
+                          grid_domain, spectral_domain
+
+  use constants_mod, only: pi
+
+  use, intrinsic :: iso_c_binding, only: c_loc, c_f_pointer
+
+  use spherical_fourier_mod, only: spherical_fourier_init, spherical_fourier_end, &
+                                   trans_spherical_to_fourier, trans_fourier_to_spherical, &
+                                   get_sin_lat, get_cosm_lat, get_deg_lat, get_wts_lat, &
+                                   compute_laplacian, get_spherical_wave, &
+                                   get_eigen_laplacian, compute_gradient_cos, &
+                                   compute_ucos_vcos, compute_vor_div, &
+                                   triangular_truncation, rhomboidal_truncation, &
+                                   compute_legendre
+
+  use grid_fourier_mod, only: grid_fourier_init, grid_fourier_end, trans_grid_to_fourier, &
+                              trans_fourier_to_grid, get_lon_max, get_deg_lon
+
+  implicit none
+  private
+
+  !> Transforms spherical harmonic coefficients `spherical` (this processor's part, 2d or
+  !> 3d) to the grid field `grid`.
+  interface trans_spherical_to_grid
+    module procedure trans_spherical_to_grid_3d, &
+      trans_spherical_to_grid_2d
+  end interface
+
+  !> Transforms the grid field `grid` (2d or 3d) to spherical harmonic coefficients
+  !> `spherical`, truncated (triangular or rhomboidal, as set in `transforms_init`) unless
+  !> the optional `do_truncation` is `.false.`. With the optional `trunc`, the coefficients
+  !> with total wavenumber L > `trunc` are set to zero without being computed.
+  interface trans_grid_to_spherical
+    module procedure trans_grid_to_spherical_3d, &
+      trans_grid_to_spherical_2d
+  end interface
+
+  !> Divides the grid field `grid` by the cosine of latitude.
+  interface divide_by_cos
+    module procedure divide_by_cos_3d, &
+      divide_by_cos_2d
+  end interface
+
+  !> Computes the grid winds `u_grid`, `v_grid` [m/s] from the spectral vorticity `vor_spec`
+  !> and divergence `div_spec` [1/s].
+  interface uv_grid_from_vor_div
+    module procedure uv_grid_from_vor_div_2d, &
+      uv_grid_from_vor_div_3d
+  end interface
+
+  !> Computes the spectral vorticity `vor_spec` and divergence `div_spec` [1/s] from the grid
+  !> winds `u_grid`, `v_grid` [m/s], with triangular truncation (or rhomboidal if the
+  !> optional `triang` is `.false.`).
+  interface vor_div_from_uv_grid
+    module procedure vor_div_from_uv_grid_2d, &
+      vor_div_from_uv_grid_3d
+  end interface
+
+  !> Adds the horizontal advection `-(u d/dx + v d/dy)` of the spectral field `field_spec` by
+  !> the grid winds `u_grid`, `v_grid` [m/s] to the grid tendency `tendency`.
+  interface horizontal_advection
+    module procedure horizontal_advection_2d, &
+      horizontal_advection_3d
+  end interface
+
+! ---------------------------------------------------
+
+!  public interfaces defined in this module
+
+  public :: transforms_init
+  public :: transforms_end
+  public :: transforms_are_initialized
+  public :: trans_spherical_to_grid
+  public :: trans_grid_to_spherical
+  public :: divide_by_cos
+  public :: get_lat_max
+  public :: get_num_fourier
+  public :: get_fourier_inc
+  public :: get_num_spherical
+  public :: get_grid_boundaries
+  public :: vor_div_from_uv_grid
+  public :: uv_grid_from_vor_div
+  public :: horizontal_advection
+  public :: area_weighted_global_mean
+
+! ---------------------------------------------------
+
+!  public interfaces carried forward from used modules
+
+! From spherical_fourier_mod
+  public :: get_sin_lat, get_deg_lat, get_wts_lat
+
+! From grid_fourier_mod
+  public :: get_lon_max, get_deg_lon
+
+! From spherical_mod
+  public :: compute_laplacian, get_spherical_wave
+  public :: get_eigen_laplacian, compute_gradient_cos
+
+! From gauss_and_legendre_mod
+  public :: compute_legendre
+
+! From spec_mpp_mod
+  public :: get_grid_domain, get_spec_domain
+
+! ---------------------------------------------------
+
+!  The next six variables are initialized to zero so
+!  as to allow a check that the user has supplied them.
+  integer :: lat_max = 0
+  integer :: num_lon = 0
+  integer :: num_fourier = 0
+  integer :: fourier_inc = 0
+  integer :: num_spherical = 0
+
+  logical :: south_to_north_local
+  logical :: triang_trunc_local
+  real :: longitude_origin_local
+
+  logical :: module_is_initialized = .false.
+
+  integer, dimension(2) :: grid_layout, spectral_layout
+  integer :: xmaxsize, ymaxsize   !used for dimensioning in transpose routines
+  integer :: ms, me, ns, ne, is, ie, js, je
+
+  real, allocatable, dimension(:) :: lat_boundaries_global, lon_boundaries_global
+  real :: global_sum_of_wts
+
+  logical :: check_fourier_imag = .false.
+  !! debugging check in the Fourier transforms: stop if the imaginary part of the m = 0 or
+  !! m = `num_lon`/2 Fourier coefficient is not zero
+  namelist /transforms_nml/ check_fourier_imag
+
+contains
+
+!---------------------------------------------------------------------------
+  !> Reads `transforms_nml`, defines the domains (`spec_mpp_init`), initializes the Fourier
+  !> and spherical transforms and computes the grid-cell boundaries.
+  subroutine transforms_init(radius, &
+                             lat_max_in, &
+                             num_lon_in, &
+                             num_fourier_in, &
+                             fourier_inc_in, &
+                             num_spherical_in, &
+                             south_to_north, &
+                             triang_trunc, &
+                             longitude_origin)
+!---------------------------------------------------------------------------
+
+    real, intent(in) :: radius  !! radius of the planet [m]
+    integer, intent(in) :: lat_max_in  !! number of latitudes
+    integer, intent(in) :: num_lon_in  !! number of longitudes
+    integer, intent(in) :: num_fourier_in  !! number of zonal waves retained
+    integer, intent(in) :: fourier_inc_in  !! zonal wavenumber increment (sector model if > 1)
+    integer, intent(in) :: num_spherical_in  !! number of meridional waves retained
+
+    logical, intent(in), optional :: south_to_north, triang_trunc
+    !! `south_to_north`: order the latitudes from south to north (default `.true.`); `triang_trunc`:
+    !! triangular (default) or rhomboidal truncation
+    real, intent(in), optional :: longitude_origin  !! longitude of the first grid point [rad] (default 0)
+    integer :: ierr, io
+
+    real, allocatable :: wts_lat(:)
+    real :: sum_wts, del_lon
+    integer :: i, j
+
+    if (module_is_initialized) return
+
+    read (input_nml_file, nml=transforms_nml, iostat=io)
+    ierr = check_nml_error(io, 'transforms_nml')
+
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=transforms_nml)
+
+!  make local copies of input
+
+    lat_max = lat_max_in
+    num_lon = num_lon_in
+    num_fourier = num_fourier_in
+    fourier_inc = fourier_inc_in
+    num_spherical = num_spherical_in
+
+    if (present(south_to_north)) then
+      south_to_north_local = south_to_north
+    else
+      south_to_north_local = .true.
+    end if
+
+    if (present(triang_trunc)) then
+      triang_trunc_local = triang_trunc
+    else
+      triang_trunc_local = .true.
+    end if
+
+    if (present(longitude_origin)) then
+      longitude_origin_local = longitude_origin
+    else
+      longitude_origin_local = 0.0
+    end if
+
+    call spec_mpp_init(num_fourier, num_spherical, num_lon, lat_max, fourier_inc=fourier_inc, &
+                       triang_trunc=triang_trunc_local)
+    call get_grid_domain(is, ie, js, je)
+    call get_spec_domain(ms, me, ns, ne)
+
+! initialize spherical_fourier (which initializes spherical)
+    call spherical_fourier_init(radius, lat_max, num_fourier, fourier_inc, num_spherical, &
+                                south_to_north=south_to_north_local)
+
+    call grid_fourier_init(num_lon, fourier_inc, &
+                           check=check_fourier_imag, longitude_origin=longitude_origin_local)
+
+    allocate (wts_lat(lat_max))
+    call get_wts_lat(wts_lat)
+    allocate (lon_boundaries_global(num_lon + 1))
+    allocate (lat_boundaries_global(lat_max + 1))
+    lat_boundaries_global(1) = -.5*pi
+    sum_wts = 0.
+    do j = 1, lat_max - 1
+      sum_wts = sum_wts + wts_lat(j)
+      lat_boundaries_global(j + 1) = asin(sum_wts - 1.)
+    end do
+    lat_boundaries_global(lat_max + 1) = .5*pi
+    if (.not. south_to_north_local) then
+      lat_boundaries_global(:) = -lat_boundaries_global(:)
+    end if
+    del_lon = 2*pi/(num_lon*fourier_inc)   ! the grid spans 360/fourier_inc degrees
+    do i = 1, num_lon + 1
+      lon_boundaries_global(i) = longitude_origin_local + (i - 1.5)*del_lon
+    end do
+
+    global_sum_of_wts = sum(wts_lat)
+
+    call mpp_get_layout(grid_domain, grid_layout)
+    call mpp_get_layout(spectral_domain, spectral_layout)
+    call mpp_get_compute_domain(spectral_domain, xmax_size=xmaxsize)
+    call mpp_get_compute_domain(grid_domain, ymax_size=ymaxsize)
+    module_is_initialized = .true.
+
+    return
+  end subroutine transforms_init
+
+!--------------------------------------------------------------------------------------------------------------
+  !> Returns whether `transforms_init` has been called.
+  logical function transforms_are_initialized()
+!--------------------------------------------------------------------------------------------------------------
+
+    transforms_are_initialized = module_is_initialized
+    return
+
+  end function transforms_are_initialized
+
+!--------------------------------------------------------------------------
+  subroutine trans_spherical_to_grid_3d(spherical, grid)
+!--------------------------------------------------------------------------
+
+    complex, intent(in), dimension(ms:, ns:, :) :: spherical
+    real, intent(out), dimension(is:, :, :) :: grid
+
+    complex, dimension(0:num_lon/2, js:je, size(grid, 3)) :: fourier_g
+    complex, dimension(ms:me, je - js + 1, size(grid, 3), grid_layout(2)) :: fourier_s
+
+    if (.not. module_is_initialized) then
+      call error_mesg('trans_spherical_to_grid', 'transforms module is not initialized', FATAL)
+    end if
+
+    if (size(grid, 1) /= ie - is + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_GRID: size(grid,1) /= ie-is+1.')
+
+    if (size(grid, 2) /= je - js + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_GRID: size(grid,2) /= je-js+1.')
+
+    if (size(spherical, 1) /= me - ms + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_GRID: size(spherical,1) /= me-ms+1.')
+
+    if (size(spherical, 2) /= ne - ns + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_GRID: size(spherical,2) /= ne-ns+1.')
+
+    if (size(spherical, 3) /= size(grid, 3)) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_GRID: size(spherical,3) /= size(grid,3).')
+
+    call trans_spherical_to_fourier(spherical, fourier_s)
+
+    call reverse_transpose_fourier(fourier_s, fourier_g)
+
+    fourier_g(num_fourier + 1:num_lon/2, :, :) = cmplx(0., 0.)   ! not filled by reverse_transpose_fourier
+    grid = trans_fourier_to_grid(fourier_g)
+
+    return
+  end subroutine trans_spherical_to_grid_3d
+
+!--------------------------------------------------------------------------
+  subroutine trans_spherical_to_grid_2d(spherical, grid)
+!--------------------------------------------------------------------------
+
+    complex, intent(in), dimension(:, :)  ::  spherical
+    real, intent(out), dimension(:, :) :: grid
+
+    real, dimension(size(grid, 1), size(grid, 2), 1) :: grid_3d
+    complex, dimension(size(spherical, 1), size(spherical, 2), 1) :: spherical_3d
+
+    spherical_3d(:, :, 1) = spherical(:, :)
+    call trans_spherical_to_grid_3d(spherical_3d, grid_3d)
+    grid(:, :) = grid_3d(:, :, 1)
+
+    return
+  end subroutine trans_spherical_to_grid_2d
+
+!-------------------------------------------------------------------------
+  subroutine trans_grid_to_spherical_3d(grid, spherical, do_truncation, trunc)
+!-------------------------------------------------------------------------
+
+    real, intent(in), dimension(is:, :, :) :: grid
+    logical, intent(in), optional :: do_truncation
+    integer, intent(in), optional :: trunc
+    complex, intent(inout), dimension(ms:, ns:, :) :: spherical
+
+    integer :: trunc_local
+    logical :: do_truncation_local
+    complex, dimension(0:num_lon/2, js:je, size(grid, 3)) :: fourier_g
+    complex, dimension(ms:me, je - js + 1, size(grid, 3), grid_layout(2)) :: fourier_s
+
+    if (.not. module_is_initialized) then
+      call error_mesg('trans_grid_to_spherical', 'transforms module is not initialized', FATAL)
+    end if
+
+    if (size(grid, 1) /= ie - is + 1) &
+      call mpp_error(FATAL, 'TRANSFORMS: size(grid,1) /= ie-is+1.')
+
+    if (size(grid, 2) /= je - js + 1) &
+      call mpp_error(FATAL, 'TRANSFORMS: size(grid,2) /= je-js+1.')
+
+    if (size(spherical, 1) /= me - ms + 1) &
+      call mpp_error(FATAL, 'TRANSFORMS: size(spherical,1) /= me-ms+1.')
+
+    if (size(spherical, 2) /= ne - ns + 1) &
+      call mpp_error(FATAL, 'TRANSFORMS: size(spherical,2) /= ne-ns+1.')
+
+    if (size(spherical, 3) /= size(grid, 3)) &
+      call mpp_error(FATAL, 'TRANSFORMS: size(spherical,3) /= size(grid,3).')
+
+    if (present(do_truncation)) then
+      do_truncation_local = do_truncation
+    else
+      do_truncation_local = .true.
+    end if
+
+    fourier_g = trans_grid_to_fourier(grid)
+
+    trunc_local = fourier_inc*num_fourier + num_spherical
+    if (present(trunc)) trunc_local = trunc
+!triangular_truncation below zeroes the coefficients with L > num_spherical - 1
+    if (do_truncation_local .and. triang_trunc_local) trunc_local = min(trunc_local, num_spherical - 1)
+
+    call transpose_fourier(fourier_g, fourier_s)
+    call trans_fourier_to_spherical(fourier_s, spherical, trunc=trunc_local)
+
+    if (do_truncation_local) then
+      if (triang_trunc_local) then
+        call triangular_truncation(spherical)
+      else
+        call rhomboidal_truncation(spherical)
+      end if
+    end if
+
+    return
+  end subroutine trans_grid_to_spherical_3d
+
+!-------------------------------------------------------------------------
+  subroutine trans_grid_to_spherical_2d(grid, spherical, do_truncation, trunc)
+!-------------------------------------------------------------------------
+
+    real, intent(in), dimension(:, :) :: grid
+    logical, intent(in), optional :: do_truncation
+    integer, intent(in), optional :: trunc
+    complex, intent(inout), dimension(:, :) :: spherical
+
+    real, dimension(size(grid, 1), size(grid, 2), 1) :: grid_3d
+    complex, dimension(size(spherical, 1), size(spherical, 2), 1) :: spherical_3d
+
+    grid_3d(:, :, 1) = grid(:, :)
+    spherical_3d(:, :, 1) = cmplx(0.0, 0.0)
+    call trans_grid_to_spherical_3d(grid_3d, spherical_3d, do_truncation, trunc)
+    spherical(:, :) = spherical_3d(:, :, 1)
+
+    return
+  end subroutine trans_grid_to_spherical_2d
+
+!-------------------------------------------------------------------------
+  subroutine divide_by_cos_3d(grid)
+!-------------------------------------------------------------------------
+
+    real, intent(inout), dimension(:, :, :) :: grid
+
+    real, dimension(size(grid, 2)) :: cosm_lat
+    integer :: i, j, k
+
+    if (.not. module_is_initialized) then
+      call error_mesg('divide_by_cos', 'transforms module is not initialized', FATAL)
+    end if
+
+    call get_cosm_lat(cosm_lat)
+
+    do k = 1, size(grid, 3)
+      do j = 1, size(grid, 2)
+        do i = 1, size(grid, 1)
+          grid(i, j, k) = grid(i, j, k)*cosm_lat(j)
+        end do
+      end do
+    end do
+
+    return
+  end subroutine divide_by_cos_3d
+
+!-------------------------------------------------------------------------
+  subroutine divide_by_cos_2d(grid)
+!-------------------------------------------------------------------------
+
+    real, intent(inout), dimension(:, :) :: grid
+
+    real, dimension(size(grid, 1), size(grid, 2), 1) :: grid_3d
+
+    grid_3d(:, :, 1) = grid(:, :)
+    call divide_by_cos_3d(grid_3d)
+    grid(:, :) = grid_3d(:, :, 1)
+
+    return
+  end subroutine divide_by_cos_2d
+
+!-------------------------------------------------------------------------
+  subroutine uv_grid_from_vor_div_2d(vor_spec, div_spec, u_grid, v_grid)
+!-------------------------------------------------------------------------
+
+    complex, intent(in), dimension(:, :) :: vor_spec, div_spec
+    real, intent(out), dimension(:, :) :: u_grid, v_grid
+
+    complex, dimension(size(vor_spec, 1), size(vor_spec, 2), 1) :: vor_spec_3d, div_spec_3d
+    real, dimension(size(u_grid, 1), size(u_grid, 2), 1) ::   u_grid_3d, v_grid_3d
+
+    vor_spec_3d(:, :, 1) = vor_spec
+    div_spec_3d(:, :, 1) = div_spec
+    call uv_grid_from_vor_div_3d(vor_spec_3d, div_spec_3d, u_grid_3d, v_grid_3d)
+    u_grid = u_grid_3d(:, :, 1)
+    v_grid = v_grid_3d(:, :, 1)
+
+    return
+  end subroutine uv_grid_from_vor_div_2d
+
+!-------------------------------------------------------------------------
+  subroutine uv_grid_from_vor_div_3d(vor_spec, div_spec, u_grid, v_grid)
+!-------------------------------------------------------------------------
+
+    complex, intent(in), dimension(:, :, :) :: vor_spec, div_spec
+    real, intent(out), dimension(:, :, :) :: u_grid, v_grid
+
+    complex, dimension(size(vor_spec, 1), size(vor_spec, 2), size(vor_spec, 3)) :: dx_spec, dy_spec
+
+    if (.not. module_is_initialized) then
+      call error_mesg('uv_grid_from_vor_div', 'transforms module is not initialized', FATAL)
+    end if
+
+    call compute_ucos_vcos(vor_spec, div_spec, dx_spec, dy_spec)
+    call trans_spherical_to_grid(dx_spec, u_grid)
+    call trans_spherical_to_grid(dy_spec, v_grid)
+    call divide_by_cos(u_grid)
+    call divide_by_cos(v_grid)
+
+    return
+  end subroutine uv_grid_from_vor_div_3d
+
+!-------------------------------------------------------------------------
+  subroutine vor_div_from_uv_grid_2d(u_grid, v_grid, vor_spec, div_spec, triang)
+!-------------------------------------------------------------------------
+
+    real, intent(in), dimension(:, :) :: u_grid, v_grid
+    complex, intent(out), dimension(:, :) :: vor_spec, div_spec
+    logical, intent(in), optional :: triang
+
+    complex, dimension(size(vor_spec, 1), size(vor_spec, 2), 1) :: vor_spec_3d, div_spec_3d
+    real, dimension(size(u_grid, 1), size(u_grid, 2), 1) ::   u_grid_3d, v_grid_3d
+
+    u_grid_3d(:, :, 1) = u_grid
+    v_grid_3d(:, :, 1) = v_grid
+    call vor_div_from_uv_grid_3d(u_grid_3d, v_grid_3d, vor_spec_3d, div_spec_3d, triang)
+    vor_spec = vor_spec_3d(:, :, 1)
+    div_spec = div_spec_3d(:, :, 1)
+
+    return
+  end subroutine vor_div_from_uv_grid_2d
+
+!-------------------------------------------------------------------------
+  subroutine vor_div_from_uv_grid_3d(u_grid, v_grid, vor_spec, div_spec, triang)
+!-------------------------------------------------------------------------
+
+    real, intent(in), dimension(:, :, :) :: u_grid, v_grid
+    complex, intent(out), dimension(:, :, :) :: vor_spec, div_spec
+    logical, intent(in), optional :: triang
+
+    complex, dimension(size(vor_spec, 1), size(vor_spec, 2), size(vor_spec, 3)) :: dx_spec, dy_spec
+    real, dimension(size(u_grid, 1), size(u_grid, 2), size(u_grid, 3)) :: grid_tmp
+
+    logical :: do_triang
+    integer :: trunc
+
+    if (.not. module_is_initialized) then
+      call error_mesg('vor_div_from_uv_grid', 'transforms module is not initialized', FATAL)
+    end if
+
+    if (present(triang)) then
+      do_triang = triang
+    else
+      do_triang = .true.
+    end if
+
+!the coefficients kept by triangular_truncation (L <= num_spherical - 1) need dx_spec and
+!dy_spec up to L = num_spherical
+    if (do_triang) then
+      trunc = num_spherical
+    else
+      trunc = fourier_inc*num_fourier + num_spherical
+    end if
+
+    grid_tmp = u_grid
+    call divide_by_cos(grid_tmp)
+    call trans_grid_to_spherical(grid_tmp, dx_spec, do_truncation=.false., trunc=trunc)
+
+    grid_tmp = v_grid
+    call divide_by_cos(grid_tmp)
+    call trans_grid_to_spherical(grid_tmp, dy_spec, do_truncation=.false., trunc=trunc)
+
+    call compute_vor_div(dx_spec, dy_spec, vor_spec, div_spec)
+
+    if (do_triang) then
+      call triangular_truncation(vor_spec)
+      call triangular_truncation(div_spec)
+    else
+      call rhomboidal_truncation(vor_spec)
+      call rhomboidal_truncation(div_spec)
+    end if
+
+    return
+  end subroutine vor_div_from_uv_grid_3d
+
+!-------------------------------------------------------------------------
+  subroutine horizontal_advection_2d(field_spec, u_grid, v_grid, tendency)
+!-------------------------------------------------------------------------
+
+    complex, intent(in), dimension(:, :) :: field_spec
+    real, intent(in), dimension(:, :) :: u_grid, v_grid
+    real, intent(inout), dimension(:, :) :: tendency
+
+    complex, dimension(size(field_spec, 1), size(field_spec, 2), 1) :: field_spec_3d
+    real, dimension(size(u_grid, 1), size(u_grid, 2), 1) :: u_grid_3d, v_grid_3d
+    real, dimension(size(u_grid, 1), size(u_grid, 2), 1) :: tendency_3d
+
+    field_spec_3d(:, :, 1) = field_spec
+    u_grid_3d(:, :, 1) = u_grid
+    v_grid_3d(:, :, 1) = v_grid
+    tendency_3d(:, :, 1) = tendency
+    call horizontal_advection_3d(field_spec_3d, u_grid_3d, v_grid_3d, tendency_3d)
+    tendency = tendency_3d(:, :, 1)
+
+    return
+  end subroutine horizontal_advection_2d
+
+!-------------------------------------------------------------------------
+  subroutine horizontal_advection_3d(field_spec, u_grid, v_grid, tendency)
+!-------------------------------------------------------------------------
+
+    complex, intent(in), dimension(:, :, :) :: field_spec
+    real, intent(in), dimension(:, :, :) :: u_grid, v_grid
+    real, intent(inout), dimension(:, :, :) :: tendency
+
+    real, dimension(size(u_grid, 1), size(u_grid, 2), size(u_grid, 3)) :: dx_grid, dy_grid
+    complex, dimension(size(field_spec, 1), size(field_spec, 2), size(field_spec, 3)) :: dx_spec, dy_spec
+
+    if (.not. module_is_initialized) then
+      call error_mesg('horizontal_advection', 'transforms module is not initialized', FATAL)
+    end if
+
+    call compute_gradient_cos(field_spec, dx_spec, dy_spec)
+    call trans_spherical_to_grid(dx_spec, dx_grid)
+    call trans_spherical_to_grid(dy_spec, dy_grid)
+
+    call divide_by_cos(dx_grid)
+    call divide_by_cos(dy_grid)
+    tendency = tendency - u_grid*dx_grid - v_grid*dy_grid
+
+    return
+  end subroutine horizontal_advection_3d
+
+!-------------------------------------------------------------------------
+  !> Returns the number of latitudes.
+  subroutine get_lat_max(lat_max_out)
+!-------------------------------------------------------------------------
+
+    integer, intent(out) :: lat_max_out  !! number of latitudes
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_lat_max', 'transforms module is not initialized', FATAL)
+    end if
+
+    lat_max_out = lat_max
+
+    return
+  end subroutine get_lat_max
+
+!-------------------------------------------------------------------------
+  !> Returns the number of zonal waves retained.
+  subroutine get_num_fourier(num_fourier_out)
+!-------------------------------------------------------------------------
+
+    integer, intent(out) :: num_fourier_out  !! number of zonal waves retained
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_num_fourier', 'transforms module is not initialized', FATAL)
+    end if
+
+    num_fourier_out = num_fourier
+
+    return
+  end subroutine get_num_fourier
+
+!-------------------------------------------------------------------------
+  !> Returns the zonal wavenumber increment.
+  subroutine get_fourier_inc(fourier_inc_out)
+!-------------------------------------------------------------------------
+
+    integer, intent(out) :: fourier_inc_out  !! zonal wavenumber increment
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_fourier_inc', 'transforms module is not initialized', FATAL)
+    end if
+
+    fourier_inc_out = fourier_inc
+
+    return
+  end subroutine get_fourier_inc
+
+!-------------------------------------------------------------------------
+  !> Returns the number of meridional waves retained.
+  subroutine get_num_spherical(num_spherical_out)
+!-------------------------------------------------------------------------
+
+    integer, intent(out) :: num_spherical_out  !! number of meridional waves retained
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_num_spherical', 'transforms module is not initialized', FATAL)
+    end if
+
+    num_spherical_out = num_spherical
+
+    return
+  end subroutine get_num_spherical
+
+!-------------------------------------------------------------------------
+  !> Returns the longitudes and latitudes of the grid-cell boundaries, of this processor's
+  !> part of the grid or of the whole grid.
+  !>
+  !> The latitude boundaries are chosen so that the cell areas are proportional to the
+  !> Gaussian weights.
+  subroutine get_grid_boundaries(lon_boundaries, lat_boundaries, global)
+!-------------------------------------------------------------------------
+
+    real, intent(out), dimension(:) :: lon_boundaries, lat_boundaries
+    !! `lon_boundaries`, `lat_boundaries`: longitudes and latitudes of the cell boundaries [rad]
+    logical, intent(in), optional :: global  !! return the whole grid (default `.false.`)
+
+    logical :: global_tmp
+    character(len=3) :: chtmp1, chtmp2
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_grid_boundaries', 'transforms module is not initialized', FATAL)
+    end if
+
+    if (present(global)) then
+      global_tmp = global
+    else
+      global_tmp = .false.
+    end if
+
+    if (.not. global_tmp) then
+      if (size(lon_boundaries, 1) /= ie - is + 2) then
+        write (chtmp1, '(i3)') size(lon_boundaries, 1)
+        write (chtmp2, '(i3)') ie - is + 2
+        call error_mesg('get_grid_boundaries', 'size(lon_boundaries) is incorrect. size(lon_boundaries)=' &
+                       & //chtmp1//'  Should be'//chtmp2, FATAL)
+      end if
+
+      if (size(lat_boundaries, 1) /= je - js + 2) then
+        write (chtmp1, '(i3)') size(lat_boundaries, 1)
+        write (chtmp2, '(i3)') je - js + 2
+        call error_mesg('get_grid_boundaries', 'size(lat_boundaries) is incorrect. size(lat_boundaries)=' &
+                       & //chtmp1//'  Should be'//chtmp2, FATAL)
+      end if
+
+    else !global call
+      if (size(lon_boundaries, 1) /= num_lon + 1) then
+        write (chtmp1, '(i3)') size(lon_boundaries, 1)
+        write (chtmp2, '(i3)') num_lon + 1
+        call error_mesg('get_grid_boundaries', 'size(lon_boundaries) is incorrect. size(lon_boundaries)=' &
+                       & //chtmp1//'  Should be'//chtmp2, FATAL)
+      end if
+
+      if (size(lat_boundaries, 1) /= lat_max + 1) then
+        write (chtmp1, '(i3)') size(lat_boundaries, 1)
+        write (chtmp2, '(i3)') lat_max + 1
+        call error_mesg('get_grid_boundaries', 'size(lat_boundaries) is incorrect. size(lat_boundaries)=' &
+                       & //chtmp1//'  Should be'//chtmp2, FATAL)
+      end if
+    end if
+
+    if (global_tmp) then
+      lon_boundaries = lon_boundaries_global
+      lat_boundaries = lat_boundaries_global
+    else
+      lon_boundaries = lon_boundaries_global(is:ie + 1)
+      lat_boundaries = lat_boundaries_global(js:je + 1)
+    end if
+    return
+  end subroutine get_grid_boundaries
+
+!-------------------------------------------------------------------------
+  subroutine reverse_transpose_fourier(fourier_s, fourier_g)
+!-------------------------------------------------------------------------
+    complex, intent(in), contiguous, target :: fourier_s(:, :, :, 0:)
+    complex, intent(out) :: fourier_g(0:, :, :)
+    ! mpp_transmit takes real data: complex values are sent as (real, imaginary) pairs
+    real, dimension(2*xmaxsize*ymaxsize*size(fourier_s, 3)) :: get_data
+    real, pointer :: fourier_s_real(:)
+    integer :: i, j, k, jj, jp, jm, pp, pm, nput, nget, jpos
+    type(domain1D) :: spectral_domain_x, grid_domain_y
+    integer, dimension(0:grid_layout(2) - 1) :: pelist, ygridsize, xspecsize, xsbegin, xsend
+
+    if (.not. module_is_initialized) then
+      call error_mesg('reverse_transpose_fourier', 'transforms module is not initialized', FATAL)
+    end if
+
+    call mpp_get_domain_components(grid_domain, y=grid_domain_y)
+    call mpp_get_domain_components(spectral_domain, x=spectral_domain_x)
+    call mpp_get_pelist(grid_domain_y, pelist, jpos)
+    call mpp_get_compute_domains(grid_domain_y, size=ygridsize)
+    call mpp_get_compute_domains(spectral_domain_x, xsbegin, xsend, xspecsize)
+    call c_f_pointer(c_loc(fourier_s), fourier_s_real, [2*size(fourier_s)])
+    nput = size(fourier_s, 1)*size(fourier_s, 2)*size(fourier_s, 3)
+    fourier_g(ms:me, :, :) = fourier_s(:, :, :, jpos)
+    do jj = 1, grid_layout(2) - 1
+      jp = mod(jpos + jj, grid_layout(2))
+      jm = mod(jpos - jj + grid_layout(2), grid_layout(2))
+      pp = pelist(jp)
+      pm = pelist(jm)
+      nget = xspecsize(jm)*ygridsize(jm)*size(fourier_s, 3)
+      ! Force use of "scalar", integer pointer mpp interface
+      call mpp_transmit(put_data=fourier_s_real(2*nput*jp + 1), plen=2*nput, to_pe=pp, &
+                        get_data=get_data(1), glen=2*nget, from_pe=pm)
+      nget = 0
+      do k = 1, size(fourier_g, 3)
+        do j = 1, size(fourier_g, 2)
+          do i = xsbegin(jm), xsend(jm)
+            nget = nget + 1
+            fourier_g(i, j, k) = cmplx(get_data(2*nget - 1), get_data(2*nget), kind=kind(fourier_g))
+          end do
+        end do
+      end do
+    end do
+    ! wait for this PE's sends: their buffers are freed on return (the receives above block)
+    call mpp_sync_self()
+    return
+  end subroutine reverse_transpose_fourier
+
+!-------------------------------------------------------------------------
+  subroutine transpose_fourier(fourier_g, fourier_s)
+!-------------------------------------------------------------------------
+    complex, intent(in)   :: fourier_g(0:, :, :)
+    complex, intent(out), contiguous, target :: fourier_s(:, :, :, 0:)
+    ! mpp_transmit takes real data: complex values are sent as (real, imaginary) pairs
+    real, dimension(2*xmaxsize*ymaxsize*size(fourier_s, 3)) :: put_data
+    real, pointer :: fourier_s_real(:)
+    integer :: i, j, k, ii, ip, im, pp, pm, nput, nget, ipos, jp
+    type(domain1D) :: spectral_domain_x, grid_domain_y
+    integer, dimension(0:spectral_layout(1) - 1) :: pelist, ygridsize, xspecsize, xsbegin, xsend
+
+    if (.not. module_is_initialized) then
+      call error_mesg('transpose_fourier', 'transforms module is not initialized', FATAL)
+    end if
+
+    call mpp_get_domain_components(grid_domain, y=grid_domain_y)
+    call mpp_get_domain_components(spectral_domain, x=spectral_domain_x)
+    call mpp_get_compute_domains(grid_domain_y, size=ygridsize)
+    call mpp_get_compute_domains(spectral_domain_x, xsbegin, xsend, xspecsize)
+    call c_f_pointer(c_loc(fourier_s), fourier_s_real, [2*size(fourier_s)])
+    nget = size(fourier_s, 1)*size(fourier_s, 2)*size(fourier_s, 3)
+    call mpp_get_pelist(grid_domain_y, pelist, jp)
+    fourier_s(:, :, :, jp) = fourier_g(ms:me, :, :)
+    call mpp_get_pelist(spectral_domain_x, pelist, ipos)
+    do ii = 1, spectral_layout(1) - 1
+      ip = mod(ipos + ii, spectral_layout(1))
+      im = mod(ipos - ii + spectral_layout(1), spectral_layout(1))
+      pp = pelist(ip)
+      pm = pelist(im)
+      nput = 0
+      call mpp_sync_self()
+      do k = 1, size(fourier_g, 3)
+        do j = 1, size(fourier_g, 2)
+          do i = xsbegin(ip), xsend(ip)
+            nput = nput + 1
+            put_data(2*nput - 1) = real(fourier_g(i, j, k))
+            put_data(2*nput) = aimag(fourier_g(i, j, k))
+          end do
+        end do
+      end do
+      ! Force use of "scalar", integer pointer mpp interface
+      call mpp_transmit(put_data=put_data(1), plen=2*nput, to_pe=pp, &
+                        get_data=fourier_s_real(2*nget*im + 1), glen=2*nget, from_pe=pm)
+    end do
+    ! wait for the last send from put_data, which is freed on return
+    call mpp_sync_self()
+    return
+  end subroutine transpose_fourier
+
+!-------------------------------------------------------------------------
+  !> Returns the area-weighted (Gaussian-weighted) global mean of a grid field.
+  function area_weighted_global_mean(field)
+!-------------------------------------------------------------------------
+    real :: area_weighted_global_mean  !! global mean of `field`
+    real, intent(in), dimension(:, :) :: field  !! this processor's part of the grid field
+    real, dimension(size(field, 2))   :: wts_lat
+    real, dimension(size(field, 1), size(field, 2)) :: weighted_field_local
+    real, dimension(num_lon, lat_max) :: weighted_field_global
+    integer :: j
+
+    call get_wts_lat(wts_lat)
+    do j = 1, size(field, 2)
+      weighted_field_local(:, j) = wts_lat(j)*field(:, j)
+    end do
+
+    call mpp_global_field(grid_domain, weighted_field_local, weighted_field_global)
+    area_weighted_global_mean = sum(weighted_field_global)/(global_sum_of_wts*num_lon)
+
+    return
+  end function area_weighted_global_mean
+
+!-------------------------------------------------------------------------
+  !> Finalizes the transforms and the modules they use.
+  subroutine transforms_end
+!-------------------------------------------------------------------------
+
+    if (.not. module_is_initialized) return
+
+    deallocate (lon_boundaries_global, lat_boundaries_global)
+    call grid_fourier_end
+    call spherical_fourier_end
+    call spec_mpp_end
+    module_is_initialized = .false.
+
+    return
+  end subroutine transforms_end
+!-------------------------------------------------------------------------
+
+end module transforms_mod

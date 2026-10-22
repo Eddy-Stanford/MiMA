@@ -1,0 +1,64 @@
+# Builds the documentation site (MkDocs, with the Fortran API reference pages
+# generated from the sources by tools/fortran_api.py) and publishes it to GitHub
+# Pages on pushes to main. Pull requests only build it.
+# Repository setting needed once: Settings > Pages > Source: GitHub Actions.
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install the Python packages
+        run: pip install -r requirements-docs.txt
+
+      - name: Check that the generated reference pages are up to date
+        run: python3 tools/mimadoc check
+
+      - name: Check the shipped diag_tables
+        run: |
+          python3 tools/mimadoc validate input/diag_table --nml input/input.nml
+          for d in examples/*/; do
+            python3 tools/mimadoc validate "${d%/}/diag_table" --nml "${d%/}/input.nml"
+          done
+
+      - name: Build the site
+        run: mkdocs build --strict
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

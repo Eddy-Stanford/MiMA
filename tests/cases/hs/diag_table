@@ -1,0 +1,15 @@
+"MiMA test hs"
+0001 1 1 0 0 0
+# One file, averaged over the whole run (-1: written at the end), in double
+# precision (packing 1) so that the digest sees every bit.
+"atmos_avg", -1, "hours", 1, "days", "time",
+ "dynamics",    "bk",     "bk",     "atmos_avg", "all", .false., "none", 1,
+ "dynamics",    "pk",     "pk",     "atmos_avg", "all", .false., "none", 1,
+ "dynamics",    "ps",     "ps",     "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",    "ucomp",  "ucomp",  "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",    "vcomp",  "vcomp",  "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",    "temp",   "temp",   "atmos_avg", "all", .true.,  "none", 1,
+ "dynamics",    "omega",  "omega",  "atmos_avg", "all", .true.,  "none", 1,
+ "held_suarez", "teq",    "teq",    "atmos_avg", "all", .true.,  "none", 1,
+ "held_suarez", "tdt_hs", "tdt_hs", "atmos_avg", "all", .true.,  "none", 1,
+ "held_suarez", "udt_hs", "udt_hs", "atmos_avg", "all", .true.,  "none", 1,

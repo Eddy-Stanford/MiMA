@@ -1,0 +1,1829 @@
+!> Spectral dynamical core: the primitive equations on the sphere in vorticity-divergence form.
+!>
+!> Vorticity, divergence, temperature, log surface pressure and the spectral tracers are
+!> carried as spherical harmonics (triangular or rhomboidal truncation); the nonlinear terms
+!> are computed on the Gaussian grid. The vertical differencing is that of Simmons and
+!> Burridge (1981) on sigma or hybrid levels. Time stepping is leapfrog with a Robert filter
+!> (completed after the physics by `complete_robert_filter`), optionally semi-implicit for
+!> the gravity-wave terms (`implicit_mod`), with hyperdiffusion and a top-level sponge
+!> (`spectral_damping_mod`). Tracers are spectral or grid-point (finite-volume advection,
+!> `fv_advection_mod`), as set in the field table. Optional corrections keep the global mean
+!> surface pressure, energy and water fixed. The model state is read from
+!> `INPUT/spectral_dynamics.res.nc` if it exists (otherwise a cold start by
+!> `spectral_init_cond`), optionally perturbed by `initial_noise_mod`, and written to
+!> `RESTART/spectral_dynamics.res.nc`.
+!>
+!> The equations, the spectral layout and the time step are described in
+!> [The dynamical core](https://eddy-stanford.github.io/MiMA/DynamicalCore/).
+!>
+!> Namelist: `spectral_dynamics_nml`
+!> ([namelist reference](https://eddy-stanford.github.io/MiMA/Parameters/#spectral_dynamics_nml)).
+!>
+!> References:
+!>
+!> * Simmons, A. J., and D. M. Burridge, 1981: An energy and angular-momentum conserving
+!>   vertical finite-difference scheme and hybrid vertical coordinates. Mon. Wea. Rev.,
+!>   109, 758-766.
+module spectral_dynamics_mod
+
+  use fms_mod, only: mpp_pe, mpp_root_pe, error_mesg, NOTE, FATAL, stdlog, &
+                     input_nml_file, check_nml_error, lowercase, uppercase
+
+  use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, close_restart, &
+                              read_restart_field, write_restart_field, get_restart_field_size, &
+                              restart_field_exists
+
+  use namelist_check_mod, only: nml_sets
+
+  use constants_mod, only: rdgas, rvgas, grav, cp_air, omega, radius, pi
+
+  use time_manager_mod, only: time_type, get_time, set_time, get_calendar_type, NO_CALENDAR, &
+                              get_date, interval_alarm, operator(+), operator(*), operator(/)
+
+  use field_manager_mod, only: MODEL_ATMOS, parse
+
+  use tracer_manager_mod, only: get_number_tracers, query_method, get_tracer_index, get_tracer_names, NO_TRACER
+
+  use diag_manager_mod, only: diag_axis_init, register_diag_field, register_static_field, send_data
+
+  use transforms_mod, only: transforms_init, transforms_end, &
+                            get_grid_boundaries, area_weighted_global_mean, &
+                            compute_gradient_cos, trans_spherical_to_grid, &
+                            trans_grid_to_spherical, divide_by_cos, &
+                            compute_laplacian, get_eigen_laplacian, &
+                            get_spherical_wave, get_sin_lat, &
+                            vor_div_from_uv_grid, uv_grid_from_vor_div, &
+                            horizontal_advection, get_grid_domain, &
+                            get_spec_domain, get_deg_lon, get_deg_lat
+  use spec_mpp_mod, only: grid_domain, spectral_domain
+
+  use vert_advection_mod, only: vert_advection, SECOND_CENTERED, FOURTH_CENTERED, VAN_LEER_LINEAR, FINITE_VOLUME_PARABOLIC, &
+                                ADVECTIVE_FORM
+
+  use implicit_mod, only: implicit_init, implicit_end, implicit_correction
+
+  use press_and_geopot_mod, only: press_and_geopot_init, press_and_geopot_end, &
+                                  pressure_variables, compute_geopotential, compute_pressures_and_heights
+
+  use spectral_damping_mod, only: spectral_damping_init, spectral_damping_end, compute_spectral_damping, &
+                                  compute_spectral_damping_vor, compute_spectral_damping_div
+
+  use leapfrog_mod, only: leapfrog, leapfrog_2level_A, leapfrog_2level_B
+
+  use fv_advection_mod, only: fv_advection_init, fv_advection_end, a_grid_horiz_advection
+
+  use water_borrowing_mod, only: water_borrowing
+
+  use global_integral_mod, only: mass_weighted_global_integral
+
+  use spectral_init_cond_mod, only: spectral_init_cond
+
+  use initial_noise_mod, only: initial_noise_init, add_initial_noise
+
+  use spectral_initialize_fields_mod, only: read_initial_condition
+
+  use tracer_type_mod, only: tracer_type
+
+  use every_step_diagnostics_mod, only: every_step_diagnostics_init, every_step_diagnostics, every_step_diagnostics_end, &
+                                        need_damp_uv, need_damp_t, need_kegen, need_hadv, need_vadv
+!===============================================================================================
+  implicit none
+  private
+!===============================================================================================
+
+  public :: spectral_dynamics_init, spectral_dynamics, spectral_dynamics_end, get_num_levels
+  public :: get_surf_geopotential
+  public :: complete_robert_filter
+  public :: get_axis_id, spectral_diagnostics, get_initial_fields, get_initial_noise_increments
+
+!===============================================================================================
+! variables needed for diagnostics
+  integer :: id_ps, id_u, id_v, id_t, id_vor, id_div, id_omega, id_wspd, id_slp, id_div9
+  integer :: id_pres_full, id_pres_half, id_zfull, id_zhalf
+  integer :: id_uu, id_vv, id_tt, id_omega_omega, id_uv, id_omega_t
+  integer, allocatable, dimension(:) :: id_tr
+  real :: gamma, expf, expf_inverse
+  character(len=8) :: mod_name = 'dynamics'
+  integer, dimension(4) :: axis_id
+!===============================================================================================
+
+  integer, parameter :: num_time_levels = 2   ! previous and current; the future level overwrites previous
+
+  logical :: module_is_initialized = .false.
+  ! check that complete_robert_filter is called once after each step
+  logical :: robert_complete_for_tracers = .true., robert_complete_for_fields = .true.
+
+  type(time_type) :: Time_step, Alarm_time, Alarm_interval ! Used to determine when it is time to print global integrals.
+
+  real, allocatable, dimension(:) :: sin_lat, coriolis
+  real, allocatable, dimension(:) :: pk, bk, dpk, dbk
+
+  complex, allocatable, dimension(:, :, :, :)   :: vors, divs, ts ! last dimension is for time level
+  complex, allocatable, dimension(:, :, :)   :: ln_ps          ! last dimension is for time level
+  ! 4'th dimension is for time level, last dimension is for tracer number
+  complex, allocatable, dimension(:, :, :, :, :) :: spec_tracers
+
+  real, allocatable, dimension(:, :, :) :: psg               ! last dimension is for time level
+  real, allocatable, dimension(:, :, :, :) :: ug, vg, tg        ! last dimension is for time level
+  ! 4'th dimension is for time level, last dimension is for tracer number
+  real, allocatable, dimension(:, :, :, :, :) :: grid_tracers
+  real, allocatable, dimension(:, :) :: surf_geopotential
+  real, allocatable, dimension(:, :, :) :: vorg, divg        ! no time levels needed
+
+  integer, allocatable, dimension(:) :: tracer_vert_advect_scheme
+
+  real    :: virtual_factor, dt_real
+  integer :: num_tracers, nhum, t_vert_advect_scheme, uv_vert_advect_scheme, step_number
+  real    :: mean_energy_previous, mean_water_previous, mean_surf_press_previous
+  integer :: ms, me, ns, ne, is, ie, js, je
+  integer :: previous, current, future
+
+  ! the initial noise was added in this run or an earlier segment (recorded in the restart)
+  logical :: initial_noise_applied = .false.
+  ! grid-point increments of the initial noise added at this start, for atmosphere_mod
+  real, allocatable, dimension(:, :, :) :: noise_ug, noise_vg, noise_tg
+
+  character(len=32), parameter :: default_representation = 'spectral'
+  character(len=32), parameter :: default_advect_vert = 'second_centered'
+  character(len=32), parameter :: default_hole_filling = 'off'
+
+!===============================================================================================
+! namelist variables
+
+  logical :: do_mass_correction = .true., & !! keep the global mean surface pressure fixed
+             do_water_correction = .true., &
+             !! keep the global water vapour fixed in the dynamics (below `water_correction_limit`);
+             !! set `.false.` for dry runs
+             do_energy_correction = .true., & !! keep the global mean energy fixed
+             use_virtual_temperature = .false., & !! use virtual temperature in the geopotential
+             use_implicit = .true., & !! semi-implicit time stepping
+             triang_trunc = .true. !! triangular (`.true.`) or rhomboidal truncation
+
+  integer :: damping_order = 4, & !! order of the hyperdiffusion (Laplacian to this power; 4 is `del^8`)
+             damping_order_vor = -1, & !! separate order for vorticity (negative: as for the other fields)
+             damping_order_div = -1, & !! separate order for divergence (negative: as for the other fields)
+             lon_max = 128, & !! number of longitudes of the Gaussian grid (T42)
+             lat_max = 64, & !! number of latitudes of the Gaussian grid (T42)
+             num_fourier = 42, & !! number of zonal waves retained (T42)
+             num_spherical = 43, & !! number of meridional waves retained (T42)
+             fourier_inc = 1, & !! if > 1, a sector model with `fourier_inc`-fold symmetry in longitude
+             num_levels = 40, & !! number of vertical levels
+             num_steps = 1 !! number of dynamics substeps per time step
+
+  integer, dimension(2) ::  print_interval = (/1, 0/)
+  !! interval (days, seconds) for printing global integrals of the dynamics
+
+  character(len=64) :: topography_option = 'interpolated', &
+                       !! `'interpolated'`: realistic topography interpolated from the file in `topography_nml`;
+                       !! `'flat'`; `'gaussian'`: idealized mountains from `gaussian_topog_nml`; `'input'`:
+                       !! `zsurf` from `INPUT/topography.data.nc` on the model grid
+                       vert_coord_option = 'uneven_sigma', &
+                       !! `'even_sigma'`: equally spaced sigma levels; `'uneven_sigma'`: sigma levels set by
+                       !! `surf_res`, `scale_heights` and `exponent`; `'hybrid'`: as `'uneven_sigma'` with a
+                       !! transition to pressure levels set by `p_sigma` and `p_press`; `'input'`: `pk` and
+                       !! `bk` from `vert_coordinate_nml`
+                       damping_option = 'resolution_dependent', &
+                       !! hyperdiffusion: `'resolution_dependent'` (`damping_coeff` in 1/s, the damping rate
+                       !! of the smallest wave) or `'resolution_independent'`
+                       vert_advect_uv = default_advect_vert, &
+                       !! vertical advection of wind: `'second_centered'`, `'fourth_centered'`,
+                       !! `'van_leer_linear'` or `'finite_volume_parabolic'`
+                       vert_advect_t = default_advect_vert, &
+                       !! vertical advection of temperature: `'second_centered'`, `'fourth_centered'`,
+                       !! `'van_leer_linear'` or `'finite_volume_parabolic'`
+                       vert_difference_option = 'simmons_and_burridge' !! vertical differencing; the only option
+
+  real    :: damping_coeff = 1.15740741e-4, & !! [1/s] hyperdiffusion coefficient (one tenth of a day)
+             damping_coeff_vor = -1., & !! separate coefficient for vorticity (negative: as for the other fields)
+             damping_coeff_div = -1., & !! separate coefficient for divergence (negative: as for the other fields)
+             eddy_sponge_coeff = 0., & !! `del^2` sponge at the top level for the eddy winds (0: off)
+             zmu_sponge_coeff = 0., & !! `del^2` sponge at the top level for the zonal-mean zonal wind (0: off)
+             zmv_sponge_coeff = 0., &
+             !! `del^2` sponge at the top level for the zonal-mean meridional wind (0: off)
+             robert_coeff = .03, & !! Robert filter coefficient
+             alpha_implicit = .5, & !! implicitness of the gravity-wave terms (0.5: centred, 1: backward)
+             longitude_origin = 0., & !! [rad] longitude of the first grid point
+             scale_heights = 7.9, &
+             !! parameter 2 of the `uneven_sigma` and `hybrid` levels (model top in scale heights)
+             surf_res = .1, & !! parameter 1 of the `uneven_sigma` and `hybrid` levels (resolution near the surface)
+             p_press = .1, & !! `hybrid` levels: transition between pressure and sigma levels (`p_sigma` > `p_press`)
+             p_sigma = .3, & !! `hybrid` levels: transition between pressure and sigma levels (`p_sigma` > `p_press`)
+             exponent = 1.4, & !! parameter 3 of the `uneven_sigma` and `hybrid` levels
+             ocean_topog_smoothing = 0.995, &
+             !! with `'interpolated'`: fraction of the roughness (squared Laplacian) of the topography over
+             !! the ocean removed by the regularization (`topog_regularization_nml`), 0 to below 1; 0: spectrally
+             !! truncated but not regularized
+             initial_sphum = 2.e-06, & !! [kg/kg] cold-start specific humidity (so the stratosphere does not start dry)
+             reference_sea_level_press = 1.e5, &
+             !! [Pa] cold-start surface pressure and reference pressure of the implicit scheme
+             water_correction_limit = 200.e2
+             !! [Pa] correct water only below this pressure; correcting in the stratosphere introduces an
+             !! artificial sink there
+
+  logical :: specify_initial_conditions = .false.
+  !! read the initial state from `INPUT/initial_conditions.nc` on a cold start (see
+  !! [specified initial conditions](Configurations.md#specified-initial-conditions))
+  ! u, v, T, ps and q must be in the file (as ucomp, vcomp, temp, ps and sphum)
+
+  real, dimension(2) :: valid_range_t = (/100., 500./) !! [K] the model stops if the temperature leaves this range
+
+  namelist /spectral_dynamics_nml/ use_virtual_temperature, damping_option, &
+    damping_order, damping_coeff, damping_order_vor, damping_coeff_vor, &
+    damping_order_div, damping_coeff_div, do_mass_correction, &
+    do_water_correction, do_energy_correction, vert_advect_uv, &
+    vert_advect_t, use_implicit, longitude_origin, robert_coeff, &
+    alpha_implicit, vert_difference_option, &
+    reference_sea_level_press, lon_max, lat_max, num_levels, &
+    num_fourier, num_spherical, fourier_inc, triang_trunc, &
+    topography_option, vert_coord_option, scale_heights, surf_res, &
+    p_press, p_sigma, exponent, ocean_topog_smoothing, initial_sphum, &
+    valid_range_t, eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff, &
+    print_interval, num_steps, &
+    water_correction_limit, specify_initial_conditions
+
+contains
+
+!===============================================================================================
+
+  !> Initializes the dynamical core.
+  !>
+  !> Reads `spectral_dynamics_nml`, sets up the transforms and the grid and spectral domains,
+  !> sets the tracer attributes from the field table, reads the restart file or does a cold
+  !> start, adds the initial noise (`initial_noise_nml`), and initializes the diagnostics,
+  !> the damping and the implicit scheme.
+  subroutine spectral_dynamics_init(Time, Time_step_in, tracer_attributes, nhum_out, ocean_mask)
+
+    type(time_type), intent(in) :: Time, Time_step_in  !! `Time`: current time; `Time_step_in`: atmospheric time step
+    type(tracer_type), intent(inout), dimension(:) :: tracer_attributes
+    !! attributes of the prognostic tracers, set here from the field table
+    integer, intent(out) :: nhum_out  !! tracer index of the humidity tracer (`sphum` or `mix_rat`)
+    logical, optional, intent(in), dimension(:, :) :: ocean_mask
+    !! ocean points, for the smoothing of the topography over the ocean on a cold start
+
+    integer :: num_total_wavenumbers, k, seconds, days, ierr, io, ntr, nsphum, nmix_rat
+    logical, parameter :: south_to_north = .true.
+    logical :: cold_start
+    real    :: ref_surf_p_implicit, robert_coeff_tracers
+
+    real, allocatable, dimension(:, :) :: eigen
+    integer, allocatable, dimension(:, :) :: wavenumber
+    real, allocatable, dimension(:)   :: glon_bnd, glat_bnd, ref_temperature_implicit
+    character(len=32) :: scheme, params
+    character(len=128) :: tname, longname, units
+
+! < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < >
+
+    if (module_is_initialized) return
+
+    call check_removed_keys()
+    read (input_nml_file, nml=spectral_dynamics_nml, iostat=io)
+    ierr = check_nml_error(io, 'spectral_dynamics_nml')
+
+    if (mpp_pe() == mpp_root_pe()) write (stdlog(), nml=spectral_dynamics_nml)
+
+    Time_step = Time_step_in
+    Alarm_interval = set_time(print_interval(2), print_interval(1))
+    Alarm_time = Time + Alarm_interval
+
+    if (damping_order_vor == -1) damping_order_vor = damping_order
+    if (damping_order_div == -1) damping_order_div = damping_order
+    if (damping_coeff_vor == -1.) damping_coeff_vor = damping_coeff
+    if (damping_coeff_div == -1.) damping_coeff_div = damping_coeff
+
+    call check_dynamics_nml
+
+    if (uppercase(trim(vert_advect_uv)) == 'SECOND_CENTERED') then
+      uv_vert_advect_scheme = SECOND_CENTERED
+    else if (uppercase(trim(vert_advect_uv)) == 'FOURTH_CENTERED') then
+      uv_vert_advect_scheme = FOURTH_CENTERED
+    else if (uppercase(trim(vert_advect_uv)) == 'VAN_LEER_LINEAR') then
+      uv_vert_advect_scheme = VAN_LEER_LINEAR
+    else if (uppercase(trim(vert_advect_uv)) == 'FINITE_VOLUME_PARABOLIC') then
+      uv_vert_advect_scheme = FINITE_VOLUME_PARABOLIC
+    else
+      call error_mesg('spectral_dynamics_init', '"'//trim(vert_advect_uv)//'"'//' is not a valid value for vert_advect_uv.', FATAL)
+    end if
+
+    if (uppercase(trim(vert_advect_t)) == 'SECOND_CENTERED') then
+      t_vert_advect_scheme = SECOND_CENTERED
+    else if (uppercase(trim(vert_advect_t)) == 'FOURTH_CENTERED') then
+      t_vert_advect_scheme = FOURTH_CENTERED
+    else if (uppercase(trim(vert_advect_t)) == 'VAN_LEER_LINEAR') then
+      t_vert_advect_scheme = VAN_LEER_LINEAR
+    else if (uppercase(trim(vert_advect_t)) == 'FINITE_VOLUME_PARABOLIC') then
+      t_vert_advect_scheme = FINITE_VOLUME_PARABOLIC
+    else
+      call error_mesg('spectral_dynamics_init', '"'//trim(vert_advect_t)//'"'//' is not a valid value for vert_advect_t.', FATAL)
+    end if
+
+! transforms_init must be called before the remaining
+! restart data can be read or the fields can be allocated.
+! This is because transforms_init calls spec_mpp_init,
+! which is where domains are determined.
+
+    call transforms_init(radius, lat_max, lon_max, num_fourier, fourier_inc, num_spherical, south_to_north=south_to_north, &
+                         triang_trunc=triang_trunc, longitude_origin=longitude_origin)
+
+    call get_grid_domain(is, ie, js, je)
+    call get_spec_domain(ms, me, ns, ne)
+    call get_number_tracers(MODEL_ATMOS, num_prog=num_tracers)
+    call allocate_fields
+
+    do ntr = 1, num_tracers
+
+      call get_tracer_names(MODEL_ATMOS, ntr, tname, longname, units)
+      tracer_attributes(ntr)%name = lowercase(tname)
+
+      if (query_method('numerical_representation', MODEL_ATMOS, ntr, scheme)) then
+        tracer_attributes(ntr)%numerical_representation = scheme
+      else
+        tracer_attributes(ntr)%numerical_representation = default_representation
+      end if
+
+      if (query_method('advect_vert', MODEL_ATMOS, ntr, scheme)) then
+        tracer_attributes(ntr)%advect_vert = scheme
+      else
+        tracer_attributes(ntr)%advect_vert = default_advect_vert
+      end if
+
+      if (query_method('hole_filling', MODEL_ATMOS, ntr, scheme)) then
+        tracer_attributes(ntr)%hole_filling = scheme
+      else
+        tracer_attributes(ntr)%hole_filling = default_hole_filling
+      end if
+
+      if (query_method('robert_filter', MODEL_ATMOS, ntr, scheme, params)) then
+        if (uppercase(scheme) == 'OFF') then
+          tracer_attributes(ntr)%robert_coeff = 0.0
+        else
+          if (parse(params, 'robert_coeff', robert_coeff_tracers) == 1) then
+            tracer_attributes(ntr)%robert_coeff = robert_coeff_tracers
+          else
+            tracer_attributes(ntr)%robert_coeff = robert_coeff
+          end if
+        end if
+      else
+        tracer_attributes(ntr)%robert_coeff = robert_coeff
+      end if
+      if (mpp_pe() == mpp_root_pe()) then
+        write (stdlog(), '(/,80("="))')
+        write (stdlog(), "(a,3x,a,3x,a,3x,a)") &
+          'tracer='//trim(tracer_attributes(ntr)%name), &
+          'numerical_representation='//trim(tracer_attributes(ntr)%numerical_representation), &
+          'advect_vert='//trim(tracer_attributes(ntr)%advect_vert), &
+          'hole_filling='//trim(tracer_attributes(ntr)%hole_filling)
+      end if
+
+      if (trim(tracer_attributes(ntr)%numerical_representation) == 'spectral') then
+        tracer_attributes(ntr)%advect_horiz = 'spectral'
+      else if (trim(tracer_attributes(ntr)%numerical_representation) == 'grid') then
+        tracer_attributes(ntr)%advect_horiz = 'van_leer'
+      else
+        call error_mesg('spectral_dynamics_init', trim(tracer_attributes(ntr)%numerical_representation)// &
+                        ' is an invalid numerical_representation', FATAL)
+      end if
+
+      if (trim(tracer_attributes(ntr)%numerical_representation) == 'grid') then
+        if (trim(tracer_attributes(ntr)%hole_filling) == 'on') then
+          call error_mesg('spectral_dynamics_init', 'Warning: hole_filling scheme = on will be ignored for grid tracer '// &
+                          tracer_attributes(ntr)%name, NOTE)
+        end if
+      end if
+
+    end do
+
+    nsphum = get_tracer_index(MODEL_ATMOS, 'sphum')
+    nmix_rat = get_tracer_index(MODEL_ATMOS, 'mix_rat')
+
+    if (nsphum == NO_TRACER) then
+      if (nmix_rat == NO_TRACER) then
+        ! The drivers pass the humidity tracer to the physics, so a
+        ! humidity tracer is required. For dry runs keep sphum in the
+        ! field_table and switch off moist physics and the surface
+        ! (see the Held-Suarez example); it then stays zero.
+        call error_mesg('spectral_dynamics_init', &
+                        'no sphum (or mix_rat) tracer in the field_table; a humidity tracer is required, '// &
+                        'even for dry runs', FATAL)
+      else
+        nhum = nmix_rat
+      end if
+    else
+      if (nmix_rat == NO_TRACER) then
+        nhum = nsphum
+      else
+        call error_mesg('spectral_dynamics_init', 'sphum and mix_rat cannot both be specified as tracers at the same time', FATAL)
+      end if
+    end if
+    nhum_out = nhum
+
+    ! the water correction rescales the humidity below water_correction_limit on the grid, which
+    ! has no spectral counterpart for a spectral humidity tracer
+    if (do_water_correction .and. water_correction_limit > 0. .and. &
+        trim(tracer_attributes(nhum)%numerical_representation) == 'spectral') then
+      call error_mesg('spectral_dynamics_init', 'do_water_correction with water_correction_limit > 0 '// &
+                      'needs numerical_representation = ''grid'' for '//trim(tracer_attributes(nhum)%name)// &
+                      ' in the field_table (or water_correction_limit = 0)', FATAL)
+    end if
+
+    allocate (tracer_vert_advect_scheme(num_tracers))
+
+    do ntr = 1, num_tracers
+      if (uppercase(trim(tracer_attributes(ntr)%advect_vert)) == 'SECOND_CENTERED') then
+        tracer_vert_advect_scheme(ntr) = SECOND_CENTERED
+      else if (uppercase(trim(tracer_attributes(ntr)%advect_vert)) == 'FOURTH_CENTERED') then
+        tracer_vert_advect_scheme(ntr) = FOURTH_CENTERED
+      else if (uppercase(trim(tracer_attributes(ntr)%advect_vert)) == 'VAN_LEER_LINEAR') then
+        tracer_vert_advect_scheme(ntr) = VAN_LEER_LINEAR
+      else if (uppercase(trim(tracer_attributes(ntr)%advect_vert)) == 'FINITE_VOLUME_PARABOLIC') then
+        tracer_vert_advect_scheme(ntr) = FINITE_VOLUME_PARABOLIC
+      else
+        call error_mesg('spectral_dynamics_init', trim(tracer_attributes(ntr)%advect_vert)// &
+                        ' is not a valid vertical advection scheme for tracers. Check your field_table.', FATAL)
+      end if
+    end do
+
+    call read_restart_or_do_coldstart(tracer_attributes, cold_start, ocean_mask)
+
+    call press_and_geopot_init(pk, bk, use_virtual_temperature, vert_difference_option, surf_geopotential)
+
+    call apply_initial_noise(cold_start)
+
+    call spectral_diagnostics_init(Time)
+
+    call every_step_diagnostics_init(Time, lon_max, lat_max, num_levels, reference_sea_level_press)
+
+    if (do_water_correction .and. .not. do_mass_correction) then
+      call error_mesg('spectral_dynamics_init', 'water_correction requires mass_correction', FATAL)
+    end if
+
+    if (do_energy_correction .and. .not. do_mass_correction) then
+      call error_mesg('spectral_dynamics_init', 'energy_correction requires mass_correction', FATAL)
+    end if
+
+    if (triang_trunc) then
+      num_total_wavenumbers = num_spherical - 1
+    else
+      num_total_wavenumbers = num_spherical - 1 + fourier_inc*num_fourier
+    end if
+
+    if (use_virtual_temperature) then
+      virtual_factor = (rvgas/rdgas) - 1.0
+    end if
+
+    allocate (sin_lat(js:je))
+    allocate (coriolis(js:je))
+
+    call get_sin_lat(sin_lat)
+
+    coriolis = 2*omega*sin_lat
+
+    allocate (glon_bnd(lon_max + 1))
+    allocate (glat_bnd(lat_max + 1))
+
+    call get_grid_boundaries(glon_bnd, glat_bnd, global=.true.)
+    call fv_advection_init(lon_max, lat_max, glat_bnd, 360./fourier_inc)
+
+    deallocate (glat_bnd)
+    deallocate (glon_bnd)
+
+    allocate (dpk(size(pk, 1) - 1))
+    allocate (dbk(size(bk, 1) - 1))
+
+    do k = 1, size(pk, 1) - 1
+      dpk(k) = pk(k + 1) - pk(k)
+      dbk(k) = bk(k + 1) - bk(k)
+    end do
+
+    call spectral_damping_init(damping_coeff, damping_order, damping_option, num_fourier, num_spherical, &
+                               num_levels, eddy_sponge_coeff, zmu_sponge_coeff, zmv_sponge_coeff, &
+                               damping_coeff_vor=damping_coeff_vor, damping_order_vor=damping_order_vor, &
+                               damping_coeff_div=damping_coeff_div, damping_order_div=damping_order_div)
+
+    if (use_implicit) then
+      allocate (wavenumber(0:num_fourier, 0:num_spherical))
+      allocate (eigen(0:num_fourier, 0:num_spherical))
+      allocate (ref_temperature_implicit(num_levels))
+      ref_temperature_implicit(:) = 300.
+      ref_surf_p_implicit = reference_sea_level_press
+
+      call get_spherical_wave(wavenumber)
+      call get_eigen_laplacian(eigen)
+
+      call implicit_init(pk, bk, ref_temperature_implicit, ref_surf_p_implicit, num_total_wavenumbers, &
+                         eigen, wavenumber, alpha_implicit, vert_difference_option)
+
+      deallocate (eigen, wavenumber, ref_temperature_implicit)
+    end if
+
+    call get_time(Time_step, seconds, days)
+    dt_real = 86400*days + seconds
+
+    module_is_initialized = .true.
+    return
+  end subroutine spectral_dynamics_init
+
+!===============================================================================================
+  !> Reads `INPUT/spectral_dynamics.res.nc` if it exists, otherwise sets the initial state
+  !> with `spectral_init_cond`.
+  subroutine read_restart_or_do_coldstart(tracer_attributes, cold_start, ocean_mask)
+
+    type(tracer_type), intent(inout), dimension(:) :: tracer_attributes
+    logical, intent(out) :: cold_start  ! there is no restart file
+    logical, optional, intent(in), dimension(:, :) :: ocean_mask
+
+    integer :: m, n, k, nt, ntr
+    integer, dimension(4) :: siz
+    real :: level
+    real, dimension(ms:me, ns:ne, num_levels) :: real_part, imag_part
+    character(len=64) :: tr_name
+    character(len=4) :: ch1, ch2, ch3, ch4, ch5, ch6
+    type(restart_file_type) :: rst
+
+    cold_start = .not. open_restart_read(rst, 'INPUT/spectral_dynamics.res.nc', grid_domain)
+    if (.not. cold_start) then
+      call get_restart_field_size(rst, 'vors_real', siz)
+      if (num_fourier /= siz(1) - 1 .or. num_spherical /= siz(2) - 1 .or. num_levels /= siz(3)) then
+        write (ch1, '(i4)') siz(1) - 1
+        write (ch2, '(i4)') siz(2) - 1
+        write (ch3, '(i4)') siz(3)
+        write (ch4, '(i4)') num_fourier
+        write (ch5, '(i4)') num_spherical
+        write (ch6, '(i4)') num_levels
+        call error_mesg('spectral_dynamics_init', 'Resolution of restart data does not match resolution specified on namelist.'// &
+                        ' Restart data: num_fourier='//ch1//', num_spherical='//ch2//', num_levels='//ch3// &
+                        '  Namelist: num_fourier='//ch4//', num_spherical='//ch5//', num_levels='//ch6, FATAL)
+      end if
+      call get_restart_field_size(rst, 'ug', siz)
+      if (lon_max /= siz(1) .or. lat_max /= siz(2)) then
+        write (ch1, '(i4)') siz(1)
+        write (ch2, '(i4)') siz(2)
+        write (ch3, '(i4)') lon_max
+        write (ch4, '(i4)') lat_max
+        call error_mesg('spectral_dynamics_init', 'Resolution of restart data does not match resolution specified on namelist.'// &
+                        ' Restart data: lon_max='//ch1//', lat_max='//ch2//'  Namelist: lon_max='//ch3//', lat_max='//ch4, FATAL)
+      end if
+      call read_restart_field(rst, 'previous', level)
+      previous = nint(level)
+      call read_restart_field(rst, 'current', level)
+      current = nint(level)
+      call read_restart_field(rst, 'pk', pk)
+      call read_restart_field(rst, 'bk', bk)
+      do nt = 1, num_time_levels
+        call read_restart_field(rst, 'vors_real', real_part, nt, spectral_domain)
+        call read_restart_field(rst, 'vors_imag', imag_part, nt, spectral_domain)
+        do k = 1, num_levels; do n = ns, ne; do m = ms, me
+            vors(m, n, k, nt) = cmplx(real_part(m, n, k), imag_part(m, n, k))
+          end do; end do; end do
+        call read_restart_field(rst, 'divs_real', real_part, nt, spectral_domain)
+        call read_restart_field(rst, 'divs_imag', imag_part, nt, spectral_domain)
+        do k = 1, num_levels; do n = ns, ne; do m = ms, me
+            divs(m, n, k, nt) = cmplx(real_part(m, n, k), imag_part(m, n, k))
+          end do; end do; end do
+        call read_restart_field(rst, 'ts_real', real_part, nt, spectral_domain)
+        call read_restart_field(rst, 'ts_imag', imag_part, nt, spectral_domain)
+        do k = 1, num_levels; do n = ns, ne; do m = ms, me
+            ts(m, n, k, nt) = cmplx(real_part(m, n, k), imag_part(m, n, k))
+          end do; end do; end do
+        call read_restart_field(rst, 'ln_ps_real', real_part(:, :, 1), nt, spectral_domain)
+        call read_restart_field(rst, 'ln_ps_imag', imag_part(:, :, 1), nt, spectral_domain)
+        do n = ns, ne; do m = ms, me
+            ln_ps(m, n, nt) = cmplx(real_part(m, n, 1), imag_part(m, n, 1))
+          end do; end do
+        call read_restart_field(rst, 'ug', ug(:, :, :, nt), nt)
+        call read_restart_field(rst, 'vg', vg(:, :, :, nt), nt)
+        call read_restart_field(rst, 'tg', tg(:, :, :, nt), nt)
+        call read_restart_field(rst, 'psg', psg(:, :, nt), nt)
+        do ntr = 1, num_tracers
+          tr_name = trim(tracer_attributes(ntr)%name)
+          call read_restart_field(rst, trim(tr_name), grid_tracers(:, :, :, nt, ntr), nt)
+          if (uppercase(trim(tracer_attributes(ntr)%numerical_representation)) == 'SPECTRAL') then
+            call read_restart_field(rst, trim(tr_name)//'_real', real_part, nt, spectral_domain)
+            call read_restart_field(rst, trim(tr_name)//'_imag', imag_part, nt, spectral_domain)
+            do k = 1, num_levels; do n = ns, ne; do m = ms, me
+                spec_tracers(m, n, k, nt, ntr) = cmplx(real_part(m, n, k), imag_part(m, n, k))
+              end do; end do; end do
+          end if
+        end do ! loop over tracers
+      end do ! loop over time levels
+      call read_restart_field(rst, 'vorg', vorg)
+      call read_restart_field(rst, 'divg', divg)
+      call read_restart_field(rst, 'surf_geopotential', surf_geopotential)
+      if (restart_field_exists(rst, 'initial_noise_applied')) then
+        call read_restart_field(rst, 'initial_noise_applied', level)
+        initial_noise_applied = level > 0.5
+      end if
+      call close_restart(rst)
+    else
+      previous = 1
+      current = 1
+      call spectral_init_cond(reference_sea_level_press, triang_trunc, use_virtual_temperature, topography_option, &
+                              vert_coord_option, vert_difference_option, scale_heights, surf_res, p_press, p_sigma, &
+                              exponent, ocean_topog_smoothing, pk, bk, &
+                              vors(:, :, :, 1), divs(:, :, :, 1), ts(:, :, :, 1), ln_ps(:, :, 1), ug(:, :, :, 1), vg(:, :, :, 1), &
+                              tg(:, :, :, 1), psg(:, :, 1), vorg, divg, surf_geopotential, ocean_mask, specify_initial_conditions)
+
+      vors(:, :, :, 2) = vors(:, :, :, 1)
+      divs(:, :, :, 2) = divs(:, :, :, 1)
+      ts(:, :, :, 2) = ts(:, :, :, 1)
+      ln_ps(:, :, 2) = ln_ps(:, :, 1)
+      ug(:, :, :, 2) = ug(:, :, :, 1)
+      vg(:, :, :, 2) = vg(:, :, :, 1)
+      tg(:, :, :, 2) = tg(:, :, :, 1)
+      psg(:, :, 2) = psg(:, :, 1)
+      do ntr = 1, num_tracers
+        if (trim(tracer_attributes(ntr)%name) == 'sphum') then
+          if (specify_initial_conditions) then
+! sphum from INPUT/initial_conditions.nc
+            call read_initial_condition('sphum', grid_tracers(:, :, :, 1, ntr))
+            grid_tracers(:, :, :, 2, ntr) = grid_tracers(:, :, :, 1, ntr)
+            if (mpp_pe() == mpp_root_pe()) then
+              print *, 'tracer ', trim(tracer_attributes(ntr)%name), ' read in from initial_conditions.nc'
+            end if
+          else
+            grid_tracers(:, :, :, :, ntr) = initial_sphum
+          end if
+        else
+          grid_tracers(:, :, :, :, ntr) = 0.
+        end if
+        call trans_grid_to_spherical(grid_tracers(:, :, :, 1, ntr), spec_tracers(:, :, :, 1, ntr))
+        spec_tracers(:, :, :, 2, ntr) = spec_tracers(:, :, :, 1, ntr)
+      end do
+    end if
+
+    return
+  end subroutine read_restart_or_do_coldstart
+
+  !> Adds the initial noise of `initial_noise_nml` to the spectral temperature (and
+  !> vorticity) at both time levels, and the same increments to the grid fields.
+  !>
+  !> The grid fields are incremented rather than recomputed from the spectral fields, so a
+  !> restart keeps its unperturbed part exactly. The increments are kept for
+  !> `get_initial_noise_increments`. Nothing changes if no noise is added.
+  subroutine apply_initial_noise(cold_start)
+    logical, intent(in) :: cold_start  !! there was no restart file
+
+    real, dimension(num_levels + 1) :: p_half, ln_p_half
+    real, dimension(num_levels) :: p_full, ln_p_full
+    complex, allocatable, dimension(:, :, :) :: dts, dvors, zero_divs
+    real, allocatable, dimension(:, :, :) :: dvorg
+    logical :: applied, applied_vor
+    integer :: nt
+
+    ! the reference pressures of the full levels (those of the pfull axis)
+    call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, reference_sea_level_press)
+    call initial_noise_init(num_levels, triang_trunc, p_full)
+
+    allocate (dts(ms:me, ns:ne, num_levels), dvors(ms:me, ns:ne, num_levels))
+    call add_initial_noise(cold_start, initial_noise_applied, ts, vors, applied, applied_vor, dts, dvors)
+    if (.not. applied) return
+    initial_noise_applied = .true.
+
+    allocate (noise_ug(is:ie, js:je, num_levels), noise_vg(is:ie, js:je, num_levels), &
+              noise_tg(is:ie, js:je, num_levels))
+    call trans_spherical_to_grid(dts, noise_tg)
+    noise_ug = 0.
+    noise_vg = 0.
+    if (applied_vor) then
+      allocate (zero_divs(ms:me, ns:ne, num_levels), dvorg(is:ie, js:je, num_levels))
+      zero_divs = cmplx(0., 0.)
+      call uv_grid_from_vor_div(dvors, zero_divs, noise_ug, noise_vg)
+      call trans_spherical_to_grid(dvors, dvorg)
+      vorg = vorg + dvorg
+    end if
+    do nt = 1, num_time_levels
+      tg(:, :, :, nt) = tg(:, :, :, nt) + noise_tg
+      if (applied_vor) then
+        ug(:, :, :, nt) = ug(:, :, :, nt) + noise_ug
+        vg(:, :, :, nt) = vg(:, :, :, nt) + noise_vg
+      end if
+    end do
+
+    call print_noise_rms('temperature [K]', noise_tg)
+    if (applied_vor) call print_noise_rms('vorticity [1/s]', dvorg)
+
+  end subroutine apply_initial_noise
+
+  ! Prints the global grid-point rms of each level of the increment, top to bottom (root
+  ! PE, one line).
+  subroutine print_noise_rms(name, increment)
+    character(len=*), intent(in) :: name
+    real, intent(in), dimension(is:, js:, :) :: increment
+
+    real, dimension(size(increment, 3)) :: rms
+    integer :: k
+
+    do k = 1, size(increment, 3)
+      rms(k) = sqrt(area_weighted_global_mean(increment(:, :, k)**2))
+    end do
+    if (mpp_pe() == mpp_root_pe()) then
+      write (*, '(a,*(1x,es14.7))') 'initial noise: grid rms per level of '//name//':', rms
+      write (stdlog(), '(a,*(1x,es14.7))') 'initial noise: grid rms per level of '//name//':', rms
+    end if
+
+  end subroutine print_noise_rms
+
+  !> Returns the grid-point increments of the initial noise added at this start, if any.
+  !>
+  !> `atmosphere_mod` adds them to its own copy of the state on a restart; after a cold
+  !> start, `get_initial_fields` already returns the perturbed fields.
+  subroutine get_initial_noise_increments(applied, ug_inc, vg_inc, tg_inc)
+    logical, intent(out) :: applied  !! noise was added at this start
+    real, intent(out), dimension(:, :, :) :: ug_inc, vg_inc, tg_inc
+    !! `ug_inc`, `vg_inc`: increments of the zonal and meridional wind [m/s] (0 unless the
+    !! vorticity was perturbed); `tg_inc`: increment of the temperature [K]; unchanged if
+    !! no noise was added
+
+    applied = allocated(noise_tg)
+    if (.not. applied) return
+    ug_inc = noise_ug
+    vg_inc = noise_vg
+    tg_inc = noise_tg
+
+  end subroutine get_initial_noise_increments
+
+  ! Stops with a migration message if input.nml still sets a spectral_dynamics_nml key
+  ! that was removed in v2.0 (the namelist read would otherwise only report an unknown
+  ! variable). A mention of the key in a comment is ignored.
+  subroutine check_removed_keys()
+
+    if (nml_sets('add_noise') .or. nml_sets('add_noise_seed') .or. &
+        nml_sets('noise_spectral_cutoff_minimum') .or. nml_sets('noise_spectral_cutoff_maximum')) &
+      call error_mesg('spectral_dynamics_init', 'spectral_dynamics_nml: add_noise, add_noise_seed and '// &
+                      'noise_spectral_cutoff_minimum/maximum were replaced by initial_noise_nml: '// &
+                      "use noise_type = 'white', amplitude_t = 11.5*add_noise (grid rms [K]) for the old "// &
+                      'default cutoffs, seed = add_noise_seed, l_min/l_max/m_min for the cutoffs, and '// &
+                      "apply = 'every_start' to perturb every restart; see Migration_v2.md", FATAL)
+
+  end subroutine check_removed_keys
+
+!===============================================================================================
+
+  subroutine allocate_fields
+
+    allocate (psg(is:ie, js:je, num_time_levels))
+    allocate (ug(is:ie, js:je, num_levels, num_time_levels))
+    allocate (vg(is:ie, js:je, num_levels, num_time_levels))
+    allocate (tg(is:ie, js:je, num_levels, num_time_levels))
+
+    allocate (ln_ps(ms:me, ns:ne, num_time_levels))
+    allocate (vors(ms:me, ns:ne, num_levels, num_time_levels))
+    allocate (divs(ms:me, ns:ne, num_levels, num_time_levels))
+    allocate (ts(ms:me, ns:ne, num_levels, num_time_levels))
+
+    allocate (pk(num_levels + 1), bk(num_levels + 1))
+
+    allocate (vorg(is:ie, js:je, num_levels))
+    allocate (divg(is:ie, js:je, num_levels))
+
+    allocate (surf_geopotential(is:ie, js:je))
+
+    allocate (grid_tracers(is:ie, js:je, num_levels, num_time_levels, num_tracers))
+    allocate (spec_tracers(ms:me, ns:ne, num_levels, num_time_levels, num_tracers))
+
+! Filling allocatable arrays with zeros immediately after allocation facilitates code debugging
+    psg = 0.; ug = 0.; vg = 0.; tg = 0.
+    ln_ps = cmplx(0., 0.); vors = cmplx(0., 0.); divs = cmplx(0., 0.); ts = cmplx(0., 0.); spec_tracers = cmplx(0., 0.)
+    pk = 0.; bk = 0.; vorg = 0.; divg = 0.; surf_geopotential = 0.; grid_tracers = 0.
+
+    return
+  end subroutine allocate_fields
+!===============================================================================================
+  subroutine check_dynamics_nml
+
+    character(len=8)  :: ch_tmp1
+    character(len=16) :: ch_tmp2
+    integer :: itmp
+
+!  Check for invalid values and incompatible combinations of namelist variables
+
+    if (num_fourier <= 0) then
+      write (ch_tmp1, '(i8)') num_fourier
+      call error_mesg('check_dynamics_nml', ch_tmp1//'is an invalid value for num_fourier.', FATAL)
+    end if
+
+    if (num_spherical <= 0) then
+      write (ch_tmp1, '(i8)') num_spherical
+      call error_mesg('check_dynamics_nml', ch_tmp1//'is an invalid value for num_spherical.', FATAL)
+    end if
+
+    if (fourier_inc <= 0) then
+      write (ch_tmp1, '(i8)') fourier_inc
+      call error_mesg('check_dynamics_nml', ch_tmp1//'is an invalid value for fourier_inc.', FATAL)
+    end if
+
+    if (num_levels <= 0) then
+      write (ch_tmp1, '(i8)') num_levels
+      call error_mesg('check_dynamics_nml', ch_tmp1//'is an invalid value for num_levels.', FATAL)
+    end if
+
+    if (lon_max < 3*num_fourier + 1) then
+      write (ch_tmp1, '(i8)') lon_max
+      write (ch_tmp2, '(i8)') num_fourier
+      call error_mesg('check_dynamics_nml', 'number of longitude points is too small for number of fourier waves.&
+      & lon_max='//ch_tmp1//'  num_fourier='//ch_tmp2, FATAL)
+    end if
+
+    if (triang_trunc) then
+      itmp = 3
+    else
+      itmp = 5
+    end if
+    if (2*lat_max < itmp*(num_spherical - 1) + 1) then
+      write (ch_tmp1, '(i8)') lat_max
+      write (ch_tmp2, '(i8)') num_spherical
+      call error_mesg('check_dynamics_nml', 'number of latitude points is too small for number of meridional waves.&
+      &  lat_max='//ch_tmp1//'  num_spherical='//ch_tmp2, FATAL)
+    end if
+
+    if (damping_order < 0) then
+      write (ch_tmp1, '(i8)') damping_order
+      call error_mesg('check_dynamics_nml', ch_tmp1//' is an invalid value for damping_order.', FATAL)
+    end if
+
+    if (damping_order_vor < 0) then
+      write (ch_tmp1, '(i8)') damping_order_vor
+      call error_mesg('check_dynamics_nml', ch_tmp1//' is an invalid value for damping_order_vor.', FATAL)
+    end if
+
+    if (damping_order_div < 0) then
+      write (ch_tmp1, '(i8)') damping_order_div
+      call error_mesg('check_dynamics_nml', ch_tmp1//' is an invalid value for damping_order_div.', FATAL)
+    end if
+
+    if (damping_coeff < 0.) then
+      write (ch_tmp2, '(e16.8)') damping_coeff
+      call error_mesg('check_dynamics_nml', ch_tmp2//' is an invalid value for damping_coeff.', FATAL)
+    end if
+
+    if (damping_coeff_vor < 0.) then
+      write (ch_tmp2, '(e16.8)') damping_coeff_vor
+      call error_mesg('check_dynamics_nml', ch_tmp2//' is an invalid value for damping_coeff_vor.', FATAL)
+    end if
+
+    if (damping_coeff_div < 0.) then
+      write (ch_tmp2, '(e16.8)') damping_coeff_div
+      call error_mesg('check_dynamics_nml', ch_tmp2//' is an invalid value for damping_coeff_div.', FATAL)
+    end if
+
+    if (robert_coeff < 0. .or. robert_coeff > 1.) then
+      write (ch_tmp2, '(1pe16.8)') robert_coeff
+      call error_mesg('check_dynamics_nml', ch_tmp2//' is an invalid value for robert_coeff.', FATAL)
+    end if
+
+    if ((do_energy_correction .or. do_water_correction) .and. .not. do_mass_correction) then
+      call error_mesg('check_dynamics_nml', '.not.do_mass_correction must be .true. when either &
+      &do_energy_correction or do_water_correction is .true.', FATAL)
+    end if
+
+    return
+
+  end subroutine check_dynamics_nml
+!===============================================================================================
+  !> Returns the initial grid-point fields after a cold start (fatal error otherwise).
+  subroutine get_initial_fields(ug_out, vg_out, tg_out, psg_out, grid_tracers_out)
+    real, intent(out), dimension(:, :, :)   :: ug_out, vg_out, tg_out
+    !! `ug_out`, `vg_out`: zonal and meridional wind [m/s]; `tg_out`: temperature [K]
+    real, intent(out), dimension(:, :)     :: psg_out  !! surface pressure [Pa]
+    real, intent(out), dimension(:, :, :, :) :: grid_tracers_out  !! tracers (last dimension: tracer number)
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_initial_fields', 'dynamics has not been initialized', FATAL)
+    end if
+
+    if (previous /= 1 .or. current /= 1) then
+      call error_mesg('get_initial_fields', 'This routine may be called only to get the&
+      & initial values after a cold_start', FATAL)
+    end if
+
+    ug_out = ug(:, :, :, 1)
+    vg_out = vg(:, :, :, 1)
+    tg_out = tg(:, :, :, 1)
+    psg_out = psg(:, :, 1)
+    grid_tracers_out = grid_tracers(:, :, :, 1, :)
+
+  end subroutine get_initial_fields
+!===============================================================================================
+
+  !> Advances the dynamics by one time step (in `num_steps` substeps).
+  !>
+  !> Adds the dynamical tendencies to the physics tendencies, applies the semi-implicit
+  !> correction and the damping, steps the spectral fields and the tracers with the leapfrog
+  !> scheme (the Robert filter is completed later by `complete_robert_filter`), applies the
+  !> mass, energy and water corrections and sends the every-step diagnostics.
+  subroutine spectral_dynamics(Time, psg_final, ug_final, vg_final, tg_final, tracer_attributes, grid_tracers_final, &
+                               dt_psg, dt_ug, dt_vg, dt_tg, dt_tracers, wg_full, p_full, p_half, z_full)
+
+    type(time_type), intent(in) :: Time  !! current time
+    real, intent(out), dimension(is:ie, js:je) :: psg_final  !! surface pressure at the new time level [Pa]
+    real, intent(out), dimension(is:ie, js:je, num_levels) :: ug_final, vg_final, tg_final
+    !! `ug_final`, `vg_final`: zonal and meridional wind [m/s]; `tg_final`: temperature [K]; at the new
+    !! time level
+    real, intent(out), dimension(is:ie, js:je, num_levels, num_tracers) :: grid_tracers_final
+    !! grid-point tracers at the new time level
+    type(tracer_type), intent(inout), dimension(:) :: tracer_attributes  !! attributes of the prognostic tracers
+
+    real, intent(inout), dimension(is:ie, js:je) :: dt_psg  !! physics tendency of surface pressure [Pa/s]
+    real, intent(inout), dimension(is:ie, js:je, num_levels) :: dt_ug, dt_vg, dt_tg
+    !! `dt_ug`, `dt_vg`, `dt_tg`: physics tendencies of zonal and meridional wind [m/s2] and
+    !! temperature [K/s]
+    real, intent(inout), dimension(is:ie, js:je, num_levels, num_tracers) :: dt_tracers  !! physics tendencies of the tracers
+    real, intent(out), dimension(is:ie, js:je, num_levels) :: wg_full, p_full
+    !! `wg_full`: vertical pressure velocity at full levels [Pa/s]; `p_full`: pressure at full levels [Pa]
+    real, intent(out), dimension(is:ie, js:je, num_levels + 1) :: p_half  !! pressure at half levels [Pa]
+    real, intent(in), dimension(is:ie, js:je, num_levels) :: z_full  !! height at full levels, for the diagnostics [m]
+
+! < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < >
+
+    type(time_type) :: Time_diag
+
+    complex, dimension(ms:me, ns:ne) :: dt_ln_ps
+    complex, dimension(ms:me, ns:ne, num_levels) :: dt_vors, dt_divs, dt_ts, phis_plus_ke
+    complex, dimension(ms:me, ns:ne, num_levels) :: dt_vors_damp, dt_divs_damp, dt_ts_damp
+    real, dimension(is:ie, js:je, num_levels) :: virtual_t, dp, dt_grid_tmp
+    real, dimension(is:ie, js:je, num_levels) :: kegen, kegenq, kegenqtinv, water_correction
+    real, dimension(is:ie, js:je) :: dx_psg, dy_psg, ln_psg, dt_ln_psg
+    real, dimension(is:ie, js:je, num_levels) :: phig_full, ln_p_full, phig_full_plus_ke
+    real, dimension(is:ie, js:je, num_levels + 1) :: phig_half, ln_p_half, wg
+
+    real, dimension(is:ie, js:je) :: dt_psg_tmp
+    real, dimension(is:ie, js:je, num_levels) :: dt_ug_tmp, dt_vg_tmp, dt_tg_tmp
+    real, dimension(is:ie, js:je, num_levels) :: dt_ug_damp, dt_vg_damp, dt_tg_damp
+    real, dimension(is:ie, js:je, num_levels, num_tracers) :: dt_tracers_tmp
+    complex, dimension(ms:me, ns:ne, 2*num_levels) :: divs_vors
+    real, dimension(is:ie, js:je, 2*num_levels) :: divg_vorg
+
+    integer :: j, k, time_level
+    real    :: delta_t, temperature_correction
+    real, dimension(num_tracers) :: dt_hadv, dt_vadv
+    integer :: ii, jj, kk, loc(3)
+
+! < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < > < >
+
+    if (.not. module_is_initialized) then
+      call error_mesg('spectral_dynamics', 'dynamics has not been initialized ', FATAL)
+    end if
+
+    step_loop: do step_number = 1, num_steps
+
+      if (previous == current) then
+        delta_t = dt_real/num_steps
+      else
+        delta_t = 2*dt_real/num_steps
+      end if
+      future = 3 - current   ! num_time_levels = 2
+
+      dt_psg_tmp = dt_psg
+      dt_ug_tmp = dt_ug
+      dt_vg_tmp = dt_vg
+      dt_tg_tmp = dt_tg
+      dt_tracers_tmp = dt_tracers
+
+      call initialize_corrections(dt_ug, dt_vg, dt_tg, dt_tracers, delta_t)
+
+      call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, psg(:, :, current))
+
+      call compute_pressure_gradient(ln_ps(:, :, current), psg(:, :, current), dx_psg, dy_psg)
+
+      if (use_virtual_temperature) then
+        virtual_t = tg(:, :, :, current)*(1.0 + virtual_factor*grid_tracers(:, :, :, current, nhum))
+      else
+        virtual_t = tg(:, :, :, current)
+      end if
+
+      call four_in_one(divg, ug(:, :, :, current), vg(:, :, :, current), virtual_t, grid_tracers(:, :, :, current, nhum), &
+                       psg(:, :, current), &
+                       ln_p_half, ln_p_full, p_full, dx_psg, dy_psg, dt_psg_tmp, wg, wg_full, dt_tg_tmp, dt_ug_tmp, dt_vg_tmp, &
+                       kegen, kegenq, kegenqtinv)
+
+      call compute_geopotential(tg(:, :, :, current), ln_p_half, ln_p_full, phig_full, phig_half, &
+                                grid_tracers(:, :, :, current, nhum))
+
+      dt_ln_psg = dt_psg_tmp/psg(:, :, current)
+      call trans_grid_to_spherical(dt_ln_psg, dt_ln_ps)
+
+      dp = p_half(:, :, 2:num_levels + 1) - p_half(:, :, 1:num_levels)
+
+      if (uv_vert_advect_scheme == SECOND_CENTERED .or. uv_vert_advect_scheme == FOURTH_CENTERED) time_level = current
+      if (uv_vert_advect_scheme == VAN_LEER_LINEAR .or. uv_vert_advect_scheme == FINITE_VOLUME_PARABOLIC) time_level = previous
+      call vert_advection(delta_t, wg, dp, ug(:, :, :, time_level), dt_grid_tmp, scheme=uv_vert_advect_scheme, form=ADVECTIVE_FORM)
+      dt_ug_tmp = dt_ug_tmp + dt_grid_tmp
+      call vert_advection(delta_t, wg, dp, vg(:, :, :, time_level), dt_grid_tmp, scheme=uv_vert_advect_scheme, form=ADVECTIVE_FORM)
+      dt_vg_tmp = dt_vg_tmp + dt_grid_tmp
+
+      if (t_vert_advect_scheme == SECOND_CENTERED .or. t_vert_advect_scheme == FOURTH_CENTERED) time_level = current
+      if (t_vert_advect_scheme == VAN_LEER_LINEAR .or. t_vert_advect_scheme == FINITE_VOLUME_PARABOLIC) time_level = previous
+      call vert_advection(delta_t, wg, dp, tg(:, :, :, time_level), dt_grid_tmp, scheme=t_vert_advect_scheme, form=ADVECTIVE_FORM)
+      dt_tg_tmp = dt_tg_tmp + dt_grid_tmp
+
+      call horizontal_advection(ts(:, :, :, current), ug(:, :, :, current), vg(:, :, :, current), dt_tg_tmp)
+      call trans_grid_to_spherical(dt_tg_tmp, dt_ts)
+
+      do k = 1, num_levels
+        do j = js, je
+          dt_ug_tmp(:, j, k) = dt_ug_tmp(:, j, k) + (vorg(:, j, k) + coriolis(j))*vg(:, j, k, current)
+          dt_vg_tmp(:, j, k) = dt_vg_tmp(:, j, k) - (vorg(:, j, k) + coriolis(j))*ug(:, j, k, current)
+        end do
+      end do
+
+      call vor_div_from_uv_grid(dt_ug_tmp, dt_vg_tmp, dt_vors, dt_divs, triang=triang_trunc)
+
+      phig_full_plus_ke = phig_full + .5*(ug(:, :, :, current)**2 + vg(:, :, :, current)**2)
+      call trans_grid_to_spherical(phig_full_plus_ke, phis_plus_ke)
+      dt_divs = dt_divs - compute_laplacian(phis_plus_ke)
+
+      if (use_implicit) call implicit_correction(dt_divs, dt_ts, dt_ln_ps, divs, ts, ln_ps, delta_t, previous, current)
+
+      ! the damping tendencies are only diagnostics; dt_ug_damp, dt_vg_damp and dt_tg_damp are not
+      ! set when they are not requested
+      if (need_damp_uv) then
+        call compute_spectral_damping_vor(vors(:, :, :, previous), dt_vors, delta_t, dt_vors_damp)
+        call compute_spectral_damping_div(divs(:, :, :, previous), dt_divs, delta_t, dt_divs_damp)
+        call uv_grid_from_vor_div(dt_vors_damp, dt_divs_damp, dt_ug_damp, dt_vg_damp)
+      else
+        call compute_spectral_damping_vor(vors(:, :, :, previous), dt_vors, delta_t)
+        call compute_spectral_damping_div(divs(:, :, :, previous), dt_divs, delta_t)
+      end if
+      if (need_damp_t) then
+        call compute_spectral_damping(ts(:, :, :, previous), dt_ts, delta_t, dt_ts_damp)
+        call trans_spherical_to_grid(dt_ts_damp, dt_tg_damp)
+      else
+        call compute_spectral_damping(ts(:, :, :, previous), dt_ts, delta_t)
+      end if
+
+      if (.not. robert_complete_for_fields) then
+        call error_mesg('spectral_dynamics', 'robert_complete_for_fields should be .true.', FATAL)
+      end if
+      if (.not. robert_complete_for_tracers) then
+        call error_mesg('spectral_dynamics', 'robert_complete_for_tracers should be .true.', FATAL)
+      end if
+
+      if (step_number == num_steps) then
+        call leapfrog_2level_A(ln_ps, dt_ln_ps, previous, current, future, delta_t, robert_coeff)
+        call leapfrog_2level_A(vors, dt_vors, previous, current, future, delta_t, robert_coeff)
+        call leapfrog_2level_A(divs, dt_divs, previous, current, future, delta_t, robert_coeff)
+        call leapfrog_2level_A(ts, dt_ts, previous, current, future, delta_t, robert_coeff)
+        robert_complete_for_fields = .false.
+      else
+        call leapfrog(ln_ps, dt_ln_ps, previous, current, future, delta_t, robert_coeff)
+        call leapfrog(vors, dt_vors, previous, current, future, delta_t, robert_coeff)
+        call leapfrog(divs, dt_divs, previous, current, future, delta_t, robert_coeff)
+        call leapfrog(ts, dt_ts, previous, current, future, delta_t, robert_coeff)
+        robert_complete_for_fields = .true.
+      end if
+
+      ! divergence and vorticity in one transform (the transforms do not mix levels)
+      divs_vors(:, :, 1:num_levels) = divs(:, :, :, future)
+      divs_vors(:, :, num_levels + 1:2*num_levels) = vors(:, :, :, future)
+      call trans_spherical_to_grid(divs_vors, divg_vorg)
+      divg = divg_vorg(:, :, 1:num_levels)
+      vorg = divg_vorg(:, :, num_levels + 1:2*num_levels)
+      call uv_grid_from_vor_div(vors(:, :, :, future), divs(:, :, :, future), ug(:, :, :, future), vg(:, :, :, future))
+      call trans_spherical_to_grid(ts(:, :, :, future), tg(:, :, :, future))
+      call trans_spherical_to_grid(ln_ps(:, :, future), ln_psg)
+      psg(:, :, future) = exp(ln_psg)
+
+      if (minval(tg(:, :, :, future)) < valid_range_t(1) .or. maxval(tg(:, :, :, future)) > valid_range_t(2)) then
+        ! report the global indices of the extreme temperature on this PE
+        if (minval(tg(:, :, :, future)) < valid_range_t(1)) then
+          loc = minloc(tg(:, :, :, future))
+        else
+          loc = maxloc(tg(:, :, :, future))
+        end if
+        ii = loc(1) + is - 1
+        jj = loc(2) + js - 1
+        kk = loc(3)
+        write (*, '(a,i0,a,3(1x,i0),a,2f10.3)') 'PE ', mpp_pe(), ': i, j, k =', ii, jj, kk, &
+          '  T (current, future) =', tg(ii, jj, kk, current), tg(ii, jj, kk, future)
+        write (*, '(a,i0,a,3(1x,i0),a,2f10.3)') 'PE ', mpp_pe(), ': i, j, k =', ii, jj, kk, &
+          '  u (current, future) =', ug(ii, jj, kk, current), ug(ii, jj, kk, future)
+        call error_mesg('spectral_dynamics', 'temperatures out of valid range', FATAL)
+      end if
+
+      call update_tracers(tracer_attributes, dt_tracers_tmp, wg, p_half, delta_t, dt_hadv, dt_vadv)
+      call compute_corrections(delta_t, tracer_attributes, temperature_correction, water_correction, p_full)
+
+      previous = current
+      current = future
+
+      ! The fields at the new 'current' level are valid at the end of this (sub)step,
+      ! Time + step_number*Time_step/num_steps (Time_next when num_steps=1). The complete
+      ! Robert filter only alters the old level, so these values are final.
+      Time_diag = Time + (Time_step*step_number)/num_steps
+      call every_step_diagnostics( &
+        Time_diag, psg(:, :, current), ug(:, :, :, current), vg(:, :, :, current), tg(:, :, :, current), &
+        grid_tracers(:, :, :, current, :), &
+        wg_full, p_full, p_half, z_full, dt_ug_damp, dt_vg_damp, dt_tg_damp, temperature_correction/delta_t, &
+        water_correction, dt_hadv, dt_vadv, kegen, kegenq, kegenqtinv)
+
+    end do step_loop
+
+    psg_final = psg(:, :, current)
+    ug_final = ug(:, :, :, current)
+    vg_final = vg(:, :, :, current)
+    tg_final = tg(:, :, :, current)
+    grid_tracers_final = grid_tracers(:, :, :, current, :)
+
+    return
+  end subroutine spectral_dynamics
+
+!================================================================================
+
+  !> Computes the pressure-gradient and energy-conversion terms of the u, v and T tendencies,
+  !> the surface-pressure tendency and the vertical velocities, with the Simmons and Burridge
+  !> vertical differencing.
+  subroutine four_in_one(divg, u_grid, v_grid, t_grid, q_grid, p_surf, ln_p_half, ln_p_full, p_full, &
+                         dx_psg, dy_psg, dt_psg, wg, wg_full, dt_tg, dt_ug, dt_vg, &
+                         kegen, kegenq, kegenqtinv)
+
+    real, intent(in), dimension(:, :, :) :: divg, u_grid, v_grid, t_grid, q_grid, ln_p_full, p_full
+    real, intent(in), dimension(:, :) :: p_surf, dx_psg, dy_psg
+    real, intent(inout), dimension(:, :) :: dt_psg
+    real, intent(out), dimension(:, :, :) :: wg_full, kegen, kegenq, kegenqtinv
+    !! `kegen`, `kegenq`, `kegenqtinv` are only set when the diagnostics need them
+    real, intent(out), dimension(:, :, :) :: wg
+    real, intent(in), dimension(:, :, :) :: ln_p_half
+    real, intent(inout), dimension(:, :, :) :: dt_tg, dt_ug, dt_vg
+
+!  wg is dimensioned (is:ie, js:je, num_levels+1)
+!  wg(:,:,k) = grav*(downward mass flux per unit area) across the K+1/2
+!  cell boundary. This is the "vertical velocity" in the hybrid coordinate system.
+!  When vertical coordinate is pure sigma: wg = psg*d(sigma)/dt
+!  wg_full is the vertical velocity at full levels.
+
+    real, dimension(size(p_surf, 1)) :: dp, dp_inv, dlog_1, dlog_2, dlog_3, dmean, dmean_tot
+    real, dimension(size(p_surf, 1)) :: x1, x2, x3, x4, x5
+
+    real :: kappa
+    integer :: j, k
+
+    kappa = rdgas/cp_air
+
+! the columns are independent, so each thread takes whole latitude rows
+!$omp parallel do private(k, dp, dp_inv, dlog_1, dlog_2, dlog_3, dmean, dmean_tot, x1, x2, x3, x4, x5)
+    do j = 1, size(p_surf, 2)
+
+      dmean_tot = 0.
+
+      if (vert_difference_option == 'simmons_and_burridge') then
+        do k = 1, num_levels
+          dp = dpk(k) + dbk(k)*p_surf(:, j)
+          dp_inv = 1/dp
+          dlog_1 = ln_p_half(:, j, k + 1) - ln_p_full(:, j, k)
+          dlog_2 = ln_p_full(:, j, k) - ln_p_half(:, j, k)
+          dlog_3 = ln_p_half(:, j, k + 1) - ln_p_half(:, j, k)
+          x1 = (bk(k + 1)*dlog_1 + bk(k)*dlog_2)*dp_inv
+          x2 = x1*dx_psg(:, j)
+          x3 = x1*dy_psg(:, j)
+          dt_ug(:, j, k) = dt_ug(:, j, k) - rdgas*t_grid(:, j, k)*x2
+          dt_vg(:, j, k) = dt_vg(:, j, k) - rdgas*t_grid(:, j, k)*x3
+          dmean = divg(:, j, k)*dp + dbk(k)*(u_grid(:, j, k)*dx_psg(:, j) + v_grid(:, j, k)*dy_psg(:, j))
+          x4 = (dmean_tot*dlog_3 + dmean*dlog_1)*dp_inv
+          x5 = x4 - u_grid(:, j, k)*x2 - v_grid(:, j, k)*x3
+          dt_tg(:, j, k) = dt_tg(:, j, k) - kappa*t_grid(:, j, k)*x5
+          if (need_kegen) then
+            kegen(:, j, k) = -kappa*t_grid(:, j, k)*x5
+            kegenq(:, j, k) = -kappa*t_grid(:, j, k)*x5*q_grid(:, j, k)
+            kegenqtinv(:, j, k) = -kappa*x5*q_grid(:, j, k)
+          end if
+          wg_full(:, j, k) = -x5*p_full(:, j, k)
+          dmean_tot = dmean_tot + dmean
+          wg(:, j, k + 1) = -dmean_tot
+        end do
+
+      end if
+
+      dt_psg(:, j) = dt_psg(:, j) - dmean_tot
+
+      do k = 2, num_levels
+        wg(:, j, k) = wg(:, j, k) + dmean_tot*bk(k)
+      end do
+
+      wg(:, j, 1) = 0.0
+      wg(:, j, num_levels + 1) = 0.0
+
+    end do
+!$omp end parallel do
+
+    return
+  end subroutine four_in_one
+
+!================================================================================
+
+  !> Advects, damps and time-steps the spectral and grid-point tracers, and returns the global
+  !> tendencies due to horizontal and vertical advection.
+  subroutine update_tracers(tracer_attributes, dt_tr, wg, p_half, delta_t, dt_hadv, dt_vadv)
+
+    type(tracer_type), intent(inout), dimension(:) :: tracer_attributes
+    real, intent(inout), dimension(:, :, :, :) :: dt_tr
+    real, intent(in), dimension(:, :, :) :: wg, p_half
+    real, intent(in)  :: delta_t
+    real, intent(out), dimension(:) :: dt_hadv, dt_vadv
+
+    complex, dimension(ms:me, ns:ne, num_levels) :: dt_trs
+    real, dimension(is:ie, js:je, num_levels) :: dp, dt_tmp, tr_future
+    integer :: ntr, time_level
+
+    dp = p_half(:, :, 2:num_levels + 1) - p_half(:, :, 1:num_levels)
+
+    do ntr = 1, num_tracers
+      if (trim(tracer_attributes(ntr)%numerical_representation) == 'spectral') then
+        dt_tmp = 0.0
+        call horizontal_advection(spec_tracers(:, :, :, current, ntr), ug(:, :, :, current), vg(:, :, :, current), dt_tmp)
+        dt_tr(:, :, :, ntr) = dt_tr(:, :, :, ntr) + dt_tmp
+        dt_hadv(ntr) = 0.
+        if (need_hadv(ntr)) dt_hadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to hor adv
+        if (tracer_vert_advect_scheme(ntr) == SECOND_CENTERED .or. &
+            tracer_vert_advect_scheme(ntr) == FOURTH_CENTERED) time_level = current
+        if (tracer_vert_advect_scheme(ntr) == VAN_LEER_LINEAR .or. &
+            tracer_vert_advect_scheme(ntr) == FINITE_VOLUME_PARABOLIC) time_level = previous
+        call vert_advection(delta_t, wg, dp, grid_tracers(:, :, :, time_level, ntr), dt_tmp, &
+                            scheme=tracer_vert_advect_scheme(ntr), form=ADVECTIVE_FORM)
+        dt_tr(:, :, :, ntr) = dt_tr(:, :, :, ntr) + dt_tmp
+        dt_vadv(ntr) = 0.
+        if (need_vadv(ntr)) dt_vadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to vert adv
+        if (trim(tracer_attributes(ntr)%hole_filling) == 'on') then
+          call water_borrowing(dt_tr(:, :, :, ntr), grid_tracers(:, :, :, previous, ntr), current, p_half, delta_t)
+        end if
+        call trans_grid_to_spherical(dt_tr(:, :, :, ntr), dt_trs)
+        call compute_spectral_damping(spec_tracers(:, :, :, previous, ntr), dt_trs, delta_t)
+        if (step_number == num_steps) then
+          call leapfrog_2level_A(spec_tracers(:, :, :, :, ntr), dt_trs, previous, current, future, delta_t, &
+                                 tracer_attributes(ntr)%robert_coeff)
+          robert_complete_for_tracers = .false.
+        else
+          call leapfrog(spec_tracers(:, :, :, :, ntr), dt_trs, previous, current, future, delta_t, &
+                        tracer_attributes(ntr)%robert_coeff)
+          robert_complete_for_tracers = .true.
+        end if
+        call trans_spherical_to_grid(spec_tracers(:, :, :, future, ntr), grid_tracers(:, :, :, future, ntr))
+      else if (trim(tracer_attributes(ntr)%numerical_representation) == 'grid') then
+        tr_future = grid_tracers(:, :, :, previous, ntr) + delta_t*dt_tr(:, :, :, ntr)
+        dt_tr(:, :, :, ntr) = 0.0
+        call a_grid_horiz_advection(ug(:, :, :, current), vg(:, :, :, current), tr_future, delta_t, dt_tr(:, :, :, ntr))
+        tr_future = tr_future + delta_t*dt_tr(:, :, :, ntr)
+        ! tendency of integrated tracer due to hor adv
+        dt_hadv(ntr) = 0.
+        if (need_hadv(ntr)) dt_hadv(ntr) = mass_weighted_global_integral(dt_tr(:, :, :, ntr), psg(:, :, future))
+        dp = p_half(:, :, 2:num_levels + 1) - p_half(:, :, 1:num_levels)
+        call vert_advection(delta_t, wg, dp, tr_future, dt_tmp, scheme=tracer_vert_advect_scheme(ntr), form=ADVECTIVE_FORM)
+        tr_future = tr_future + delta_t*dt_tmp
+        dt_vadv(ntr) = 0.
+        if (need_vadv(ntr)) dt_vadv(ntr) = mass_weighted_global_integral(dt_tmp, psg(:, :, future)) ! tendency of integrated tracer due to vert adv
+        if (step_number == num_steps) then
+          grid_tracers(:, :, :, current, ntr) = grid_tracers(:, :, :, current, ntr) + &
+                                                tracer_attributes(ntr)%robert_coeff &
+                                                *(grid_tracers(:, :, :, previous, ntr) - 2.0*grid_tracers(:, :, :, current, ntr))
+          robert_complete_for_tracers = .false.
+        else
+          grid_tracers(:, :, :, current, ntr) = grid_tracers(:, :, :, current, ntr) + &
+                                                tracer_attributes(ntr)%robert_coeff &
+                                                *(grid_tracers(:, :, :, previous, ntr) &
+                                                  - 2.0*grid_tracers(:, :, :, current, ntr) + tr_future)
+          robert_complete_for_tracers = .true.
+        end if
+        grid_tracers(:, :, :, future, ntr) = tr_future
+      else
+        call error_mesg('update_tracers', trim(tracer_attributes(ntr)%numerical_representation)// &
+                        ' is an invalid numerical_representation', FATAL)
+      end if
+    end do
+
+    return
+  end subroutine update_tracers
+
+!=================================================================================================
+
+  !> Computes the horizontal gradient of the surface pressure on the grid from the spectral
+  !> log surface pressure.
+  subroutine compute_pressure_gradient(ln_ps, psg, dx_psg, dy_psg)
+
+    complex, intent(in), dimension(:, :) :: ln_ps
+    real, intent(in), dimension(:, :) :: psg
+    real, intent(out), dimension(:, :) :: dx_psg, dy_psg
+
+    complex, dimension(ms:me, ns:ne) :: dx_ln_ps, dy_ln_ps
+
+    call compute_gradient_cos(ln_ps, dx_ln_ps, dy_ln_ps)
+    call trans_spherical_to_grid(dx_ln_ps, dx_psg)
+    call trans_spherical_to_grid(dy_ln_ps, dy_psg)
+    dx_psg = psg*dx_psg
+    dy_psg = psg*dy_psg
+    call divide_by_cos(dx_psg)
+    call divide_by_cos(dy_psg)
+
+    return
+  end subroutine compute_pressure_gradient
+
+!===================================================================================
+  !> Applies the mass, energy and water corrections to the new time level (see
+  !> `do_mass_correction`, `do_energy_correction`, `do_water_correction`).
+  !>
+  !> The water correction rescales the humidity only where the pressure is at least
+  !> `water_correction_limit`, so that the global water is restored without a sink in the
+  !> stratosphere.
+  subroutine compute_corrections(delta_t, tracer_attributes, temperature_correction, water_correction, p_full)
+
+    real, intent(in)                   :: delta_t
+    type(tracer_type), intent(inout), dimension(:)     :: tracer_attributes
+    real, intent(out)                   :: temperature_correction  !! temperature change of the energy correction [K]
+    real, intent(out), dimension(:, :, :) :: water_correction  !! humidity tendency of the water correction [kg/kg/s]
+    real, intent(in), dimension(:, :, :) :: p_full  !! pressure at full levels [Pa]
+
+    real :: mass_correction_factor, water_correction_factor
+    real :: mean_surf_press_tmp, mean_energy_tmp, mean_water_tmp
+    real :: corr_water_tmp, not_corr_water_tmp
+    integer, dimension(size(water_correction, 1), size(water_correction, 2), size(water_correction, 3)) :: water_mask
+
+    ! zero when a correction is off or not applied (the diagnostics send them)
+    temperature_correction = 0.
+    water_correction = 0.
+
+    if (do_mass_correction) then
+      mean_surf_press_tmp = area_weighted_global_mean(psg(:, :, future))
+      mass_correction_factor = mean_surf_press_previous/mean_surf_press_tmp
+      psg(:, :, future) = mass_correction_factor*psg(:, :, future)
+      if (ms == 0 .and. ns == 0) then
+        ln_ps(0, 0, future) = ln_ps(0, 0, future) + sqrt(2.)*log(mass_correction_factor)
+      end if
+    end if
+
+    if (do_energy_correction) then
+      mean_energy_tmp = mass_weighted_global_integral( &
+                        0.5*(ug(:, :, :, future)**2 + vg(:, :, :, future)**2) + cp_air*tg(:, :, :, future), psg(:, :, future))
+      temperature_correction = grav*(mean_energy_previous - mean_energy_tmp)/(cp_air*mean_surf_press_previous)
+      tg(:, :, :, future) = tg(:, :, :, future) + temperature_correction
+      if (ms == 0 .and. ns == 0) then
+        ts(0, 0, :, future) = ts(0, 0, :, future) + sqrt(2.)*temperature_correction
+      end if
+    end if
+
+    if (do_water_correction) then
+      mean_water_tmp = mass_weighted_global_integral(grid_tracers(:, :, :, future, nhum), psg(:, :, future))
+      water_mask = 0
+      where (p_full >= water_correction_limit)
+        water_mask = 1
+      end where
+      corr_water_tmp = mass_weighted_global_integral(grid_tracers(:, :, :, future, nhum)*water_mask, psg(:, :, future))
+      water_mask = 0
+      where (p_full < water_correction_limit)
+        water_mask = 1
+      end where
+      not_corr_water_tmp = mass_weighted_global_integral(grid_tracers(:, :, :, future, nhum)*water_mask, psg(:, :, future))
+
+      if (mean_water_tmp > 0. .and. corr_water_tmp > 0.) then
+        ! the factor applied below water_correction_limit restores the total water
+        water_correction_factor = mean_water_previous/mean_water_tmp
+        water_correction_factor = water_correction_factor*(1.+not_corr_water_tmp/corr_water_tmp) - not_corr_water_tmp/corr_water_tmp
+        where (p_full >= water_correction_limit)
+          water_correction = (water_correction_factor - 1.)*grid_tracers(:, :, :, future, nhum)/delta_t
+          grid_tracers(:, :, :, future, nhum) = water_correction_factor*grid_tracers(:, :, :, future, nhum)
+        end where
+        if (trim(tracer_attributes(nhum)%numerical_representation) == 'spectral') then
+          ! only with water_correction_limit <= 0 (checked in spectral_dynamics_init): the whole field
+          spec_tracers(:, :, :, future, nhum) = water_correction_factor*spec_tracers(:, :, :, future, nhum)
+        end if
+      end if
+    end if
+
+    return
+  end subroutine compute_corrections
+
+!===================================================================================
+
+  !> Computes the global mean surface pressure, energy and water that the corrections at the
+  !> end of the step restore.
+  subroutine initialize_corrections(dt_ug, dt_vg, dt_tg, dt_tracers, delta_t)
+
+    real, intent(in), dimension(:, :, :)   :: dt_ug, dt_vg, dt_tg
+    real, intent(in), dimension(:, :, :, :) :: dt_tracers
+    real, intent(in) :: delta_t
+
+    real, dimension(is:ie, js:je, num_levels) :: energy
+
+    if (do_mass_correction) then
+      mean_surf_press_previous = area_weighted_global_mean(psg(:, :, previous))
+    end if
+
+    if (do_energy_correction) then
+      energy = 0.5*((ug(:, :, :, previous) + dt_ug*delta_t)**2 + (vg(:, :, :, previous) + dt_vg*delta_t)**2) &
+               + cp_air*(tg(:, :, :, previous) + dt_tg*delta_t)
+      mean_energy_previous = mass_weighted_global_integral(energy, psg(:, :, previous))
+    end if
+
+    if (do_water_correction) then
+      mean_water_previous = &
+        mass_weighted_global_integral(grid_tracers(:, :, :, previous, nhum) &
+                                      + delta_t*dt_tracers(:, :, :, nhum), psg(:, :, previous))
+    end if
+
+    return
+  end subroutine initialize_corrections
+
+!================================================================================
+
+  !> Returns the surface geopotential.
+  subroutine get_surf_geopotential(surf_geopotential_out)
+    real, intent(out), dimension(:, :) :: surf_geopotential_out  !! surface geopotential [m2/s2]
+    character(len=64) :: chtmp = 'shape(surf_geopotential)=              should be                '
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_surf_geopotential', 'spectral_dynamics_init has not been called.', FATAL)
+    end if
+
+    if (any(shape(surf_geopotential_out) /= shape(surf_geopotential))) then
+      write (chtmp(26:37), '(3i4)') shape(surf_geopotential_out)
+      write (chtmp(50:61), '(3i4)') shape(surf_geopotential)
+      call error_mesg('get_surf_geopotential', 'surf_geopotential has wrong shape. '//chtmp, FATAL)
+    end if
+
+    surf_geopotential_out = surf_geopotential
+
+    return
+  end subroutine get_surf_geopotential
+!================================================================================
+  !> Returns the number of vertical levels.
+  subroutine get_num_levels(num_levels_out)
+    integer, intent(out) :: num_levels_out  !! number of vertical levels
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_num_levels', 'spectral_dynamics_init has not been called.', FATAL)
+    end if
+
+    num_levels_out = num_levels
+
+    return
+  end subroutine get_num_levels
+!================================================================================
+  !> Completes the Robert filter of the previous time level of the fields and tracers, after
+  !> the last substep of `spectral_dynamics`.
+  subroutine complete_robert_filter(tracer_attributes)
+    type(tracer_type), intent(inout), dimension(:) :: tracer_attributes  !! attributes of the prognostic tracers
+    integer :: ntr
+
+    if (robert_complete_for_fields) then
+      call error_mesg('complete_robert_filter', 'This routine should not be called when robert_complete_for_fields=.true.', FATAL)
+    end if
+    call leapfrog_2level_B(ln_ps, previous, current, robert_coeff)
+    call leapfrog_2level_B(vors, previous, current, robert_coeff)
+    call leapfrog_2level_B(divs, previous, current, robert_coeff)
+    call leapfrog_2level_B(ts, previous, current, robert_coeff)
+    robert_complete_for_fields = .true.
+
+    if (num_tracers > 0 .and. robert_complete_for_tracers) then
+      call error_mesg('complete_robert_filter', 'This routine should not be called when robert_complete_for_tracers=.true.', FATAL)
+    end if
+
+    do ntr = 1, num_tracers
+      if (uppercase(trim(tracer_attributes(ntr)%numerical_representation)) == 'SPECTRAL') then
+        call leapfrog_2level_B(spec_tracers(:, :, :, :, ntr), previous, current, tracer_attributes(ntr)%robert_coeff)
+      else
+        call leapfrog_2level_B(grid_tracers(:, :, :, :, ntr), previous, current, tracer_attributes(ntr)%robert_coeff)
+      end if
+      robert_complete_for_tracers = .true.
+    end do
+
+    return
+  end subroutine complete_robert_filter
+!================================================================================
+
+  !> Writes `RESTART/spectral_dynamics.res.nc` and finalizes the dynamical core and its
+  !> submodules.
+  subroutine spectral_dynamics_end(tracer_attributes, Time)
+
+    type(tracer_type), intent(in), dimension(:) :: tracer_attributes  !! attributes of the prognostic tracers
+    type(time_type), intent(in), optional :: Time  !! current time
+    integer :: ntr, nt
+    character(len=64) :: tr_name
+    type(restart_file_type) :: rst
+
+    if (.not. module_is_initialized) return
+
+    call open_restart_write(rst, 'RESTART/spectral_dynamics.res.nc', grid_domain)
+    call write_restart_field(rst, 'previous', real(previous))
+    call write_restart_field(rst, 'current', real(current))
+    call write_restart_field(rst, 'pk', pk)
+    call write_restart_field(rst, 'bk', bk)
+    do nt = 1, num_time_levels
+      call write_restart_field(rst, 'vors_real', real(vors(:, :, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'vors_imag', aimag(vors(:, :, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'divs_real', real(divs(:, :, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'divs_imag', aimag(divs(:, :, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'ts_real', real(ts(:, :, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'ts_imag', aimag(ts(:, :, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'ln_ps_real', real(ln_ps(:, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'ln_ps_imag', aimag(ln_ps(:, :, nt)), nt, spectral_domain)
+      call write_restart_field(rst, 'ug', ug(:, :, :, nt), nt)
+      call write_restart_field(rst, 'vg', vg(:, :, :, nt), nt)
+      call write_restart_field(rst, 'tg', tg(:, :, :, nt), nt)
+      call write_restart_field(rst, 'psg', psg(:, :, nt), nt)
+      do ntr = 1, num_tracers
+        tr_name = trim(tracer_attributes(ntr)%name)
+        call write_restart_field(rst, trim(tr_name), grid_tracers(:, :, :, nt, ntr), nt)
+        if (uppercase(trim(tracer_attributes(ntr)%numerical_representation)) == 'SPECTRAL') then
+          call write_restart_field(rst, trim(tr_name)//'_real', real(spec_tracers(:, :, :, nt, ntr)), nt, spectral_domain)
+          call write_restart_field(rst, trim(tr_name)//'_imag', aimag(spec_tracers(:, :, :, nt, ntr)), nt, spectral_domain)
+        end if
+      end do
+    end do
+    call write_restart_field(rst, 'vorg', vorg)
+    call write_restart_field(rst, 'divg', divg)
+    call write_restart_field(rst, 'surf_geopotential', surf_geopotential)
+    ! only when noise was added, so the restarts of runs without noise are unchanged
+    if (initial_noise_applied) call write_restart_field(rst, 'initial_noise_applied', 1.)
+    call close_restart(rst)
+
+    deallocate (ug, vg, tg, psg)
+    deallocate (sin_lat, coriolis)
+    deallocate (pk, bk, dpk, dbk)
+    deallocate (ln_ps, vors, divs, ts)
+    deallocate (vorg, divg)
+    deallocate (surf_geopotential)
+    deallocate (spec_tracers, grid_tracers)
+    if (allocated(noise_tg)) deallocate (noise_ug, noise_vg, noise_tg)
+
+    if (use_implicit) call implicit_end
+    call spectral_damping_end
+    call fv_advection_end
+    call every_step_diagnostics_end(Time)
+    call spectral_diagnostics_end
+    call press_and_geopot_end
+    call transforms_end
+    module_is_initialized = .false.
+
+    return
+  end subroutine spectral_dynamics_end
+!===================================================================================
+  !> Defines the diagnostic axes and registers the `dynamics` diagnostics.
+  subroutine spectral_diagnostics_init(Time)
+
+    type(time_type), intent(in) :: Time
+    real, dimension(lon_max) :: lon
+    real, dimension(lon_max + 1) :: lonb
+    real, dimension(lat_max) :: lat
+    real, dimension(lat_max + 1) :: latb
+    real, dimension(num_levels)   :: p_full, ln_p_full
+    real, dimension(num_levels + 1) :: p_half, ln_p_half
+    integer, dimension(3) :: axes_3d_half, axes_3d_full
+    integer :: id_lonb, id_latb, id_phalf, id_lon, id_lat, id_pfull
+    integer :: id_pk, id_bk, id_zsurf, ntr
+    real :: rad_to_deg
+    logical :: used
+    real, dimension(2) :: vrange, trange
+    character(len=128) :: tname, longname, units
+
+    vrange = (/-400., 400./)
+    trange = (/100., 400./)
+
+    rad_to_deg = 180./pi
+    call get_grid_boundaries(lonb, latb, global=.true.)
+    call get_deg_lon(lon)
+    call get_deg_lat(lat)
+
+    id_lonb = diag_axis_init('lonb', rad_to_deg*lonb, 'degrees_E', 'x', 'longitude edges', set_name=mod_name, Domain2=grid_domain)
+    id_latb = diag_axis_init('latb', rad_to_deg*latb, 'degrees_N', 'y', 'latitude edges', set_name=mod_name, Domain2=grid_domain)
+    id_lon = diag_axis_init('lon', lon, 'degrees_E', 'x', 'longitude', set_name=mod_name, Domain2=grid_domain, edges=id_lonb)
+    id_lat = diag_axis_init('lat', lat, 'degrees_N', 'y', 'latitude', set_name=mod_name, Domain2=grid_domain, edges=id_latb)
+
+    call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, reference_sea_level_press)
+    p_half = .01*p_half
+    p_full = .01*p_full
+    id_phalf = diag_axis_init('phalf', p_half, 'hPa', 'z', 'approx half pressure level', direction=-1, set_name=mod_name)
+    id_pfull = diag_axis_init('pfull', p_full, 'hPa', 'z', 'approx full pressure level', direction=-1, set_name=mod_name, &
+                              edges=id_phalf)
+
+    axes_3d_half = (/id_lon, id_lat, id_phalf/)
+    axes_3d_full = (/id_lon, id_lat, id_pfull/)
+    axis_id(1) = id_lon
+    axis_id(2) = id_lat
+    axis_id(3) = id_pfull
+    axis_id(4) = id_phalf
+
+    id_pk = register_static_field(mod_name, 'pk', (/id_phalf/), 'vertical coordinate pressure values', 'Pa')
+    id_bk = register_static_field(mod_name, 'bk', (/id_phalf/), 'vertical coordinate sigma values', '1')
+    id_zsurf = register_static_field(mod_name, 'zsurf', (/id_lon, id_lat/), 'geopotential height at the surface', 'm')
+
+    if (id_pk > 0) used = send_data(id_pk, pk)
+    if (id_bk > 0) used = send_data(id_bk, bk)
+    if (id_zsurf > 0) used = send_data(id_zsurf, surf_geopotential/grav)
+
+    id_ps = register_diag_field(mod_name, &
+                                'ps', (/id_lon, id_lat/), Time, 'surface pressure', 'Pa')
+
+    id_u = register_diag_field(mod_name, &
+                               'ucomp', axes_3d_full, Time, 'zonal wind component', 'm/s', range=vrange)
+
+    id_v = register_diag_field(mod_name, &
+                               'vcomp', axes_3d_full, Time, 'meridional wind component', 'm/s', range=vrange)
+
+    id_uu = register_diag_field(mod_name, &
+                                'ucomp_sq', axes_3d_full, Time, 'zonal wind squared', 'm2/s2', range=(/0., vrange(2)**2/))
+
+    id_vv = register_diag_field(mod_name, &
+                                'vcomp_sq', axes_3d_full, Time, 'meridional wind squared', 'm2/s2', range=(/0., vrange(2)**2/))
+
+    id_uv = register_diag_field(mod_name, &
+                                'ucomp_vcomp', axes_3d_full, Time, 'zonal wind * meridional wind', 'm2/s2', &
+                                range=(/-vrange(2)**2, vrange(2)**2/))
+
+    id_omega_t = register_diag_field(mod_name, &
+                                     'omega_temp', axes_3d_full, Time, 'dp/dt * temperature', 'Pa K/s')
+
+    id_wspd = register_diag_field(mod_name, &
+                                  'wspd', axes_3d_full, Time, 'wind speed', 'm/s', range=(/0., vrange(2)/))
+
+    id_t = register_diag_field(mod_name, &
+                               'temp', axes_3d_full, Time, 'temperature', 'K', range=trange)
+
+    id_tt = register_diag_field(mod_name, &
+                                'temp_sq', axes_3d_full, Time, 'temperature squared', 'K2', range=(/0., trange(2)**2/))
+
+    id_vor = register_diag_field(mod_name, &
+                                 'vor', axes_3d_full, Time, 'vorticity', '1/s')
+
+    id_div = register_diag_field(mod_name, &
+                                 'div', axes_3d_full, Time, 'divergence', '1/s')
+
+    id_div9 = register_diag_field(mod_name, &
+                                  'div217', (/id_lon, id_lat/), Time, 'divergence at model level 9', '1/s')
+
+    id_omega = register_diag_field(mod_name, &
+                                   'omega', axes_3d_full, Time, 'dp/dt vertical velocity', 'Pa/s')
+
+    id_omega_omega = register_diag_field(mod_name, &
+                                         'omega_sq', axes_3d_full, Time, 'omega squared', 'Pa2/s2')
+
+    id_pres_full = register_diag_field(mod_name, &
+                                       'pres_full', axes_3d_full, Time, 'pressure at full model levels', 'Pa')
+
+    id_pres_half = register_diag_field(mod_name, &
+                                       'pres_half', axes_3d_half, Time, 'pressure at half model levels', 'Pa')
+
+    id_zfull = register_diag_field(mod_name, &
+                                   'height', axes_3d_full, Time, 'geopotential height at full model levels', 'm')
+
+    id_zhalf = register_diag_field(mod_name, &
+                                   'height_half', axes_3d_half, Time, 'geopotential height at half model levels', 'm')
+
+    id_slp = register_diag_field(mod_name, &
+                                 'slp', (/id_lon, id_lat/), Time, 'sea level pressure', 'Pa')
+
+    if (id_slp > 0) then
+      gamma = 0.006
+      expf = rdgas*gamma/grav
+      expf_inverse = 1./expf
+    end if
+
+    allocate (id_tr(num_tracers))
+    do ntr = 1, num_tracers
+      call get_tracer_names(MODEL_ATMOS, ntr, tname, longname, units)
+      id_tr(ntr) = register_diag_field(mod_name, tname, axes_3d_full, Time, longname, units)
+    end do
+
+    return
+  end subroutine spectral_diagnostics_init
+!===================================================================================
+  !> Sends the `dynamics` diagnostics and prints the model time every `print_interval`.
+  subroutine spectral_diagnostics(Time, p_surf, u_grid, v_grid, t_grid, wg_full, tr_grid)
+
+    type(time_type), intent(in) :: Time  !! time of the fields
+    real, intent(in), dimension(is:ie, js:je)                          :: p_surf  !! surface pressure [Pa]
+    real, intent(in), dimension(is:ie, js:je, num_levels)              :: u_grid, v_grid, t_grid, wg_full
+    !! `u_grid`, `v_grid`: zonal and meridional wind [m/s]; `t_grid`: temperature [K]; `wg_full`:
+    !! vertical pressure velocity [Pa/s]
+    real, intent(in), dimension(is:ie, js:je, num_levels, num_tracers) :: tr_grid  !! grid-point tracers
+
+    real, dimension(is:ie, js:je, num_levels)   :: ln_p_full, p_full, z_full, work
+    real, dimension(is:ie, js:je, num_levels + 1) :: ln_p_half, p_half, z_half
+    real, dimension(is:ie, js:je)               :: t_low, slp
+    logical :: used
+    integer :: ntr, i, j, k, k_low
+    character(len=8) :: err_msg_1, err_msg_2
+
+    if (id_ps > 0) used = send_data(id_ps, p_surf, Time)
+    if (id_u > 0) used = send_data(id_u, u_grid, Time)
+    if (id_v > 0) used = send_data(id_v, v_grid, Time)
+    if (id_t > 0) used = send_data(id_t, t_grid, Time)
+    if (id_vor > 0) used = send_data(id_vor, vorg, Time)
+    if (id_div > 0) used = send_data(id_div, divg, Time)
+    if (id_omega > 0) used = send_data(id_omega, wg_full, Time)
+    if (num_levels > 8 .and. id_div9 > 0) used = send_data(id_div9, divg(:, :, 9), Time)
+
+    if (id_zfull > 0 .or. id_zhalf > 0) then
+      call compute_pressures_and_heights(t_grid, p_surf, z_full, z_half, p_full, p_half)
+    else if (id_pres_half > 0 .or. id_pres_full > 0 .or. id_slp > 0) then
+      call pressure_variables(p_half, ln_p_half, p_full, ln_p_full, p_surf)
+    end if
+
+    if (id_zfull > 0) used = send_data(id_zfull, z_full, Time)
+    if (id_zhalf > 0) used = send_data(id_zhalf, z_half, Time)
+    if (id_pres_full > 0) used = send_data(id_pres_full, p_full, Time)
+    if (id_pres_half > 0) used = send_data(id_pres_half, p_half, Time)
+
+    if (id_wspd > 0) then
+      work = sqrt(u_grid**2 + v_grid**2)
+      used = send_data(id_wspd, work, Time)
+    end if
+    if (id_uu > 0) then
+      work = u_grid**2
+      used = send_data(id_uu, work, Time)
+    end if
+    if (id_vv > 0) then
+      work = v_grid**2
+      used = send_data(id_vv, work, Time)
+    end if
+    if (id_uv > 0) then
+      work = u_grid*v_grid
+      used = send_data(id_uv, work, Time)
+    end if
+    if (id_tt > 0) then
+      work = t_grid**2
+      used = send_data(id_tt, work, Time)
+    end if
+    if (id_omega_omega > 0) then
+      work = wg_full*wg_full
+      used = send_data(id_omega_omega, work, Time)
+    end if
+    if (id_omega_t > 0) then
+      work = wg_full*t_grid
+      used = send_data(id_omega_t, work, Time)
+    end if
+
+    if (size(tr_grid, 4) /= num_tracers) then
+      write (err_msg_1, '(i8)') size(tr_grid, 4)
+      write (err_msg_2, '(i8)') num_tracers
+      call error_mesg('spectral_diagnostics', 'size(tracers)='//err_msg_1//' Should be='//err_msg_2, FATAL)
+    end if
+    do ntr = 1, num_tracers
+      if (id_tr(ntr) > 0) used = send_data(id_tr(ntr), tr_grid(:, :, :, ntr), Time)
+    end do
+
+    if (id_slp > 0) then
+      do j = js, je
+        do i = is, ie
+          ! the highest level below sigma = 0.8
+          k_low = 0
+          do k = 1, num_levels
+            if (p_full(i, j, k)/p_surf(i, j) > .8) then
+              k_low = k
+              exit
+            end if
+          end do
+          if (k_low == 0) call error_mesg('spectral_diagnostics', 'No sigma values > 0.8  Cannot compute slp', FATAL)
+          t_low(i, j) = t_grid(i, j, k_low)*(p_full(i, j, k_low)/p_surf(i, j))**(-expf)
+          slp(i, j) = p_surf(i, j)*((t_low(i, j) + gamma*surf_geopotential(i, j)/grav)/t_low(i, j))**expf_inverse
+        end do
+      end do
+      used = send_data(id_slp, slp, Time)
+    end if
+
+    if (interval_alarm(Time, Time_step, Alarm_time, Alarm_interval)) then
+      call print_model_time(Time)
+    end if
+
+    return
+  end subroutine spectral_diagnostics
+!===================================================================================
+  !> Prints the model time reached (every `print_interval`).
+  subroutine print_model_time(Time)
+    type(time_type), intent(in) :: Time
+    integer :: year, month, days, hours, minutes, seconds
+    character(len=4), dimension(12) :: month_name
+
+    month_name = (/' Jan', ' Feb', ' Mar', ' Apr', ' May', ' Jun', ' Jul', ' Aug', ' Sep', ' Oct', ' Nov', ' Dec'/)
+
+    if (mpp_pe() == mpp_root_pe()) then
+      if (get_calendar_type() == NO_CALENDAR) then
+        call get_time(Time, seconds, days)
+        write (*, 100) days, seconds
+      else
+        call get_date(Time, year, month, days, hours, minutes, seconds)
+        write (*, 200) year, month_name(month), days, hours, minutes, seconds
+      end if
+    end if
+100 format(' Integration completed through', i6, ' days', i6, ' seconds')
+200 format(' Integration completed through', i5, a4, i3, 2x, i2, ':', i2, ':', i2)
+
+  end subroutine print_model_time
+!===================================================================================
+  !> Returns the diagnostic axis ids (lon, lat, pfull, phalf).
+  function get_axis_id()
+    integer, dimension(4) :: get_axis_id  !! axis ids (lon, lat, pfull, phalf)
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_axis_id', 'spectral_diagnostics_init has not been called.', FATAL)
+    end if
+    get_axis_id = axis_id
+    return
+  end function get_axis_id
+!===================================================================================
+  subroutine spectral_diagnostics_end
+
+    if (.not. module_is_initialized) return
+
+    deallocate (id_tr)
+
+    return
+  end subroutine spectral_diagnostics_end
+!===================================================================================
+
+end module spectral_dynamics_mod

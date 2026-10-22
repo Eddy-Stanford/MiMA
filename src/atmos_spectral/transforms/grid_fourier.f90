@@ -1,0 +1,294 @@
+!> Fourier transforms in longitude (on the first dimension of 2d or 3d grid fields) and the
+!> grid longitudes.
+module grid_fourier_mod
+
+  use fms_mod, only: error_mesg, FATAL
+
+  use constants_mod, only: pi
+
+  use fft_mod, only: fft_init, fft_end, fft_grid_to_fourier, fft_fourier_to_grid
+
+  implicit none
+  private
+
+  public :: grid_fourier_init, grid_fourier_end, trans_grid_to_fourier, trans_fourier_to_grid
+  public :: get_lon_max, get_deg_lon
+
+  !> Returns the Fourier coefficients (zonal wavenumbers 0 to `num_lon`/2) of a grid field
+  !> with `num_lon` longitudes in its first dimension.
+  interface trans_grid_to_fourier
+    module procedure trans_grid_to_fourier_3d, trans_grid_to_fourier_2d
+  end interface
+
+  !> Returns the grid field (`num_lon` longitudes) from its Fourier coefficients (zonal
+  !> wavenumbers 0 to `num_lon`/2).
+  interface trans_fourier_to_grid
+    module procedure trans_fourier_to_grid_3d, trans_fourier_to_grid_2d
+  end interface
+
+  interface verify_fourier_imag
+    module procedure verify_fourier_imag_3d, verify_fourier_imag_2d
+  end interface
+
+  integer :: num_lon
+  real    :: longitude_origin_local
+  logical :: check_local
+  logical :: module_is_initialized = .false.
+
+  real, allocatable, dimension(:) :: deg_lon
+
+contains
+
+!------------------------------------------------------------------------------------------------------
+
+  !> Sets the number of longitudes (which must be even), computes the grid longitudes and
+  !> initializes the FFT.
+  subroutine grid_fourier_init(num_lon_in, fourier_inc, check, longitude_origin)
+
+    integer, intent(in) :: num_lon_in, fourier_inc
+    !! `num_lon_in`: number of longitudes; `fourier_inc`: zonal wavenumber increment (the grid spans
+    !! 360/`fourier_inc` degrees)
+    logical, intent(in), optional   :: check
+    !! stop if the m = 0 or m = `num_lon`/2 coefficient passed to `trans_fourier_to_grid` has a
+    !! nonzero imaginary part (default `.false.`)
+    real, intent(in), optional   :: longitude_origin  !! longitude of the first grid point [rad] (default 0)
+    integer :: i
+    character(len=8) :: chtmp
+    real :: total_degrees
+
+    if (module_is_initialized) return
+
+    if (mod(num_lon_in, 2) /= 0) then
+      write (chtmp, '(i8)') num_lon_in
+      call error_mesg('grid_fourier_init', 'num_lon must be even, but num_lon='//chtmp, FATAL)
+    end if
+
+    if (num_lon_in == 0) then
+      call error_mesg('grid_fourier_init', 'num_lon cannot be zero', FATAL)
+    end if
+
+    num_lon = num_lon_in
+
+    if (present(check)) then
+      check_local = check
+    else
+      check_local = .false.
+    end if
+
+    if (present(longitude_origin)) then
+      longitude_origin_local = longitude_origin
+    else
+      longitude_origin_local = 0.0
+    end if
+
+    total_degrees = 360./real(fourier_inc)
+
+    if (allocated(deg_lon)) deallocate (deg_lon)
+    allocate (deg_lon(num_lon))
+    do i = 1, num_lon
+      deg_lon(i) = 180*longitude_origin_local/pi &
+                   + (i - 1)*total_degrees/real(num_lon)
+      if (deg_lon(i) >= total_degrees) then
+        deg_lon(i) = deg_lon(i) - total_degrees
+      end if
+      if (deg_lon(i) < 0.0) then
+        deg_lon(i) = deg_lon(i) + total_degrees
+      end if
+    end do
+
+    call fft_init(num_lon)
+
+    module_is_initialized = .true.
+
+    return
+  end subroutine grid_fourier_init
+
+!------------------------------------------------------------------------------------------------------
+
+  function trans_grid_to_fourier_3d(grid) result(fourier)
+
+    real, intent(in), dimension(:, :, :) :: grid
+    complex, dimension(0:size(grid, 1)/2, size(grid, 2), size(grid, 3)) :: fourier
+    character(len=8) :: chtmp1, chtmp2
+
+    if (.not. module_is_initialized) then
+      call error_mesg('trans_grid_to_fourier', 'module grid_fourier not initialized', FATAL)
+    end if
+
+    if (size(grid, 1) /= num_lon) then
+      write (chtmp1, '(i8)') size(grid, 1)
+      write (chtmp2, '(i8)') num_lon
+      call error_mesg('trans_grid_to_fourier', &
+                      'size(grid,1) must equal num_lon, but size(grid,1)='//chtmp1//' num_lon='//chtmp2, FATAL)
+    end if
+
+    fourier = fft_grid_to_fourier(grid)
+
+    return
+  end function trans_grid_to_fourier_3d
+!------------------------------------------------------------------------------------------------------
+
+  function trans_fourier_to_grid_3d(fourier) result(grid)
+
+    complex, intent(in), dimension(0:, :, :) :: fourier
+    real, dimension(2*(size(fourier, 1) - 1), size(fourier, 2), size(fourier, 3)) :: grid
+    character(len=8) :: chtmp1, chtmp2
+
+    if (.not. module_is_initialized) then
+      call error_mesg('trans_fourier_to_grid', 'module grid_fourier not initialized', FATAL)
+    end if
+
+    if (2*(size(fourier, 1) - 1) /= num_lon) then
+      write (chtmp1, '(i8)') size(fourier, 1)
+      write (chtmp2, '(i8)') num_lon
+      call error_mesg('trans_fourier_to_grid', &
+                      '2*(size(fourier,1)-1) must equal num_lon, but size(fourier,1)='//chtmp1//' num_lon='//chtmp2, FATAL)
+    end if
+
+    if (check_local) call verify_fourier_imag(fourier)
+
+    grid = fft_fourier_to_grid(fourier)
+
+    return
+  end function trans_fourier_to_grid_3d
+!------------------------------------------------------------------------------------------------------
+
+  subroutine verify_fourier_imag_3d(fourier)
+
+    complex, intent(in), dimension(0:, :, :) :: fourier
+    integer :: j, k
+    character(len=56) :: chtmp = 'aimag(fourier(   ,   ,   ))=                            '
+
+    do k = 1, size(fourier, 3)
+      do j = 1, size(fourier, 2)
+        if (aimag(fourier(0, j, k)) /= 0.0) then
+          chtmp(15:17) = '  0'
+          write (chtmp(19:21), '(i3)') j
+          write (chtmp(23:25), '(i3)') k
+          write (chtmp(29:52), '(1pe24.16)') aimag(fourier(0, j, k))
+          call error_mesg('verify_fourier_imag', chtmp//'  It should be zero.', FATAL)
+        end if
+      end do
+    end do
+
+    if (mod(num_lon, 2) == 0) then
+      do k = 1, size(fourier, 3)
+        do j = 1, size(fourier, 2)
+          if (aimag(fourier(num_lon/2, j, k)) /= 0.0) then
+            write (chtmp(15:17), '(i3)') num_lon/2
+            write (chtmp(19:21), '(i3)') j
+            write (chtmp(23:25), '(i3)') k
+            write (chtmp(29:52), '(1pe24.16)') aimag(fourier(num_lon/2, j, k))
+            call error_mesg('verify_fourier_imag', chtmp//'  It should be zero.', FATAL)
+          end if
+        end do
+      end do
+    end if
+
+    return
+  end subroutine verify_fourier_imag_3d
+!------------------------------------------------------------------------------------------------------
+
+!  The remaining routines are 2d version of the 3d versions described above)
+
+!------------------------------------------------------------------------------------------------------
+
+  function trans_fourier_to_grid_2d(fourier) result(grid)
+
+    complex, intent(in), dimension(0:, :) :: fourier
+    complex, dimension(0:size(fourier, 1) - 1, size(fourier, 2), 1) :: fourier_3d
+
+    real, dimension(2*(size(fourier, 1) - 1), size(fourier, 2)) :: grid
+    real, dimension(2*(size(fourier, 1) - 1), size(fourier, 2), 1) :: grid_3d
+
+    fourier_3d(:, :, 1) = fourier(:, :)
+    grid_3d = trans_fourier_to_grid_3d(fourier_3d)
+    grid(:, :) = grid_3d(:, :, 1)
+
+    return
+  end function trans_fourier_to_grid_2d
+!------------------------------------------------------------------------------------------------------
+
+  function trans_grid_to_fourier_2d(grid) result(fourier)
+
+    real, intent(in), dimension(:, :) :: grid
+    complex, dimension(0:size(grid, 1)/2, size(grid, 2)) :: fourier
+
+    real, dimension(size(grid, 1), size(grid, 2), 1) :: grid_3d
+    complex, dimension(0:size(grid, 1)/2, size(grid, 2), 1) :: fourier_3d
+
+    grid_3d(:, :, 1) = grid(:, :)
+    fourier_3d = trans_grid_to_fourier_3d(grid_3d)
+    fourier(:, :) = fourier_3d(:, :, 1)
+
+    return
+  end function trans_grid_to_fourier_2d
+
+!------------------------------------------------------------------------------------------------------
+
+  subroutine verify_fourier_imag_2d(fourier)
+
+    complex, intent(in), dimension(0:, :) :: fourier
+    complex, dimension(0:size(fourier, 1) - 1, size(fourier, 2), 1) :: fourier_3d
+
+    fourier_3d(:, :, 1) = fourier(:, :)
+    call verify_fourier_imag_3d(fourier_3d)
+
+    return
+  end subroutine verify_fourier_imag_2d
+
+!------------------------------------------------------------------------------------------------------
+
+  !> Returns the number of longitudes.
+  subroutine get_lon_max(lon_max_out)
+
+    integer, intent(out) :: lon_max_out  !! number of longitudes
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_lon_max', 'module grid_fourier not initialized', FATAL)
+    end if
+
+    lon_max_out = num_lon
+
+    return
+  end subroutine get_lon_max
+
+!------------------------------------------------------------------------------------------------------
+
+  !> Returns the grid longitudes in degrees.
+  subroutine get_deg_lon(deg_lon_out)
+
+    real, intent(out), dimension(:) :: deg_lon_out  !! longitudes of the grid points [deg]
+    character(len=8) :: chtmp1, chtmp2
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_deg_lon', 'module grid_fourier not initialized', FATAL)
+    end if
+    if (size(deg_lon_out, 1) /= num_lon) then
+      write (chtmp1, '(i8)') size(deg_lon_out, 1)
+      write (chtmp2, '(i8)') num_lon
+      call error_mesg('get_deg_lon', &
+                      'size of deg_lon does not equal num_lon. size(deg_lon)='//chtmp1//' num_lon='//chtmp2, FATAL)
+    end if
+
+    deg_lon_out(:) = deg_lon(:)
+
+    return
+  end subroutine get_deg_lon
+
+!------------------------------------------------------------------------------------------------------
+
+  !> Deallocates the longitudes.
+  subroutine grid_fourier_end
+
+    if (.not. module_is_initialized) return
+    deallocate (deg_lon)
+    call fft_end
+    module_is_initialized = .false.
+
+    return
+  end subroutine grid_fourier_end
+
+!------------------------------------------------------------------------------------------------------
+
+end module grid_fourier_mod

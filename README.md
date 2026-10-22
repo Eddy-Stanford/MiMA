@@ -6,7 +6,7 @@ Full documentation is in the [`docs/`](docs/) folder and online at <https://eddy
 
 ## Quick start
 
-You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries), CMake ≥ 3.16, and OpenMP. To combine the output you also need [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools). See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
+You need a Fortran and C compiler (GNU or Intel), MPI, netCDF (C and Fortran libraries) and CMake ≥ 3.22. MiMA uses the [FMS](https://github.com/NOAA-GFDL/FMS) library, which CMake downloads and builds automatically if it can't find an installed copy. [FRE-NCtools](docs/GettingStarted.md#installing-fre-nctools) is optional: `plevel.sh` interpolates the output to pressure levels, and `mppnccombine` is needed only if you split the output with `io_layout`. See [Getting started](docs/GettingStarted.md#dependencies) for how to install them, or use the provided [container](docs/GettingStarted.md#using-the-container).
 
 Compile, and create a ready-to-run test case in `exec/`:
 
@@ -26,20 +26,21 @@ ulimit -s unlimited   # on macOS use: ulimit -s hard
 mpirun -n 4 ./mima
 ```
 
-MiMA writes one output file per MPI process. Combine them with `mppnccombine` from [FRE-NCtools](https://github.com/NOAA-GFDL/FRE-NCtools), which you install separately ([instructions](docs/GettingStarted.md#installing-fre-nctools)):
-
-```bash
-for f in atmos_daily atmos_avg atmos_davg atmos_dext; do mppnccombine -r $f.nc $f.nc.????; done
-```
+MiMA writes each output file listed in `diag_table` (e.g. `atmos_daily.nc`) as a single netCDF file.
 
 See [Getting started](docs/GettingStarted.md) for details on the build options, the test configuration, output and restarts.
+
+Other complete configurations (gray radiation, dry Held-Suarez, bucket land with snow, an aquaplanet) are in [`examples/`](examples/); see [Running the examples](docs/GettingStarted.md#running-the-examples).
 
 ## Documentation
 
 * [Getting started](docs/GettingStarted.md): dependencies, compiling, running the test case
-* [Model configurations](docs/Configurations.md): radiation schemes, specified initial conditions, initial-condition noise
+* [Model configurations](docs/Configurations.md): radiation schemes, Held-Suarez forcing, surface options, specified initial conditions, initial-condition noise
 * [Parameter settings](docs/Parameters.md): default and recommended namelist values
+* [Diagnostics](docs/Diagnostics.md): how to write a `diag_table`, and every diagnostic field the model can output
+* [Fortran API reference](docs/FortranAPI.md): the modules and procedures of the source code, and how to document them
 * [Version history](docs/Versions.md)
+* [Migrating from v1 to v2.0](docs/Migration_v2.md)
 * [References](docs/README.md#references)
 
 See the 30 second trailer on [YouTube](https://www.youtube.com/watch?v=8UfaFnGtCrk "Model of an idealized Moist Atmosphere (MiMA)"):

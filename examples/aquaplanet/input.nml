@@ -1,0 +1,157 @@
+! Aqua-Planet Experiment (APE; Neale and Hoskins, 2000), "qobs" case: an
+! ocean-covered planet with the SST held at the zonally symmetric qobs profile,
+! perpetual equinox with a diurnal cycle, S0 = 1365 W/m2 and 348 ppmv CO2, with
+! the physics of the default test case (RRTM, Betts-Miller, cg_drag). Changes
+! from input/input.nml: flat topography, land_mask = 'none', a fixed ocean, no
+! Q-flux, a constant albedo, and the APE orbit, solar constant and CO2.
+! Departures from the APE protocol: no clouds, and the ozone is the seasonal,
+! hemispherically asymmetric ozone_1990 rather than the APE annual mean.
+! For the other APE SSTs: sst_init = 'ape_control', or sst_offset [K].
+! Needs INPUT/ozone_1990.nc only.
+
+&coupler_nml
+    days   = 360,
+    dt_atmos =500,
+    current_date = 0001,1,1,0,0,0
+    calendar = 'thirty_day' /
+
+# Note: damping_order = 4 specifies del 8'th diffusion
+&spectral_dynamics_nml
+    damping_option          = 'resolution_dependent',
+    damping_order           = 4,
+    do_mass_correction      =.true.,
+    do_energy_correction    =.true.,
+    do_water_correction     =.true.,
+    water_correction_limit  = 200.e2,
+    initial_sphum           = 2.e-06,
+    use_virtual_temperature =.false.,
+    vert_advect_uv          = 'second_centered',
+    vert_advect_t           = 'second_centered',
+    use_implicit            = .true.,
+    longitude_origin        = 0.,
+    robert_coeff            = .03,
+    alpha_implicit          = .5,
+    reference_sea_level_press=1.e5,
+    lon_max                 = 128,
+    lat_max                 = 64,
+    num_levels              = 40,
+    num_fourier             = 42,
+    num_spherical           = 43,
+    fourier_inc             = 1,
+    triang_trunc            =.true.,
+    topography_option       = 'flat',
+    vert_coord_option       = 'uneven_sigma',
+    surf_res                = 0.1,
+    scale_heights           = 7.9,
+    exponent                = 1.4 /
+
+&spectral_init_cond_nml
+    initial_temperature = 264. /
+
+---------- physics namelists --------------
+
+&rrtm_radiation_nml
+    h2o_lower_limit        = 2.e-07,
+    co2ppmv                = 348.,
+    do_read_ozone          = .true.,
+    ozone_file             = 'ozone_1990',
+    dt_rad_avg             =  4500,
+    dt_rad                 =  4500,
+    lonstep                = 4 /
+
+&astro_nml
+    ! APE: perpetual equinox (no obliquity, circular orbit) with a diurnal cycle
+    obliq       = 0.,
+    solr_cnst   = 1365. /
+
+&flux_exchange_nml
+    z_ref_heat = 2.0,
+    z_ref_mom = 10.0 /
+&surface_albedo_nml
+    ! one albedo everywhere; without clouds this stands in for their reflection
+    albedo_profile = 'constant',
+    const_albedo = 0.23 /
+&ocean_model_nml
+    ! the SST is held at the APE "qobs" profile; sst_offset = 4. gives qobs+4K
+    ocean_model = 'fixed',
+    sst_init = 'ape_qobs',
+    sst_offset = 0.,
+    rough_ocean = 3.21e-05 /
+&land_model_nml
+    land_mask = 'none' /
+
+&qflux_nml
+    ! no Q-flux: a fixed ocean does not use it
+    qflux_source = 'none',
+    do_warmpool  = .false. /
+
+&damping_driver_nml
+    do_rayleigh   = .false.,
+    trayfric      = -0.5,
+    sponge_pbottom=  50.,
+    do_conserve_energy = .true.,
+    do_cg_drag    = .true.,
+    do_mg_drag = .false./
+
+&cg_drag_nml
+    Bt = 0.0043,
+    Bw = 0.4,
+    cw = 35.0,
+    source_level_pressure = 315.e+02,
+    damp_level_pressure = 0.85e+02,
+    cg_drag_freq = 21600 /
+
+&moist_processes_nml
+    do_bm           =.true.,
+    do_mca          =.false.,
+    do_lsc          =.true. /
+
+&betts_miller_nml
+    tau_bm = 7200.,
+    rhbm   = .7   ,
+    do_simp = .false.,
+    do_shallower = .true.,
+    do_changeqref = .false.,
+    do_envsat = .false.,
+    do_taucape = .false.,
+    capetaubm = 900.,
+    tau_min = 2400./
+
+&moist_conv_nml /
+
+&monin_obukhov_nml
+    rich_crit  = 2.0,
+    drag_min   = 4.e-05 /
+
+&lscale_cond_nml
+    do_evap = .true. /
+
+&vert_diff_driver_nml
+    do_conserve_energy = .true.,
+    use_virtual_temp_vert_diff = .false. /
+
+&surface_flux_nml
+    use_virtual_temp = .false.,
+    old_dtaudv = .true.,
+    gust_const       =  1.0 /
+
+&vert_turb_driver_nml
+    use_tau          = .false.,
+    gust_scheme      = 'constant',
+    constant_gust    = 0.,
+    do_diffusivity = .true./
+
+&radiation_nml
+    radiation_scheme = 'rrtm' /
+
+&physics_driver_nml
+    do_damping = .true. /
+
+# domains_stack_size will vary for different model resolutions,
+# domain decompositions, and number of processors used.
+
+&fms_nml
+    domains_stack_size = 600000 /
+
+&sat_vapor_pres_nml
+    do_simple = .true. /

@@ -1,0 +1,525 @@
+!> Legendre transforms between spherical harmonics and zonal Fourier coefficients on the
+!> Gaussian latitudes, and the Gaussian grid itself.
+!>
+!> Spherical fields are complex, dimension(0:num_fourier, 0:num_spherical), where the zonal
+!> wavenumber of (m, n) is `M = m*fourier_inc`, the "meridional" wavenumber is n and the
+!> total wavenumber is `L = M + n`. Fourier fields are complex, dimension(0:num_fourier,
+!> lat_max). The transforms use the symmetry of the Legendre functions about the equator,
+!> so each latitude is handled together with its mirror latitude. The module also makes
+!> the public procedures of `spherical_mod` and `compute_legendre` of
+!> `gauss_and_legendre_mod` available to `transforms_mod`.
+!>
+!> Original authors: V. Balaji (parallel version, transpose method).
+module spherical_fourier_mod
+
+  use fms_mod, only: error_mesg, FATAL
+
+  use mpp_mod, only: mpp_error
+
+  use mpp_domains_mod, only: domain1D, mpp_get_compute_domains, mpp_get_domain_components, mpp_get_layout
+
+  use constants_mod, only: pi
+
+  use spec_mpp_mod, only: get_grid_domain, grid_domain, get_spec_domain
+
+  use spherical_mod, only: spherical_init, spherical_end, &
+                           compute_laplacian, get_spherical_wave, &
+                           get_eigen_laplacian, compute_gradient_cos, &
+                           compute_ucos_vcos, compute_vor_div, &
+                           triangular_truncation, rhomboidal_truncation
+
+  use gauss_and_legendre_mod, only: compute_legendre, compute_gaussian
+
+!$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads
+
+  implicit none
+  private
+
+  !> Transforms spherical harmonic coefficients `spherical` (this processor's m and n range)
+  !> to Fourier coefficients `fourier` at all latitudes; the last dimension of `fourier` is
+  !> the grid domain in latitude and its second dimension the latitude within that domain.
+  interface trans_spherical_to_fourier
+    module procedure trans_spherical_to_fourier_3d, &
+      trans_spherical_to_fourier_2d
+  end interface
+  !> Transforms Fourier coefficients `fourier` at all latitudes (arranged as for
+  !> `trans_spherical_to_fourier`) to spherical harmonic coefficients `spherical` by Gaussian
+  !> quadrature. With the optional `trunc`, the coefficients with total wavenumber
+  !> L > `trunc` are not computed and are set to zero.
+  interface trans_fourier_to_spherical
+    module procedure trans_fourier_to_spherical_3d, &
+      trans_fourier_to_spherical_2d
+  end interface
+
+! ---------------------------------------------------
+
+!  public interfaces defined in this module
+
+  public :: spherical_fourier_init, spherical_fourier_end
+  public :: trans_spherical_to_fourier, trans_fourier_to_spherical
+  public :: get_sin_lat, get_cosm_lat
+  public :: get_deg_lat, get_wts_lat
+
+! ---------------------------------------------------
+
+!  public interfaces carried forward from used modules
+
+  public :: compute_laplacian, get_spherical_wave
+  public :: get_eigen_laplacian, compute_gradient_cos
+  public :: compute_ucos_vcos, compute_vor_div
+  public :: triangular_truncation, rhomboidal_truncation
+
+  public :: compute_legendre
+
+! ---------------------------------------------------
+  integer :: fourier_inc
+  logical :: south_to_north_local
+
+  integer :: lat_max
+  integer :: num_fourier
+  integer :: num_spherical
+
+  real, allocatable, dimension(:) :: sin_lat
+  real, allocatable, dimension(:) :: cos_lat
+  real, allocatable, dimension(:) :: cosm_lat
+  real, allocatable, dimension(:) :: deg_lat
+  real, allocatable, dimension(:) :: wts_lat
+  real, allocatable, dimension(:) :: sin_hem
+  real, allocatable, dimension(:, :, :) :: legendre  !latitude first, (lat_max/2, ms:me, ns:ne)
+  real, allocatable, dimension(:, :, :) :: legendre_wts
+
+  type(domain1D), save :: grid_domain_y !used by the trans_s_f anfd f_s routines
+  integer :: grid_layout(2)
+
+  logical :: module_is_initialized = .false.
+  integer :: is, ie, js, je, ms, me, ns, ne
+
+contains
+
+!-----------------------------------------------------------------------
+  !> Initializes `spherical_mod` and computes the Gaussian latitudes and weights and the
+  !> Legendre functions.
+  subroutine spherical_fourier_init(radius, lat_max_in, num_fourier_in, &
+                                    fourier_inc_in, num_spherical_in, south_to_north)
+!-----------------------------------------------------------------------
+
+    real, intent(in) :: radius  !! radius of the planet [m]
+    integer, intent(in) :: lat_max_in  !! number of latitudes
+    integer, intent(in) :: num_fourier_in  !! number of zonal waves retained
+    integer, intent(in) :: fourier_inc_in  !! zonal wavenumber increment
+    integer, intent(in) :: num_spherical_in  !! number of meridional waves retained
+    logical, intent(in), optional :: south_to_north  !! order the latitudes from south to north (default `.true.`)
+
+    if (present(south_to_north)) then
+      south_to_north_local = south_to_north
+    else
+      south_to_north_local = .true.
+    end if
+
+    call get_grid_domain(is, ie, js, je)
+    call get_spec_domain(ms, me, ns, ne)
+
+    lat_max = lat_max_in
+
+    fourier_inc = fourier_inc_in
+    num_spherical = num_spherical_in
+    num_fourier = num_fourier_in
+
+    call spherical_init(radius, num_fourier, fourier_inc, num_spherical)
+    call define_gaussian
+    call define_legendre
+
+    call mpp_get_domain_components(grid_domain, y=grid_domain_y)
+    call mpp_get_layout(grid_domain, grid_layout)
+    module_is_initialized = .true.
+
+    return
+  end subroutine spherical_fourier_init
+
+!-------------------------------------------------------------------------
+  subroutine trans_spherical_to_fourier_3d(spherical, fourier)
+!-------------------------------------------------------------------------
+
+!in parallel, assumes that computational domains are being passed in.
+
+    complex, intent(in), contiguous, dimension(ms:, ns:, :) :: spherical
+    complex, intent(out), contiguous, dimension(ms:, :, :, :) :: fourier
+
+    complex, dimension(lat_max/2) :: x_odd, x_even
+
+    integer :: m, n, j, jh, k, num_levels, n_last
+
+    integer :: neven, nodd
+    integer :: jd, joff, nd, nj
+    integer, dimension(grid_layout(2)) :: jstart
+
+    if (size(spherical, 1) /= me - ms + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,1) /= me-ms+1.')
+    if (size(spherical, 2) /= ne - ns + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,2) /= ne-ns+1.')
+    if (size(fourier, 2)*size(fourier, 4) /= lat_max) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(fourier,2)*size(fourier,4) /= lat_max.')
+
+    num_levels = size(spherical, 3)
+    nd = grid_layout(2)   !also equal to size(fourier,4), could put in an error check
+    nj = je - js + 1 !this version requires grid domains equal in Y
+
+    if (mod(ns, 2) == 0) then
+      neven = ns
+      nodd = ns + 1
+    else
+      nodd = ns
+      neven = ns + 1
+    end if
+
+    call mpp_get_compute_domains(grid_domain_y, begin=jstart(:))
+!the sums over n are accumulated for all the latitudes of a hemisphere at once, with the
+!latitude innermost so that the loops are contiguous and vectorize; each sum is still taken in
+!order of increasing n, so the result is unchanged (the GCC vector directives override the
+!cost model of -O2, which otherwise declines these short loops)
+!each thread takes the same levels k for every m, so needs no barriers
+!$omp parallel if(num_levels > 1) default(shared) &
+!$omp private(m, n, j, jh, k, jd, joff, n_last, x_even, x_odd)
+    do m = ms, me
+!$omp do schedule(static)
+      do k = 1, num_levels
+!the coefficients above the last nonzero n (e.g. those removed by the truncation) add
+!exact zeros to the sums, so they are skipped
+        n_last = ns - 1
+        do n = ne, ns, -1
+          if (spherical(m, n, k) /= cmplx(0., 0.)) then
+            n_last = n
+            exit
+          end if
+        end do
+
+        x_even = cmplx(0., 0.)
+        x_odd = cmplx(0., 0.)
+        do n = neven, n_last, 2
+          !GCC$ vector
+          do jh = 1, lat_max/2
+            x_even(jh) = x_even(jh) + spherical(m, n, k)*legendre(jh, m, n)
+          end do
+        end do
+        do n = nodd, n_last, 2
+          !GCC$ vector
+          do jh = 1, lat_max/2
+            x_odd(jh) = x_odd(jh) + spherical(m, n, k)*legendre(jh, m, n)
+          end do
+        end do
+
+        DOMAIN_LOOP: do jd = 1, nd/2 + 1
+!each domain jd has a mirror domain nd+1-jd
+!if nd is even we stop at jd=nd/2; if nd is odd we stop at j=nj/2
+          if (jd == nd/2 + 1 .and. mod(nd, 2) == 0) exit DOMAIN_LOOP
+          joff = jstart(jd) - 1
+          do j = 1, nj
+            if (jd == nd/2 + 1 .and. j > nj/2) exit DOMAIN_LOOP
+            if (south_to_north_local) then !how long are we going to keep carrying around S2N and N2S?
+              fourier(m, j, k, jd) = x_even(j + joff) - x_odd(j + joff)
+              fourier(m, nj + 1 - j, k, nd + 1 - jd) = x_even(j + joff) + x_odd(j + joff)
+            else
+              fourier(m, j, k, jd) = x_even(j + joff) + x_odd(j + joff)
+              fourier(m, nj + 1 - j, k, nd + 1 - jd) = x_even(j + joff) - x_odd(j + joff)
+            end if
+          end do
+        end do DOMAIN_LOOP
+      end do
+!$omp end do nowait
+    end do
+!$omp end parallel
+
+    return
+  end subroutine trans_spherical_to_fourier_3d
+
+!-----------------------------------------------------------------------
+  subroutine trans_fourier_to_spherical_3d(fourier, spherical, trunc)
+!-----------------------------------------------------------------------
+
+    complex, intent(out), contiguous, dimension(ms:, ns:, :) :: spherical
+    complex, intent(in), contiguous, dimension(ms:, :, :, :) :: fourier
+    integer, intent(in), optional :: trunc
+
+    integer :: k, j, m, n, n_max, k1, k2
+    complex, dimension(size(spherical, 3)) :: x_odd, x_even
+    complex, dimension(size(spherical, 3), ns:ne) :: x_sum
+
+    integer :: num_levels, nd, nj
+
+    integer :: neven, nodd
+    integer :: jd, joff
+    integer, dimension(grid_layout(2)) :: jstart
+
+    if (size(spherical, 1) /= me - ms + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,1) /= me-ms+1.')
+    if (size(spherical, 2) /= ne - ns + 1) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(spherical,2) /= ne-ns+1.')
+    if (size(fourier, 2)*size(fourier, 4) /= lat_max) &
+      call mpp_error(FATAL, 'TRANS_SPHERICAL_TO_FOURIER: size(fourier,2)*size(fourier,4) /= lat_max.')
+
+    num_levels = size(spherical, 3)
+    nd = grid_layout(2)   !also equal to size(fourier,4), could put in an error check
+    nj = je - js + 1 !this version requires grid domains equal in Y
+
+    if (mod(ns, 2) == 0) then
+      neven = ns
+      nodd = ns + 1
+    else
+      nodd = ns
+      neven = ns + 1
+    end if
+
+    call mpp_get_compute_domains(grid_domain_y, begin=jstart(:))
+!the sums over the latitudes are accumulated for all levels at once, with the level innermost
+!so that the loops are contiguous and vectorize; each sum is still taken in the same order of
+!latitudes, so the result is unchanged
+!each thread takes a contiguous block of levels k1:k2 for every m and latitude, so needs no
+!barriers
+    k1 = 1
+    k2 = num_levels
+!$omp parallel if(num_levels > 1) default(shared) firstprivate(k1, k2) &
+!$omp private(m, n, j, k, jd, joff, n_max, x_even, x_odd, x_sum)
+!$  k1 = omp_get_thread_num()*num_levels/omp_get_num_threads() + 1
+!$  k2 = (omp_get_thread_num() + 1)*num_levels/omp_get_num_threads()
+    do m = ms, me
+!coefficients with total wavenumber above trunc are not computed (left zero)
+      n_max = ne
+      if (present(trunc)) n_max = min(ne, trunc - m*fourier_inc)
+
+      x_sum(k1:k2, :) = cmplx(0., 0.)
+      DOMAIN_LOOP: do jd = 1, nd/2 + 1
+!each domain jd has a mirror domain nd+1-jd
+!if nd is even we stop at jd=nd/2; if nd is odd we stop at j=nj/2
+        if (jd == nd/2 + 1 .and. mod(nd, 2) == 0) exit DOMAIN_LOOP
+        joff = jstart(jd) - 1
+        do j = 1, nj
+          if (jd == nd/2 + 1 .and. j > nj/2) exit DOMAIN_LOOP
+          if (south_to_north_local) then
+            x_even(k1:k2) = fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd) + fourier(m, j, k1:k2, jd)
+            x_odd(k1:k2) = fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd) - fourier(m, j, k1:k2, jd)
+          else
+            x_even(k1:k2) = fourier(m, j, k1:k2, jd) + fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd)
+            x_odd(k1:k2) = fourier(m, j, k1:k2, jd) - fourier(m, nj + 1 - j, k1:k2, nd + 1 - jd)
+          end if
+          do n = neven, n_max, 2
+            !GCC$ vector
+            do k = k1, k2
+              x_sum(k, n) = x_sum(k, n) + x_even(k)*legendre_wts(m, n, j + joff)
+            end do
+          end do
+          do n = nodd, n_max, 2
+            !GCC$ vector
+            do k = k1, k2
+              x_sum(k, n) = x_sum(k, n) + x_odd(k)*legendre_wts(m, n, j + joff)
+            end do
+          end do
+        end do
+      end do DOMAIN_LOOP
+
+      do k = k1, k2
+        spherical(m, :, k) = x_sum(k, :)
+      end do
+    end do
+!$omp end parallel
+
+    return
+  end subroutine trans_fourier_to_spherical_3d
+
+!-------------------------------------------------------------------------
+  subroutine trans_spherical_to_fourier_2d(spherical, fourier)
+!-------------------------------------------------------------------------
+
+    complex, intent(in), dimension(:, :) :: spherical
+    complex, intent(out), dimension(:, :, :) :: fourier
+
+    complex, dimension(size(spherical, 1), size(spherical, 2), 1) :: spherical_3d
+    complex, dimension(size(fourier, 1), size(fourier, 2), 1, size(fourier, 3)) :: fourier_3d
+
+    spherical_3d(:, :, 1) = spherical(:, :)
+    call trans_spherical_to_fourier_3d(spherical_3d, fourier_3d)
+    fourier(:, :, :) = fourier_3d(:, :, 1, :)
+
+    return
+  end subroutine trans_spherical_to_fourier_2d
+
+!-----------------------------------------------------------------------
+  subroutine trans_fourier_to_spherical_2d(fourier, spherical, trunc)
+!-----------------------------------------------------------------------
+
+    complex, intent(in), dimension(:, :, :) :: fourier
+    complex, intent(out), dimension(:, :) :: spherical
+    integer, intent(in), optional :: trunc
+
+    complex, dimension(size(spherical, 1), size(spherical, 2), 1) :: spherical_3d
+    complex, dimension(size(fourier, 1), size(fourier, 2), 1, size(fourier, 3)) :: fourier_3d
+
+    fourier_3d(:, :, 1, :) = fourier(:, :, :)
+    call trans_fourier_to_spherical_3d(fourier_3d, spherical_3d, trunc)
+    spherical(:, :) = spherical_3d(:, :, 1)
+
+    return
+  end subroutine trans_fourier_to_spherical_2d
+
+!-----------------------------------------------------------------------
+  subroutine define_legendre
+!-----------------------------------------------------------------------
+
+    integer :: j, m, n
+    real, allocatable :: legendre_global(:, :, :)   ! (0:num_fourier, 0:num_spherical, lat_max/2): too large for the stack at high resolution
+
+    allocate (legendre(lat_max/2, ms:me, ns:ne))
+
+    allocate (legendre_wts(ms:me, ns:ne, lat_max/2))
+
+    allocate (legendre_global(0:num_fourier, 0:num_spherical, lat_max/2))
+
+    call compute_legendre(legendre_global, num_fourier, fourier_inc, num_spherical, sin_hem, lat_max/2)
+    do n = ns, ne
+      do m = ms, me
+        legendre(:, m, n) = legendre_global(m, n, :)
+      end do
+    end do
+
+    do j = 1, lat_max/2
+      legendre_wts(:, :, j) = legendre_global(ms:me, ns:ne, j)*wts_lat(j)
+    end do
+
+    deallocate (legendre_global)
+
+    return
+  end subroutine define_legendre
+
+!----------------------------------------------------------------------
+  subroutine define_gaussian
+!----------------------------------------------------------------------
+
+    integer :: j
+    real, dimension(lat_max/2) :: wts_hem
+
+    allocate (sin_lat(lat_max))
+    allocate (cos_lat(lat_max))
+    allocate (cosm_lat(lat_max))
+    allocate (wts_lat(lat_max))
+    allocate (deg_lat(lat_max))
+    allocate (sin_hem(lat_max/2))
+
+    call compute_gaussian(sin_hem, wts_hem, lat_max/2)
+
+    if (south_to_north_local) then
+      sin_lat(1:lat_max/2) = -sin_hem
+    else
+      sin_lat(1:lat_max/2) = sin_hem
+    end if
+
+    do j = 1, lat_max/2
+      sin_lat(lat_max + 1 - j) = -sin_lat(j)
+      wts_lat(j) = wts_hem(j)
+      wts_lat(lat_max + 1 - j) = wts_hem(j)
+    end do
+
+    cos_lat = sqrt(1 - sin_lat*sin_lat)
+    cosm_lat = 1./cos_lat
+    deg_lat = asin(sin_lat)*180.0/pi
+
+    return
+  end subroutine define_gaussian
+
+!-----------------------------------------------------------------------
+  !> Returns the sines of the Gaussian latitudes, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
+  subroutine get_sin_lat(sin_lat_out)
+!-----------------------------------------------------------------------
+
+    real, intent(out), dimension(:) :: sin_lat_out  !! sines of the latitudes
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_sin_lat', 'failed to define package', FATAL)
+    end if
+
+    if (size(sin_lat_out, 1) == lat_max) then
+      sin_lat_out = sin_lat
+    else                            !assume grid compute domain
+      sin_lat_out = sin_lat(js:je)
+    end if
+
+    return
+  end subroutine get_sin_lat
+
+!-----------------------------------------------------------------------
+  !> Returns 1/cos of the Gaussian latitudes, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
+  subroutine get_cosm_lat(cosm_lat_out)
+!-----------------------------------------------------------------------
+
+    real, intent(out), dimension(:) :: cosm_lat_out  !! 1/cos(latitude)
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_cosm_lat', 'failed to define package', FATAL)
+    end if
+
+    if (size(cosm_lat_out, 1) == lat_max) then
+      cosm_lat_out = cosm_lat
+    else                            !assume grid compute domain
+      cosm_lat_out = cosm_lat(js:je)
+    end if
+
+    return
+  end subroutine get_cosm_lat
+
+!-----------------------------------------------------------------------
+  !> Returns the Gaussian latitudes in degrees, of the whole grid or (if the size is not
+  !> `lat_max`) of this processor's part.
+  subroutine get_deg_lat(deg_lat_out)
+!-----------------------------------------------------------------------
+
+    real, intent(out), dimension(:) :: deg_lat_out  !! latitudes [deg]
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_deg_lat', 'failed to define package', FATAL)
+    end if
+
+    if (size(deg_lat_out, 1) == lat_max) then
+      deg_lat_out = deg_lat
+    else                            !assume grid compute domain
+      deg_lat_out = deg_lat(js:je)
+    end if
+
+    return
+  end subroutine get_deg_lat
+
+!-----------------------------------------------------------------------
+  !> Returns the Gaussian weights (summing to 2 over the globe), of the whole grid or (if the
+  !> size is not `lat_max`) of this processor's part.
+  subroutine get_wts_lat(wts_lat_out)
+!-----------------------------------------------------------------------
+
+    real, intent(out), dimension(:) :: wts_lat_out  !! Gaussian weights
+
+    if (.not. module_is_initialized) then
+      call error_mesg('get_wts_lat', 'failed to define package', FATAL)
+    end if
+
+    if (size(wts_lat_out, 1) == lat_max) then
+      wts_lat_out = wts_lat
+    else                            !assume grid compute domain
+      wts_lat_out = wts_lat(js:je)
+    end if
+
+    return
+  end subroutine get_wts_lat
+
+!----------------------------------------------------------------------
+  !> Deallocates the module arrays and finalizes `spherical_mod`.
+  subroutine spherical_fourier_end
+
+    if (.not. module_is_initialized) return
+
+    deallocate (sin_lat, cos_lat, cosm_lat, wts_lat, deg_lat)
+    deallocate (sin_hem, legendre, legendre_wts)
+    call spherical_end
+    module_is_initialized = .false.
+
+    return
+  end subroutine spherical_fourier_end
+!----------------------------------------------------------------------
+end module spherical_fourier_mod
