@@ -11,7 +11,9 @@ The newest changes should be on the top of this list.
 
 A clean break from v1: results are not bit-for-bit identical to v1, and `input.nml`, `diag_table` and output-processing scripts need updating. See the [migration guide](Migration_v2.md).
 
-* v2.0.0 (release candidate, date to be set):
+* v2.0.1 (2026-10-24):
+    * Fix for gfortran 14: namelist settings were silently ignored and restarts stopped at start-up. Because `rrtm_radiation_init` imported the FMS namelist buffer inside the subroutine, gfortran 14 (seen with 14.2 and 14.4, not 16) emptied the buffer. Every namelist read after that kept its code defaults: `rrtm_radiation_nml`, `astro_nml`, `flux_exchange_nml`, `surface_flux_nml`, `land_model_nml`, `ocean_model_nml`, `qflux_nml`, `surface_albedo_nml`, and `topography_nml` on a restart. A cold start of the shipped configuration was unaffected, because its values in those groups equal the defaults. But a restart stopped with "water data file does not exist", and any non-default setting in those groups had no effect. Runs built with gfortran 14 that changed one of those settings should be repeated. Other compilers are bit-for-bit unchanged.
+* v2.0.0 (2026-10-22):
     * The model is trimmed to its idealized configurations: RRTM radiation with the mixed-layer surface (the default), gray radiation, and Held-Suarez. Unused physics (the AM2 radiation, Donner, RAS, stratiform clouds, Mellor-Yamada, EDT, dry adjustment, `topo_drag` and others) and their namelist variables and diagnostics are removed.
     * Built against the external [FMS](https://github.com/NOAA-GFDL/FMS) library, release 2026.01.01 or later, instead of the bundled copy; CMake finds an installed FMS or downloads it. CMake 3.22 or later is required, and the default build type is `Release`. `&sat_vapor_pres_nml do_simple = .true.` is required and `&fms_io_nml` is gone.
     * The radiation scheme is chosen with [`radiation_nml`](Parameters.md#radiation_nml) `radiation_scheme` (`'rrtm'`, `'gray'` or `'none'`), replacing `do_rrtm_radiation`/`do_grey_radiation`; the radiation diagnostics of both schemes are under module `radiation` with unified names.

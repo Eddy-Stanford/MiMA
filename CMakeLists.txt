@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.22)
 # the FC and CC environment variables (e.g. FC=ifx CC=icx cmake -S . -B build)
 # or from -DCMAKE_Fortran_COMPILER=... -DCMAKE_C_COMPILER=... To change them,
 # configure a new build directory.
-project(MiMA VERSION 2.0.0 LANGUAGES Fortran C)
+project(MiMA VERSION 2.0.1 LANGUAGES Fortran C)
 
 # Release unless another build type is given. Debug builds are unoptimised.
 if(NOT CMAKE_BUILD_TYPE)
