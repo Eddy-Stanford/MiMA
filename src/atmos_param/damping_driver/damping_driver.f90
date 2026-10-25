@@ -48,7 +48,7 @@ module damping_driver_mod
 !-----------------------------------------------------------------------
 !---------------------- namelist ---------------------------------------
 
-  real     :: trayfric = -0.5  !! Rayleigh friction time scale: [s] if > 0, [days] if < 0
+  real     :: trayfric = -5.  !! Rayleigh friction time scale: [s] if > 0, [days] if < 0
   integer  :: nlev_rayfric
   ! number of levels at the top of the model where Rayleigh friction is applied; set in
   ! damping_driver_init from sponge_pbottom
@@ -57,7 +57,7 @@ module damping_driver_mod
 !epg: Use cg_drag.f90, GFDL's version of the Alexander and Dunkerton 1999
 !     Non-orographic gravity wave parameterization, updated as for Cohen et al. 2013
 ! mj actively choose rayleigh friction
-  logical  :: do_rayleigh = .false.  !! Rayleigh friction (sponge) at the top of the model
+  logical  :: do_rayleigh = .true.  !! Rayleigh friction (sponge) at the top of the model
   logical  :: do_cg_drag = .true.
   !! non-orographic (convective) gravity-wave drag (`cg_drag_nml`)
   logical  :: do_const_drag = .false.

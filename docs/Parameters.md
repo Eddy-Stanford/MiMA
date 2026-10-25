@@ -706,8 +706,8 @@ Declared in [`damping_driver_mod`](https://eddy-stanford.github.io/MiMA/api/damp
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `trayfric` | real | `-0.5` | Rayleigh friction time scale: [s] if > 0, [days] if < 0 |
-| `do_rayleigh` | logical | `.false.` | Rayleigh friction (sponge) at the top of the model |
+| `trayfric` | real | `-5.` | Rayleigh friction time scale: [s] if > 0, [days] if < 0 |
+| `do_rayleigh` | logical | `.true.` | Rayleigh friction (sponge) at the top of the model |
 | `sponge_pbottom` | real | `50.` | [Pa] bottom of the Rayleigh sponge |
 | `do_cg_drag` | logical | `.true.` | non-orographic (convective) gravity-wave drag (`cg_drag_nml`) |
 | `do_mg_drag` | logical | `.false.` | orographic gravity-wave drag (`mg_drag_nml`) |
