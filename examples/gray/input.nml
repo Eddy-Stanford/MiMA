@@ -108,8 +108,8 @@
     do_warmpool = .true. /
 
 &damping_driver_nml
-    do_rayleigh   = .false.,
-    trayfric      = -0.5,
+    do_rayleigh   = .true.,
+    trayfric      = -5.,
     sponge_pbottom=  50.,
     do_conserve_energy = .true.,
     do_cg_drag    = .true.,

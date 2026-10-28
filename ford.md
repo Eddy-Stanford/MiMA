@@ -1,6 +1,6 @@
 ---
 project: MiMA
-version: 2.0.0
+version: 2.0.1
 src_dir: ./src
 exclude_dir: ./src/atmos_param/radiation/rrtm/rrtmg_lw
              ./src/atmos_param/radiation/rrtm/rrtmg_sw

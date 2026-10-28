@@ -52,6 +52,9 @@ module rrtm_radiation
   use parkind, only: im => kind_im, rb => kind_rb
   use mima_interpolator_mod, only: interpolate_type
   use mpp_domains_mod, only: domain2d
+  ! At module scope: imported inside rrtm_radiation_init, gfortran 14 clears the namelist
+  ! buffer and every later namelist read silently keeps its defaults.
+  use fms_mod, only: input_nml_file
   use restart_file_mod, only: restart_file_type, open_restart_read, open_restart_write, &
                               close_restart, read_restart_field, write_restart_field, &
                               restart_field_exists
@@ -238,7 +241,7 @@ contains
     use parrrsw, only: nbndsw
     use diag_manager_mod, only: register_diag_field
     use mima_interpolator_mod, only: interpolator_init, ZERO
-    use fms_mod, only: input_nml_file, check_nml_error, &
+    use fms_mod, only: check_nml_error, &
                        mpp_pe, mpp_root_pe, stdlog, &
                        error_mesg, NOTE, FATAL
     use time_manager_mod, only: time_type
